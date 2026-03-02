@@ -79,11 +79,18 @@ function buildInstallCommand(
   platform: "macos" | "linux" | "windows" | "unknown",
   extensionID: string,
 ): string {
-  const goInstall = "go install github.com/tailscale/geneva/host@latest";
-  const installFlag = `tailscale-browser-ext --install=${extensionID}`;
+  const flag = `-install C${extensionID}`;
 
   if (platform === "windows") {
-    return `${goInstall}\ntailscale-browser-ext.exe --install=${extensionID}`;
+    return `curl -Lo tailscale-browser-ext.exe https://github.com/tailscale/tailchrome/releases/latest/download/tailscale-browser-ext-windows-amd64.exe\n.\\tailscale-browser-ext.exe ${flag}`;
   }
-  return `${goInstall} && ${installFlag}`;
+
+  const arch = "$(uname -m | sed 's/x86_64/amd64/')";
+
+  if (platform === "linux") {
+    return `curl -Lo tailscale-browser-ext https://github.com/tailscale/tailchrome/releases/latest/download/tailscale-browser-ext-linux-amd64 && chmod +x tailscale-browser-ext && ./tailscale-browser-ext ${flag}`;
+  }
+
+  // macOS (default)
+  return `curl -Lo tailscale-browser-ext https://github.com/tailscale/tailchrome/releases/latest/download/tailscale-browser-ext-darwin-${arch} && chmod +x tailscale-browser-ext && ./tailscale-browser-ext ${flag}`;
 }
