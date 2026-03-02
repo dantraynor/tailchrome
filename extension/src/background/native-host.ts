@@ -78,10 +78,12 @@ export class NativeHostConnection {
     this.port = null;
     this.onStateChange(false);
 
-    // Detect installation error: native host not found
+    // Detect installation error: native host not found or not allowed
     if (
       errorMessage.includes("not found") ||
-      errorMessage.includes("Specified native messaging host not found")
+      errorMessage.includes("Specified native messaging host not found") ||
+      errorMessage.includes("forbidden") ||
+      errorMessage.includes("is forbidden")
     ) {
       console.error(
         "[NativeHost] Native host not found. Is the native messaging host installed?",
