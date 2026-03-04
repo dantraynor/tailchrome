@@ -59,7 +59,7 @@ export function renderHeader(
 
   const wordmark = document.createElement("span");
   wordmark.className = "header-wordmark";
-  wordmark.textContent = "Tailscale";
+  wordmark.textContent = "Tailchrome";
   logo.appendChild(wordmark);
 
   const toggle = createToggle(connected, () => {

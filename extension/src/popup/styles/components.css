@@ -104,7 +104,7 @@
 }
 
 .toggle-switch input:checked + .toggle-track {
-  background: var(--ts-blue);
+  background: var(--ts-green);
 }
 
 .toggle-switch.disabled .toggle-track {

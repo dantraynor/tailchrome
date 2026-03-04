@@ -1,4 +1,4 @@
-/* Design tokens following Tailscale's warm visual language */
+/* Design tokens following macOS Tailscale visual language */
 
 :root {
   /* Brand colors */
@@ -12,17 +12,17 @@
   --ts-orange: #FF9500;
   --ts-orange-light: #FFF5E5;
 
-  /* Neutrals - warm grays */
-  --bg-primary: #FAFAF9;
-  --bg-secondary: #F5F3F1;
-  --bg-tertiary: #EDEAE7;
+  /* Neutrals - cool grays (Apple HIG) */
+  --bg-primary: #F5F5F7;
+  --bg-secondary: #EFEFEF;
+  --bg-tertiary: #E8E8ED;
   --bg-elevated: #FFFFFF;
-  --text-primary: #1F1E1E;
-  --text-secondary: #6B6966;
-  --text-tertiary: #9B9895;
+  --text-primary: #1D1D1F;
+  --text-secondary: #86868B;
+  --text-tertiary: #AEAEB2;
   --text-inverse: #FFFFFF;
-  --border: #E0DEDB;
-  --border-light: #EDEAE7;
+  --border: #D2D2D7;
+  --border-light: #E5E5EA;
   --border-focus: var(--ts-blue);
 
   /* Spacing scale */
@@ -35,7 +35,7 @@
   --space-3xl: 32px;
 
   /* Typography */
-  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+  --font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Oxygen, sans-serif;
   --font-size-xs: 11px;
   --font-size-sm: 12px;
   --font-size-md: 13px;
@@ -55,9 +55,9 @@
   --radius-full: 9999px;
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(31, 30, 30, 0.06);
-  --shadow-md: 0 2px 8px rgba(31, 30, 30, 0.08);
-  --shadow-lg: 0 4px 16px rgba(31, 30, 30, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.1);
   --shadow-focus: 0 0 0 3px rgba(76, 120, 198, 0.25);
 
   /* Transitions */
@@ -69,16 +69,16 @@
 /* Dark mode */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg-primary: #1A1A1A;
-    --bg-secondary: #222222;
-    --bg-tertiary: #2A2A2A;
-    --bg-elevated: #2C2C2C;
-    --text-primary: #F0EFEE;
-    --text-secondary: #A0A0A0;
-    --text-tertiary: #6B6B6B;
-    --text-inverse: #1A1A1A;
-    --border: #3A3A3A;
-    --border-light: #333333;
+    --bg-primary: #1C1C1E;
+    --bg-secondary: #2C2C2E;
+    --bg-tertiary: #3A3A3C;
+    --bg-elevated: #2C2C2E;
+    --text-primary: #F5F5F7;
+    --text-secondary: #98989D;
+    --text-tertiary: #636366;
+    --text-inverse: #1C1C1E;
+    --border: #38383A;
+    --border-light: #48484A;
 
     --ts-blue: #6B96E0;
     --ts-blue-hover: #5A83CC;
