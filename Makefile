@@ -17,6 +17,10 @@ host-all:
 	cd host && GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o ../dist/tailscale-browser-ext-linux-amd64 .
 	cd host && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o ../dist/tailscale-browser-ext-windows-amd64.exe .
 
+zip: extension
+	mkdir -p dist
+	cd extension/dist && zip -r ../../dist/tailchrome-$(VERSION).zip .
+
 clean:
 	rm -rf dist/ extension/dist/
 
