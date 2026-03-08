@@ -85,20 +85,36 @@ const RELEASE_BASE =
   "https://github.com/dantraynor/tailchrome/releases/latest/download";
 
 /**
+ * Returns the filename of the native host binary for the detected platform.
+ */
+function binaryFilename(
+  platform: "macos" | "linux" | "windows" | "unknown",
+): string | null {
+  if (platform === "windows") {
+    return "tailscale-browser-ext-windows-amd64.exe";
+  }
+  if (platform === "linux") {
+    return "tailscale-browser-ext-linux-amd64";
+  }
+  if (platform === "macos") {
+    const arch = detectArch();
+    return `tailscale-browser-ext-darwin-${arch}`;
+  }
+  return null;
+}
+
+/**
  * Returns the download URL for the native host binary for the detected platform.
+ * Falls back to the releases page if platform is unknown.
  */
 function buildDownloadURL(
   platform: "macos" | "linux" | "windows" | "unknown",
 ): string {
-  if (platform === "windows") {
-    return `${RELEASE_BASE}/tailscale-browser-ext-windows-amd64.exe`;
+  const filename = binaryFilename(platform);
+  if (filename) {
+    return `${RELEASE_BASE}/${filename}`;
   }
-  if (platform === "linux") {
-    return `${RELEASE_BASE}/tailscale-browser-ext-linux-amd64`;
-  }
-  // macOS: detect arm64 vs amd64 via navigator
-  const arch = isAppleSilicon() ? "arm64" : "amd64";
-  return `${RELEASE_BASE}/tailscale-browser-ext-darwin-${arch}`;
+  return "https://github.com/dantraynor/tailchrome/releases/latest";
 }
 
 /**
@@ -107,33 +123,25 @@ function buildDownloadURL(
  */
 function buildRunCommand(
   platform: "macos" | "linux" | "windows" | "unknown",
-): string {
+): string | null {
+  const filename = binaryFilename(platform);
+  if (!filename) {
+    return null;
+  }
   if (platform === "windows") {
-    return `.\\tailscale-browser-ext-windows-amd64.exe`;
+    return `.\\${filename}`;
   }
   // macOS/Linux: need chmod +x since browser downloads don't preserve exec bit
-  return `chmod +x ~/Downloads/tailscale-browser-ext* && ~/Downloads/tailscale-browser-ext*`;
+  return `chmod +x ~/Downloads/${filename} && ~/Downloads/${filename}`;
 }
 
 /**
- * Detects Apple Silicon (ARM) vs Intel Mac.
+ * Detects CPU architecture: arm64 vs amd64.
  */
-function isAppleSilicon(): boolean {
-  // WebGL renderer often contains "Apple M" on Apple Silicon
-  try {
-    const canvas = document.createElement("canvas");
-    const gl = canvas.getContext("webgl");
-    if (gl) {
-      const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
-      if (debugInfo) {
-        const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
-        if (renderer && typeof renderer === "string") {
-          return renderer.includes("Apple M") || renderer.includes("Apple GPU");
-        }
-      }
-    }
-  } catch {
-    // Fall through to default
+function detectArch(): "arm64" | "amd64" {
+  const uaData = (navigator as unknown as { userAgentData?: { architecture?: string } }).userAgentData;
+  if (uaData?.architecture === "arm") {
+    return "arm64";
   }
-  return false; // Default to amd64 if can't detect
+  return "amd64";
 }
