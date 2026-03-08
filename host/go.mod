@@ -4,6 +4,7 @@ go 1.25.5
 
 require (
 	golang.org/x/sys v0.40.0
+	golang.org/x/term v0.38.0
 	tailscale.com v1.94.2
 )
 
@@ -59,7 +60,6 @@ require (
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/oauth2 v0.32.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/term v0.38.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect

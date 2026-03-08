@@ -13,6 +13,9 @@ import (
 const manifestNameChrome = "com.tailscale.browserext.chrome"
 const manifestNameFirefox = "com.tailscale.browserext.firefox"
 
+// chromeWebStoreExtensionID is the stable extension ID assigned by the Chrome Web Store.
+const chromeWebStoreExtensionID = "bhfeceecialgilpedkoflminjgcjljll"
+
 // chromeManifest is the native messaging host manifest for Chrome.
 type nativeManifest struct {
 	Name              string   `json:"name"`

@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 
+	"golang.org/x/term"
 	"tailscale.com/hostinfo"
 )
 
@@ -40,6 +41,18 @@ func main() {
 			log.Fatalf("install failed: %v", err)
 		}
 		fmt.Println("Native messaging host installed successfully.")
+		os.Exit(0)
+	}
+
+	// If running interactively (user ran the binary in a terminal),
+	// auto-install for Chrome with the known Web Store extension ID.
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		fmt.Println("Installing native messaging host for Chrome...")
+		if err := installChrome(chromeWebStoreExtensionID); err != nil {
+			log.Fatalf("install failed: %v", err)
+		}
+		fmt.Println("Native messaging host installed successfully.")
+		fmt.Println("You can now close this terminal and use the Tailchrome extension in Chrome.")
 		os.Exit(0)
 	}
 
