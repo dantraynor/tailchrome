@@ -13,6 +13,29 @@ let port: chrome.runtime.Port | null = null;
  * Send a message to the background service worker.
  * Exported for use by components and views.
  */
+/**
+ * Call when entering a sub-view (exit nodes, profiles) to prevent
+ * state updates from clobbering the overlay.
+ */
+export function enterSubView(): void {
+  subViewActive = true;
+  deferredState = null;
+}
+
+/**
+ * Call when leaving a sub-view. Applies any deferred state update.
+ */
+export function leaveSubView(): void {
+  subViewActive = false;
+  const state = deferredState ?? lastKnownState;
+  deferredState = null;
+  if (state) {
+    currentView = null;
+    lastStateSnapshot = null;
+    render(state);
+  }
+}
+
 export function sendMessage(msg: BackgroundMessage): void {
   if (port) {
     port.postMessage(msg);
@@ -27,6 +50,11 @@ export function sendMessage(msg: BackgroundMessage): void {
 let currentView: string | null = null;
 /** Tracks a serialized snapshot of the last rendered state for the same view. */
 let lastStateSnapshot: string | null = null;
+/** When a sub-view (exit nodes, profiles) is active, defer re-renders until it closes. */
+let subViewActive = false;
+let deferredState: TailscaleState | null = null;
+/** Last state passed to render(), so we can always re-render on sub-view exit. */
+let lastKnownState: TailscaleState | null = null;
 
 /**
  * Determines the view name for a given state.
@@ -44,6 +72,14 @@ function viewForState(state: TailscaleState): string {
 function render(state: TailscaleState): void {
   const root = document.getElementById("root");
   if (!root) return;
+
+  lastKnownState = state;
+
+  // If a sub-view is active, defer the re-render until it closes
+  if (subViewActive) {
+    deferredState = state;
+    return;
+  }
 
   const view = viewForState(state);
   const snapshot = JSON.stringify(state);
