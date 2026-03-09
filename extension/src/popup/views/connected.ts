@@ -4,7 +4,7 @@ import { renderHeader } from "../components/header";
 import { renderPeerList } from "../components/peer-list";
 import { renderHealthWarnings } from "../components/health-warnings";
 import { createCopyButton } from "../utils";
-import { sendMessage } from "../popup";
+import { sendMessage, enterSubView, leaveSubView } from "../popup";
 import { createToggle } from "../components/toggle-switch";
 import { renderExitNodes } from "./exit-nodes";
 import { renderProfiles } from "./profiles";
@@ -102,8 +102,9 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   exitRow.appendChild(exitValue);
   exitRow.addEventListener("click", () => {
+    enterSubView();
     renderExitNodes(root, state, () => {
-      renderConnected(root, state);
+      leaveSubView();
     });
   });
   settings.appendChild(exitRow);
@@ -161,8 +162,9 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
     profileRow.appendChild(profileValue);
     profileRow.addEventListener("click", () => {
+      enterSubView();
       renderProfiles(root, state, () => {
-        renderConnected(root, state);
+        leaveSubView();
       });
     });
     settings.appendChild(profileRow);
