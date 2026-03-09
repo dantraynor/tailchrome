@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tailchrome",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Access your tailnet from your browser. Run a full Tailscale node per browser profile without affecting system networking.",
   "permissions": [
     "proxy",
