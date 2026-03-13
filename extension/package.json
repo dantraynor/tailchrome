@@ -1,6 +1,6 @@
 {
   "name": "tailscale-browser-extension",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "scripts": {
     "build": "node esbuild.config.mjs",
