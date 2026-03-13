@@ -168,9 +168,9 @@ function handleNativeMessage(msg: NativeReply): void {
 function handleNativeStateChange(connected: boolean): void {
   store.update({
     hostConnected: connected,
-    // Reset state when disconnected
+    // Clear install error on successful connection, reset state when disconnected
     ...(connected
-      ? {}
+      ? { installError: false }
       : {
           initialized: false,
           proxyPort: null,
@@ -209,6 +209,14 @@ chrome.runtime.onConnect.addListener((port: chrome.runtime.Port) => {
   if (port.name !== "popup") return;
 
   popupPorts.add(port);
+
+  // If we're in install error state, retry the native host connection
+  // in case the user just installed the helper
+  if (store.getState().installError) {
+    nativeHost.connect().catch(() => {
+      // Still in install error state, popup will show needs-install
+    });
+  }
 
   // Immediately send current state to the newly connected popup
   const stateMsg: PopupMessage = {

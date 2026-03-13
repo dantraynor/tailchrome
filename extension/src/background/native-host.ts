@@ -14,6 +14,7 @@ export class NativeHostConnection {
   private reconnectDelay: number = RECONNECT_BASE_MS;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalDisconnect = false;
+  private connectedNotified = false;
 
   constructor(
     private onMessage: NativeMessageHandler,
@@ -22,6 +23,18 @@ export class NativeHostConnection {
 
   async connect(): Promise<void> {
     this.intentionalDisconnect = false;
+
+    // Cancel any pending reconnect to avoid overlapping connect calls
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    // Clean up any existing port
+    if (this.port) {
+      this.port.disconnect();
+      this.port = null;
+    }
 
     this.profileID = await this.getOrCreateProfileID();
 
@@ -34,9 +47,6 @@ export class NativeHostConnection {
     this.port.onDisconnect.addListener(() => {
       this.handleDisconnect();
     });
-
-    this.onStateChange(true);
-    this.reconnectDelay = RECONNECT_BASE_MS;
 
     // Send init message with profile ID
     this.send({ cmd: "init", initID: this.profileID });
@@ -52,6 +62,7 @@ export class NativeHostConnection {
       this.port.disconnect();
       this.port = null;
     }
+    this.connectedNotified = false;
     this.onStateChange(false);
   }
 
@@ -68,6 +79,12 @@ export class NativeHostConnection {
   }
 
   private handleMessage(msg: NativeReply): void {
+    // A message from the host means the connection is healthy — reset backoff
+    this.reconnectDelay = RECONNECT_BASE_MS;
+    if (!this.connectedNotified) {
+      this.connectedNotified = true;
+      this.onStateChange(true);
+    }
     this.onMessage(msg);
   }
 
@@ -76,7 +93,10 @@ export class NativeHostConnection {
     const errorMessage = lastError?.message ?? "";
 
     this.port = null;
-    this.onStateChange(false);
+    if (this.connectedNotified) {
+      this.connectedNotified = false;
+      this.onStateChange(false);
+    }
 
     // Detect installation error: native host not found or not allowed
     if (
@@ -91,6 +111,8 @@ export class NativeHostConnection {
       );
       // Signal install error via a special message
       this.onMessage({ error: { cmd: "connect", message: "install_error" } });
+      // Still schedule reconnect so we pick up the helper once installed
+      this.backoffAndReconnect();
       return;
     }
 
@@ -102,10 +124,10 @@ export class NativeHostConnection {
       "[NativeHost] Disconnected unexpectedly:",
       errorMessage || "unknown reason"
     );
-    this.scheduleReconnect();
+    this.backoffAndReconnect();
   }
 
-  private scheduleReconnect(): void {
+  private backoffAndReconnect(): void {
     if (this.reconnectTimer !== null) {
       return;
     }
@@ -114,18 +136,17 @@ export class NativeHostConnection {
       `[NativeHost] Reconnecting in ${this.reconnectDelay}ms...`
     );
 
+    const delay = this.reconnectDelay;
+    // Apply exponential backoff for next attempt
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
+
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect().catch((err) => {
         console.error("[NativeHost] Reconnect failed:", err);
-        // Exponential backoff: double delay only after confirmed failure
-        this.reconnectDelay = Math.min(
-          this.reconnectDelay * 2,
-          RECONNECT_MAX_MS
-        );
-        this.scheduleReconnect();
+        this.backoffAndReconnect();
       });
-    }, this.reconnectDelay);
+    }, delay);
   }
 
   private async getOrCreateProfileID(): Promise<string> {

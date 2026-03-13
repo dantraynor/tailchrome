@@ -17,9 +17,11 @@ let port: chrome.runtime.Port | null = null;
  * Call when entering a sub-view (exit nodes, profiles) to prevent
  * state updates from clobbering the overlay.
  */
-export function enterSubView(): void {
+export function enterSubView(updater?: (state: TailscaleState) => void): void {
   subViewActive = true;
   deferredState = null;
+  subViewUpdater = updater ?? null;
+  subViewSnapshot = null;
 }
 
 /**
@@ -27,6 +29,8 @@ export function enterSubView(): void {
  */
 export function leaveSubView(): void {
   subViewActive = false;
+  subViewUpdater = null;
+  subViewSnapshot = null;
   const state = deferredState ?? lastKnownState;
   deferredState = null;
   if (state) {
@@ -50,11 +54,23 @@ export function sendMessage(msg: BackgroundMessage): void {
 let currentView: string | null = null;
 /** Tracks a serialized snapshot of the last rendered state for the same view. */
 let lastStateSnapshot: string | null = null;
-/** When a sub-view (exit nodes, profiles) is active, defer re-renders until it closes. */
+/** When a sub-view (exit nodes, profiles) is active, defer main re-renders until it closes. */
 let subViewActive = false;
 let deferredState: TailscaleState | null = null;
+/** Optional callback to live-update the active sub-view when new state arrives. */
+let subViewUpdater: ((state: TailscaleState) => void) | null = null;
+/** Snapshot of the last state sent to the sub-view updater, to skip redundant re-renders. */
+let subViewSnapshot: string | null = null;
 /** Last state passed to render(), so we can always re-render on sub-view exit. */
 let lastKnownState: TailscaleState | null = null;
+
+/**
+ * Returns the most recent state received from the background.
+ * Used by click handlers that need fresh state rather than closure-captured state.
+ */
+export function getLatestState(): TailscaleState | null {
+  return lastKnownState;
+}
 
 /**
  * Determines the view name for a given state.
@@ -75,9 +91,16 @@ function render(state: TailscaleState): void {
 
   lastKnownState = state;
 
-  // If a sub-view is active, defer the re-render until it closes
+  // If a sub-view is active, live-update it or defer main re-render
   if (subViewActive) {
     deferredState = state;
+    if (subViewUpdater) {
+      const snap = JSON.stringify(state);
+      if (snap !== subViewSnapshot) {
+        subViewSnapshot = snap;
+        subViewUpdater(state);
+      }
+    }
     return;
   }
 

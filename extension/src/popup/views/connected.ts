@@ -4,10 +4,31 @@ import { renderHeader } from "../components/header";
 import { renderPeerList } from "../components/peer-list";
 import { renderHealthWarnings } from "../components/health-warnings";
 import { createCopyButton } from "../utils";
-import { sendMessage, enterSubView, leaveSubView } from "../popup";
+import { sendMessage, enterSubView, leaveSubView, getLatestState } from "../popup";
 import { createToggle } from "../components/toggle-switch";
 import { renderExitNodes } from "./exit-nodes";
 import { renderProfiles } from "./profiles";
+
+type SubViewRenderer = (root: HTMLElement, state: TailscaleState, onBack: () => void) => void;
+
+function openSubView(root: HTMLElement, renderFn: SubViewRenderer): void {
+  const currentState = getLatestState();
+  if (!currentState) return;
+  const onBack = () => { leaveSubView(); };
+  enterSubView((newState) => {
+    try {
+      renderFn(root, newState, onBack);
+    } catch (err) {
+      console.error("[popup] Failed to update sub-view:", err);
+    }
+  });
+  try {
+    renderFn(root, currentState, onBack);
+  } catch (err) {
+    console.error("[popup] Failed to render sub-view:", err);
+    leaveSubView();
+  }
+}
 
 /**
  * Renders the connected view: header, status bar, quick settings, peer list, footer.
@@ -101,12 +122,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   exitValue.appendChild(chevron);
 
   exitRow.appendChild(exitValue);
-  exitRow.addEventListener("click", () => {
-    enterSubView();
-    renderExitNodes(root, state, () => {
-      leaveSubView();
-    });
-  });
+  exitRow.addEventListener("click", () => openSubView(root, renderExitNodes));
   settings.appendChild(exitRow);
 
   // Shields Up toggle
@@ -161,12 +177,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
     profileValue.appendChild(profileChevron);
 
     profileRow.appendChild(profileValue);
-    profileRow.addEventListener("click", () => {
-      enterSubView();
-      renderProfiles(root, state, () => {
-        leaveSubView();
-      });
-    });
+    profileRow.addEventListener("click", () => openSubView(root, renderProfiles));
     settings.appendChild(profileRow);
   }
 
