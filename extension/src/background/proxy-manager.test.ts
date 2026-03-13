@@ -112,7 +112,7 @@ describe("ProxyManager", () => {
     it("returns DIRECT when no exit node is active", () => {
       const pac = capturePAC(pm, baseState())!;
       expect(pac).toContain('return "DIRECT"');
-      expect(pac).not.toMatch(/return proxy;\s*\n\}$/);
+      expect(pac).not.toMatch(/return proxy;\s*\n\s*}$/);
     });
 
     it("proxies all traffic when exit node is active", () => {
@@ -126,7 +126,7 @@ describe("ProxyManager", () => {
       });
       const pac = capturePAC(pm, state)!;
       // The final line before the closing brace should return proxy unconditionally
-      expect(pac).toMatch(/return proxy;\n\}$/);
+      expect(pac).toMatch(/return proxy;\s*\n\s*}$/);
     });
 
     it("includes subnet routes from peers", () => {
