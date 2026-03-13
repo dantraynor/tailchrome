@@ -60,7 +60,7 @@ export class StateStore {
         subnets: p.subnets ?? [],
         tags: p.tags ?? [],
       })),
-      exitNode: status.exitNode,
+      exitNode: status.exitNode ?? null,
       magicDNSSuffix: status.magicDNSSuffix,
       browseToURL: status.browseToURL,
       prefs: status.prefs,

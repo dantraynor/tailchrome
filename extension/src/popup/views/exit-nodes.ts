@@ -51,7 +51,7 @@ export function renderExitNodes(
       ? `${suggestion.location.city}, ${suggestion.location.country}`
       : suggestion.hostname;
     const isSelected =
-      state.exitNode !== null && state.exitNode.id === state.exitNodeSuggestion.id;
+      state.exitNode != null && state.exitNode.id === state.exitNodeSuggestion.id;
     const suggestRow = createExitNodeRow(suggestLabel, null, isSelected, () =>
       sendMessage({ type: "set-exit-node", nodeID: state.exitNodeSuggestion!.id })
     );
@@ -63,7 +63,7 @@ export function renderExitNodes(
   const noneRow = createExitNodeRow(
     "None (direct connection)",
     null,
-    state.exitNode === null,
+    state.exitNode == null,
     () => sendMessage({ type: "clear-exit-node" })
   );
   view.appendChild(noneRow);
@@ -71,6 +71,23 @@ export function renderExitNodes(
   // --- Group exit nodes ---
   const exitNodes = state.peers.filter((p) => p.exitNodeOption);
   const groups = groupExitNodes(exitNodes);
+
+  if (groups.length === 0 && !state.exitNodeSuggestion) {
+    const emptyState = document.createElement("div");
+    emptyState.className = "empty-state";
+
+    const emptyTitle = document.createElement("div");
+    emptyTitle.className = "empty-state-title";
+    emptyTitle.textContent = "No exit nodes available";
+    emptyState.appendChild(emptyTitle);
+
+    const emptyText = document.createElement("div");
+    emptyText.className = "empty-state-text";
+    emptyText.textContent = "To use an exit node, enable it on a device in your tailnet via the admin console or run \"tailscale set --advertise-exit-node\" on the device.";
+    emptyState.appendChild(emptyText);
+
+    view.appendChild(emptyState);
+  }
 
   for (const group of groups) {
     const section = document.createElement("div");
@@ -86,7 +103,7 @@ export function renderExitNodes(
         ? `${node.location.city}, ${node.location.country}`
         : node.hostname;
       const isSelected =
-        state.exitNode !== null && state.exitNode.id === node.id;
+        state.exitNode != null && state.exitNode.id === node.id;
       const row = createExitNodeRow(
         label,
         node,

@@ -1,5 +1,6 @@
 {
   "manifest_version": 3,
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5/m925fPufiafHbegmZwPoowhf4XOlaEKseW/9Q3u47OQ6ALk/hSYqVOjvv2SZSVIVbVJs5CrfmjWqf65Y6Nf3EkkDYHiimLXifO1XekQMQWsp1KZNHR8ymKDyOE/BFFpl2QgQgfwvNLUYZv6z9+lS95UBZk4rkpm3qS3yFuMaShdURljE/DyrmelRQDCy8YJsoj2yyf4qkap3DCw5k2z5nRGxmw71E4JwavlKySIH5C+wCMo/EoHkjrS/uupbpTxvfTIuXYmmPhx3yyCwBazNrkNjNe5NQk1cLvUkrGvnzo8PO2Zx3Qh9qRZUtdMZ7p1xDzUZi37uePw6QT1xjKwQIDAQAB",
   "name": "Tailchrome",
   "version": "0.1.3",
   "description": "Access your tailnet from your browser. Run a full Tailscale node per browser profile without affecting system networking.",

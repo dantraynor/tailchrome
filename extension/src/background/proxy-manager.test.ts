@@ -38,11 +38,13 @@ function baseState(overrides: Partial<TailscaleState> = {}): TailscaleState {
 function capturePAC(pm: ProxyManager, state: TailscaleState): string | null {
   let captured: string | null = null;
   const original = chrome.proxy.settings.set;
-  chrome.proxy.settings.set = (details: unknown, cb?: () => void) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  chrome.proxy.settings.set = ((details: unknown, cb?: () => void) => {
     const d = details as { value?: { pacScript?: { data?: string } } };
     captured = d.value?.pacScript?.data ?? null;
     cb?.();
-  };
+    return Promise.resolve();
+  }) as any;
   pm.apply(state);
   chrome.proxy.settings.set = original;
   return captured;
