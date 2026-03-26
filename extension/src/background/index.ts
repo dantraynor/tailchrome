@@ -21,6 +21,9 @@ const badgeManager = new BadgeManager();
 // Connected popup ports
 const popupPorts: Set<chrome.runtime.Port> = new Set();
 
+// Track whether we've attempted to restore exit node for this connection
+let exitNodeRestoreAttempted = false;
+
 // ---------------------------------------------------------------------------
 // Subscribe to state changes
 // ---------------------------------------------------------------------------
@@ -92,6 +95,30 @@ function handleNativeMessage(msg: NativeReply): void {
   // Status update
   if (msg.status) {
     store.applyStatusUpdate(msg.status);
+
+    // Restore saved exit node after reconnection
+    if (
+      !exitNodeRestoreAttempted &&
+      msg.status.backendState === "Running" &&
+      !msg.status.exitNode
+    ) {
+      exitNodeRestoreAttempted = true;
+      chrome.storage.local.get("lastExitNodeID").then((result) => {
+        if (result["lastExitNodeID"]) {
+          console.log(
+            "[Background] Restoring saved exit node:",
+            result["lastExitNodeID"]
+          );
+          nativeHost.send({
+            cmd: "set-exit-node",
+            nodeID: result["lastExitNodeID"],
+          });
+        }
+      });
+    } else if (msg.status.backendState === "Running" && msg.status.exitNode) {
+      // Mark as attempted if already has an exit node
+      exitNodeRestoreAttempted = true;
+    }
   }
 
   // Profiles result
@@ -166,6 +193,9 @@ function handleNativeMessage(msg: NativeReply): void {
 }
 
 function handleNativeStateChange(connected: boolean): void {
+  if (!connected) {
+    exitNodeRestoreAttempted = false;
+  }
   store.update({
     hostConnected: connected,
     // Clear install error on successful connection, reset state when disconnected
@@ -283,11 +313,13 @@ function handlePopupMessage(msg: BackgroundMessage): void {
 
     case "set-exit-node": {
       nativeHost.send({ cmd: "set-exit-node", nodeID: msg.nodeID });
+      chrome.storage.local.set({ lastExitNodeID: msg.nodeID });
       break;
     }
 
     case "clear-exit-node": {
       nativeHost.send({ cmd: "set-exit-node", nodeID: "" });
+      chrome.storage.local.remove("lastExitNodeID");
       break;
     }
 
