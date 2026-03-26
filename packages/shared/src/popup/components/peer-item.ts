@@ -1,4 +1,4 @@
-import type { PeerInfo } from "../../shared/types";
+import type { PeerInfo } from "../../types";
 import { escapeHTML, copyToClipboard, showToast } from "../utils";
 import { sendMessage } from "../popup";
 

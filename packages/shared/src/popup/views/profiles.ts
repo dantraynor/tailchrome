@@ -1,4 +1,4 @@
-import type { TailscaleState, ProfileInfo } from "../../shared/types";
+import type { TailscaleState, ProfileInfo } from "../../types";
 import { sendMessage } from "../popup";
 
 /**

@@ -1,4 +1,4 @@
-import type { PeerInfo, TailscaleState } from "../shared/types";
+import type { PeerInfo, TailscaleState } from "../types";
 
 // Tailscale CGNAT range: 100.64.0.0/10
 export const CGNAT_NETWORK = 0x64400000;

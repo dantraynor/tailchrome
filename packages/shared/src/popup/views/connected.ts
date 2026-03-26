@@ -1,5 +1,5 @@
-import type { TailscaleState } from "../../shared/types";
-import { ADMIN_URL } from "../../shared/constants";
+import type { TailscaleState } from "../../types";
+import { ADMIN_URL } from "../../constants";
 import { renderHeader } from "../components/header";
 import { renderPeerList } from "../components/peer-list";
 import { renderHealthWarnings } from "../components/health-warnings";

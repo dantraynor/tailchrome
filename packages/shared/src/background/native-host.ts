@@ -1,8 +1,8 @@
-import type { NativeRequest, NativeReply } from "../shared/types";
+import type { NativeRequest, NativeReply } from "../types";
 import {
   RECONNECT_BASE_MS,
   RECONNECT_MAX_MS,
-} from "../shared/constants";
+} from "../constants";
 
 export type NativeMessageHandler = (msg: NativeReply) => void;
 export type NativeStateChangeHandler = (connected: boolean) => void;

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { StateStore } from "./state-store";
-import type { StatusUpdate } from "../shared/types";
+import type { StatusUpdate } from "../types";
 
 describe("StateStore", () => {
   describe("initial state", () => {

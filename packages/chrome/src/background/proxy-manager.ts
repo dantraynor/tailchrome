@@ -1,5 +1,5 @@
-import type { TailscaleState } from "@tailchrome/shared/shared/types";
-import { TAILSCALE_SERVICE_IP } from "@tailchrome/shared/shared/constants";
+import type { TailscaleState } from "@tailchrome/shared/types";
+import { TAILSCALE_SERVICE_IP } from "@tailchrome/shared/constants";
 import {
   parseCIDR,
   sanitizeMagicDNSSuffix,

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ChromeProxyManager } from "./proxy-manager";
-import type { TailscaleState } from "@tailchrome/shared/shared/types";
+import type { TailscaleState } from "@tailchrome/shared/types";
 
 function baseState(overrides: Partial<TailscaleState> = {}): TailscaleState {
   return {

@@ -1,4 +1,4 @@
-import type { TailscaleState, PeerInfo } from "../../shared/types";
+import type { TailscaleState, PeerInfo } from "../../types";
 import { sendMessage } from "../popup";
 
 interface ExitNodeGroup {

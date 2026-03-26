@@ -3,8 +3,8 @@ import type {
   TailscaleState,
   BackgroundMessage,
   PopupMessage,
-} from "../shared/types";
-import { KEEPALIVE_INTERVAL_MS, ADMIN_URL, TAILSCALE_SERVICE_IP } from "../shared/constants";
+} from "../types";
+import { KEEPALIVE_INTERVAL_MS, ADMIN_URL, TAILSCALE_SERVICE_IP } from "../constants";
 import { StateStore } from "./state-store";
 import { NativeHostConnection } from "./native-host";
 import { BadgeManager } from "./badge-manager";

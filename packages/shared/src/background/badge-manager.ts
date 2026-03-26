@@ -1,4 +1,4 @@
-import type { TailscaleState } from "../shared/types";
+import type { TailscaleState } from "../types";
 
 type IconPaths = { [size: number]: string };
 

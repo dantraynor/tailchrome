@@ -1,4 +1,4 @@
-import type { PeerInfo } from "../../shared/types";
+import type { PeerInfo } from "../../types";
 import { createPeerItem } from "./peer-item";
 
 /**

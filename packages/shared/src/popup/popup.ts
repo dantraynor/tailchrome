@@ -1,4 +1,4 @@
-import type { TailscaleState, PopupMessage, BackgroundMessage } from "../shared/types";
+import type { TailscaleState, PopupMessage, BackgroundMessage } from "../types";
 import { renderConnected } from "./views/connected";
 import { renderDisconnected } from "./views/disconnected";
 import { renderNeedsLogin } from "./views/needs-login";

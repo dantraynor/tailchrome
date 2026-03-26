@@ -8,7 +8,7 @@ import {
   CGNAT_NETWORK,
   CGNAT_MASK,
 } from "./proxy-utils";
-import type { PeerInfo, TailscaleState } from "../shared/types";
+import type { PeerInfo, TailscaleState } from "../types";
 
 // === ipToNum ===
 

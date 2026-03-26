@@ -1,4 +1,4 @@
-import type { TailscaleState, StatusUpdate, PeerInfo } from "../shared/types";
+import type { TailscaleState, StatusUpdate, PeerInfo } from "../types";
 
 export type StateListener = (state: TailscaleState) => void;
 
