@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 440px;
+    height: 280px;
+    background: #fafaf9;
+    font-family: 'Inter', -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(168,162,158,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(168,162,158,0.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .content {
+    text-align: center;
+    position: relative;
+    z-index: 1;
+  }
+
+  .icon {
+    width: 40px;
+    height: 40px;
+    margin: 0 auto 16px;
+    background: rgba(76,120,198,0.08);
+    border: 1px solid rgba(76,120,198,0.12);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .logo-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 5px);
+    gap: 2.5px;
+  }
+  .logo-dot { width: 5px; height: 5px; border-radius: 50%; background: #1c1917; }
+  .logo-dot.dim { opacity: 0.3; }
+  .logo-dot.mid { opacity: 0.6; }
+
+  .title {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 24px;
+    font-weight: 400;
+    color: #1c1917;
+    line-height: 1.2;
+    letter-spacing: -0.3px;
+    margin-bottom: 8px;
+  }
+
+  .desc {
+    font-size: 12px;
+    color: #78716c;
+    line-height: 1.5;
+    max-width: 320px;
+    margin: 0 auto 20px;
+  }
+
+  .meta {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+  }
+
+  .meta-item {
+    font-size: 10px;
+    color: #a8a29e;
+    font-weight: 500;
+  }
+</style>
+</head>
+<body>
+  <div class="content">
+    <div class="icon">
+      <div class="logo-grid">
+        <div class="logo-dot dim"></div>
+        <div class="logo-dot"></div>
+        <div class="logo-dot mid"></div>
+        <div class="logo-dot"></div>
+        <div class="logo-dot mid"></div>
+        <div class="logo-dot dim"></div>
+        <div class="logo-dot mid"></div>
+        <div class="logo-dot dim"></div>
+        <div class="logo-dot"></div>
+      </div>
+    </div>
+    <div class="title">Tailchrome</div>
+    <div class="desc">Manage your Tailscale network from Chrome's toolbar. See peers, switch exit nodes, copy IPs.</div>
+    <div class="meta">
+      <span class="meta-item">Native CLI</span>
+      <span class="meta-item">Cross-platform</span>
+      <span class="meta-item">Free</span>
+    </div>
+  </div>
+</body>
+</html>
