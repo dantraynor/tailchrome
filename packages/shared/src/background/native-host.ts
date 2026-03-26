@@ -44,8 +44,8 @@ export class NativeHostConnection {
       this.handleMessage(msg);
     });
 
-    this.port.onDisconnect.addListener(() => {
-      this.handleDisconnect();
+    this.port.onDisconnect.addListener((disconnectedPort: chrome.runtime.Port) => {
+      this.handleDisconnect(disconnectedPort);
     });
 
     // Send init message with profile ID
@@ -88,9 +88,12 @@ export class NativeHostConnection {
     this.onMessage(msg);
   }
 
-  private handleDisconnect(): void {
+  private handleDisconnect(disconnectedPort: chrome.runtime.Port): void {
+    // Chrome reports errors via chrome.runtime.lastError
+    // Firefox reports errors via port.error
     const lastError = chrome.runtime.lastError;
-    const errorMessage = lastError?.message ?? "";
+    const portError = (disconnectedPort as unknown as { error?: { message?: string } })?.error;
+    const errorMessage = lastError?.message ?? portError?.message ?? "";
 
     this.port = null;
     if (this.connectedNotified) {
@@ -99,9 +102,12 @@ export class NativeHostConnection {
     }
 
     // Detect installation error: native host not found or not allowed
+    // Chrome: "Specified native messaging host not found"
+    // Firefox: "No such native application <name>"
     if (
       errorMessage.includes("not found") ||
       errorMessage.includes("Specified native messaging host not found") ||
+      errorMessage.includes("No such native application") ||
       errorMessage.includes("forbidden") ||
       errorMessage.includes("is forbidden")
     ) {

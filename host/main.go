@@ -45,21 +45,37 @@ func main() {
 	}
 
 	// If running interactively (user ran the binary in a terminal),
-	// auto-install for both Chrome and Firefox.
+	// auto-install for detected browsers.
 	if term.IsTerminal(int(os.Stdin.Fd())) {
-		fmt.Println("Installing native messaging host for Chrome...")
-		if err := installChrome(chromeWebStoreExtensionID); err != nil {
-			log.Fatalf("Chrome install failed: %v", err)
-		}
-		fmt.Println("Chrome: installed successfully.")
+		hasChrome := isBrowserInstalled("chrome")
+		hasFirefox := isBrowserInstalled("firefox")
 
-		fmt.Println("Installing native messaging host for Firefox...")
-		if err := installFirefox(firefoxExtensionID); err != nil {
-			log.Fatalf("Firefox install failed: %v", err)
+		if !hasChrome && !hasFirefox {
+			// No browser detected; fall back to installing for both.
+			hasChrome = true
+			hasFirefox = true
 		}
-		fmt.Println("Firefox: installed successfully.")
 
-		fmt.Println("\nYou can now close this terminal and use the Tailchrome extension in Chrome or Firefox.")
+		installed := 0
+		if hasChrome {
+			fmt.Println("Installing native messaging host for Chrome...")
+			if err := installChrome(chromeWebStoreExtensionID); err != nil {
+				log.Fatalf("Chrome install failed: %v", err)
+			}
+			fmt.Println("Chrome: installed successfully.")
+			installed++
+		}
+
+		if hasFirefox {
+			fmt.Println("Installing native messaging host for Firefox...")
+			if err := installFirefox(firefoxExtensionID); err != nil {
+				log.Fatalf("Firefox install failed: %v", err)
+			}
+			fmt.Println("Firefox: installed successfully.")
+			installed++
+		}
+
+		fmt.Printf("\nYou can now close this terminal and use the Tailchrome extension.\n")
 		os.Exit(0)
 	}
 
