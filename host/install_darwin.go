@@ -28,3 +28,16 @@ func platformUninstall() error {
 
 func platformPostInstallChrome(_ string) error  { return nil }
 func platformPostInstallFirefox(_ string) error { return nil }
+
+// isBrowserInstalled checks whether a browser is present on the system.
+func isBrowserInstalled(browser string) bool {
+	switch browser {
+	case "chrome":
+		_, err := os.Stat("/Applications/Google Chrome.app")
+		return err == nil
+	case "firefox":
+		_, err := os.Stat("/Applications/Firefox.app")
+		return err == nil
+	}
+	return false
+}

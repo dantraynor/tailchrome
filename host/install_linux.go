@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -28,3 +29,19 @@ func platformUninstall() error {
 
 func platformPostInstallChrome(_ string) error  { return nil }
 func platformPostInstallFirefox(_ string) error { return nil }
+
+// isBrowserInstalled checks whether a browser is present on the system.
+func isBrowserInstalled(browser string) bool {
+	switch browser {
+	case "chrome":
+		_, err := exec.LookPath("google-chrome")
+		if err != nil {
+			_, err = exec.LookPath("google-chrome-stable")
+		}
+		return err == nil
+	case "firefox":
+		_, err := exec.LookPath("firefox")
+		return err == nil
+	}
+	return false
+}
