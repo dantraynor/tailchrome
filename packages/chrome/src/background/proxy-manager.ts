@@ -1,7 +1,7 @@
-import type { TailscaleState, PeerInfo } from "../shared/types";
-import { TAILSCALE_SERVICE_IP } from "../shared/constants";
+import type { TailscaleState } from "@tailchrome/shared/shared/types";
+import { TAILSCALE_SERVICE_IP } from "@tailchrome/shared/shared/constants";
 
-export class ProxyManager {
+export class ChromeProxyManager {
   private currentlyEnabled = false;
 
   apply(state: TailscaleState): void {

@@ -6,11 +6,6 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "types": ["chrome"]
-  },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+    "skipLibCheck": true
+  }
 }

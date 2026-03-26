@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { ProxyManager } from "./proxy-manager";
-import type { TailscaleState } from "../shared/types";
+import { ChromeProxyManager } from "./proxy-manager";
+import type { TailscaleState } from "@tailchrome/shared/shared/types";
 
 function baseState(overrides: Partial<TailscaleState> = {}): TailscaleState {
   return {
@@ -35,7 +35,7 @@ function baseState(overrides: Partial<TailscaleState> = {}): TailscaleState {
 }
 
 /** Capture the PAC script string passed to chrome.proxy.settings.set */
-function capturePAC(pm: ProxyManager, state: TailscaleState): string | null {
+function capturePAC(pm: ChromeProxyManager, state: TailscaleState): string | null {
   let captured: string | null = null;
   const original = chrome.proxy.settings.set;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,11 +50,11 @@ function capturePAC(pm: ProxyManager, state: TailscaleState): string | null {
   return captured;
 }
 
-describe("ProxyManager", () => {
-  let pm: ProxyManager;
+describe("ChromeProxyManager", () => {
+  let pm: ChromeProxyManager;
 
   beforeEach(() => {
-    pm = new ProxyManager();
+    pm = new ChromeProxyManager();
   });
 
   afterEach(() => {
@@ -371,7 +371,7 @@ describe("ProxyManager", () => {
  * so we can test actual routing decisions, not just string contents.
  */
 function evalPAC(
-  pm: ProxyManager,
+  pm: ChromeProxyManager,
   state: TailscaleState
 ): (url: string, host: string) => string {
   const pac = capturePAC(pm, state);

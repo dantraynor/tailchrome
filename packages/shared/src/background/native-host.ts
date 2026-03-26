@@ -1,6 +1,5 @@
 import type { NativeRequest, NativeReply } from "../shared/types";
 import {
-  NATIVE_HOST_ID,
   RECONNECT_BASE_MS,
   RECONNECT_MAX_MS,
 } from "../shared/constants";
@@ -17,6 +16,7 @@ export class NativeHostConnection {
   private connectedNotified = false;
 
   constructor(
+    private nativeHostId: string,
     private onMessage: NativeMessageHandler,
     private onStateChange: NativeStateChangeHandler
   ) {}
@@ -38,7 +38,7 @@ export class NativeHostConnection {
 
     this.profileID = await this.getOrCreateProfileID();
 
-    this.port = chrome.runtime.connectNative(NATIVE_HOST_ID);
+    this.port = chrome.runtime.connectNative(this.nativeHostId);
 
     this.port.onMessage.addListener((msg: NativeReply) => {
       this.handleMessage(msg);

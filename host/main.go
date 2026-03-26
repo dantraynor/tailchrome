@@ -45,14 +45,21 @@ func main() {
 	}
 
 	// If running interactively (user ran the binary in a terminal),
-	// auto-install for Chrome with the known Web Store extension ID.
+	// auto-install for both Chrome and Firefox.
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		fmt.Println("Installing native messaging host for Chrome...")
 		if err := installChrome(chromeWebStoreExtensionID); err != nil {
-			log.Fatalf("install failed: %v", err)
+			log.Fatalf("Chrome install failed: %v", err)
 		}
-		fmt.Println("Native messaging host installed successfully.")
-		fmt.Println("You can now close this terminal and use the Tailchrome extension in Chrome.")
+		fmt.Println("Chrome: installed successfully.")
+
+		fmt.Println("Installing native messaging host for Firefox...")
+		if err := installFirefox(firefoxExtensionID); err != nil {
+			log.Fatalf("Firefox install failed: %v", err)
+		}
+		fmt.Println("Firefox: installed successfully.")
+
+		fmt.Println("\nYou can now close this terminal and use the Tailchrome extension in Chrome or Firefox.")
 		os.Exit(0)
 	}
 
