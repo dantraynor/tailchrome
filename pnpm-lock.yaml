@@ -51,6 +51,9 @@ importers:
       '@types/chrome':
         specifier: ^0.0.300
         version: 0.0.300
+      esbuild:
+        specifier: ^0.24.0
+        version: 0.24.2
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
