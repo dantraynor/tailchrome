@@ -112,7 +112,7 @@ export class FirefoxProxyManager {
 
     // Proxy all Tailscale CGNAT IPs (100.64.0.0/10)
     const hostNum = ipToNum(host);
-    if (hostNum !== null && (hostNum & CGNAT_MASK) === (CGNAT_NETWORK & CGNAT_MASK)) {
+    if (hostNum !== null && (hostNum & CGNAT_MASK) === CGNAT_NETWORK) {
       return proxy;
     }
 

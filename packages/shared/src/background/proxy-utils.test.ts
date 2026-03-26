@@ -8,7 +8,7 @@ import {
   CGNAT_NETWORK,
   CGNAT_MASK,
 } from "./proxy-utils";
-import type { PeerInfo, TailscaleState } from "../types";
+import { baseState, makePeer } from "../__test__/fixtures";
 
 // === ipToNum ===
 
@@ -155,35 +155,6 @@ describe("sanitizeMagicDNSSuffix", () => {
 
 // === collectSubnetCIDRs ===
 
-function makePeer(overrides: Partial<PeerInfo> = {}): PeerInfo {
-  return {
-    id: "peer1",
-    hostname: "router",
-    dnsName: "router.example.ts.net.",
-    tailscaleIPs: ["100.64.0.2"],
-    os: "linux",
-    online: true,
-    active: true,
-    exitNode: false,
-    exitNodeOption: false,
-    isSubnetRouter: true,
-    subnets: [],
-    tags: [],
-    rxBytes: 0,
-    txBytes: 0,
-    lastSeen: null,
-    lastHandshake: null,
-    location: null,
-    taildropTarget: false,
-    sshHost: false,
-    userId: 1,
-    userName: "user",
-    userLoginName: "user@example.com",
-    userProfilePicURL: "",
-    ...overrides,
-  };
-}
-
 describe("collectSubnetCIDRs", () => {
   it("returns empty array when no peers", () => {
     expect(collectSubnetCIDRs([])).toEqual([]);
@@ -215,30 +186,6 @@ describe("collectSubnetCIDRs", () => {
 });
 
 // === shouldProxyState ===
-
-function baseState(overrides: Partial<TailscaleState> = {}): TailscaleState {
-  return {
-    hostConnected: true,
-    initialized: true,
-    proxyPort: 1055,
-    proxyEnabled: true,
-    backendState: "Running",
-    tailnet: "example.ts.net",
-    selfNode: null,
-    peers: [],
-    exitNode: null,
-    magicDNSSuffix: "example.ts.net",
-    browseToURL: null,
-    prefs: null,
-    health: [],
-    currentProfile: null,
-    profiles: [],
-    exitNodeSuggestion: null,
-    error: null,
-    installError: false,
-    ...overrides,
-  };
-}
 
 describe("shouldProxyState", () => {
   it("returns true when all conditions are met", () => {

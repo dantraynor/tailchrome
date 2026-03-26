@@ -1,38 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ChromeProxyManager } from "./proxy-manager";
 import type { TailscaleState } from "@tailchrome/shared/types";
-
-function baseState(overrides: Partial<TailscaleState> = {}): TailscaleState {
-  return {
-    hostConnected: true,
-    initialized: true,
-    proxyPort: 1055,
-    proxyEnabled: true,
-    backendState: "Running",
-    tailnet: "example.ts.net",
-    selfNode: {
-      id: "self1",
-      hostname: "my-laptop",
-      dnsName: "my-laptop.example.ts.net.",
-      tailscaleIPs: ["100.64.0.1"],
-      os: "linux",
-      online: true,
-      keyExpiry: null,
-    },
-    peers: [],
-    exitNode: null,
-    magicDNSSuffix: "example.ts.net",
-    browseToURL: null,
-    prefs: null,
-    health: [],
-    currentProfile: null,
-    profiles: [],
-    exitNodeSuggestion: null,
-    error: null,
-    installError: false,
-    ...overrides,
-  };
-}
+import { baseState, makePeer } from "@tailchrome/shared/__test__/fixtures";
 
 /** Capture the PAC script string passed to chrome.proxy.settings.set */
 function capturePAC(pm: ChromeProxyManager, state: TailscaleState): string | null {
@@ -134,31 +103,7 @@ describe("ChromeProxyManager", () => {
     it("includes subnet routes from peers", () => {
       const state = baseState({
         peers: [
-          {
-            id: "peer1",
-            hostname: "router",
-            dnsName: "router.example.ts.net.",
-            tailscaleIPs: ["100.64.0.2"],
-            os: "linux",
-            online: true,
-            active: true,
-            exitNode: false,
-            exitNodeOption: false,
-            isSubnetRouter: true,
-            subnets: ["10.0.0.0/24", "192.168.1.0/16"],
-            tags: [],
-            rxBytes: 0,
-            txBytes: 0,
-            lastSeen: null,
-            lastHandshake: null,
-            location: null,
-            taildropTarget: false,
-            sshHost: false,
-            userId: 1,
-            userName: "user",
-            userLoginName: "user@example.com",
-            userProfilePicURL: "",
-          },
+          makePeer({ subnets: ["10.0.0.0/24", "192.168.1.0/16"] }),
         ],
       });
       const pac = capturePAC(pm, state)!;
@@ -169,31 +114,7 @@ describe("ChromeProxyManager", () => {
     it("skips non-subnet-router peers", () => {
       const state = baseState({
         peers: [
-          {
-            id: "peer1",
-            hostname: "regular",
-            dnsName: "regular.example.ts.net.",
-            tailscaleIPs: ["100.64.0.2"],
-            os: "linux",
-            online: true,
-            active: true,
-            exitNode: false,
-            exitNodeOption: false,
-            isSubnetRouter: false,
-            subnets: [],
-            tags: [],
-            rxBytes: 0,
-            txBytes: 0,
-            lastSeen: null,
-            lastHandshake: null,
-            location: null,
-            taildropTarget: false,
-            sshHost: false,
-            userId: 1,
-            userName: "user",
-            userLoginName: "user@example.com",
-            userProfilePicURL: "",
-          },
+          makePeer({ isSubnetRouter: false }),
         ],
       });
       const pac = capturePAC(pm, state)!;
@@ -334,36 +255,3 @@ function evalPAC(
   return FindProxyForURL;
 }
 
-/** Helper to create a minimal subnet-router peer */
-function makePeer(
-  overrides: Partial<{
-    subnets: string[];
-    isSubnetRouter: boolean;
-  }> = {}
-) {
-  return {
-    id: "peer-sr",
-    hostname: "subnet-router",
-    dnsName: "subnet-router.example.ts.net.",
-    tailscaleIPs: ["100.64.0.10"],
-    os: "linux",
-    online: true,
-    active: true,
-    exitNode: false,
-    exitNodeOption: false,
-    isSubnetRouter: overrides.isSubnetRouter ?? true,
-    subnets: overrides.subnets ?? [],
-    tags: [],
-    rxBytes: 0,
-    txBytes: 0,
-    lastSeen: null,
-    lastHandshake: null,
-    location: null,
-    taildropTarget: false,
-    sshHost: false,
-    userId: 1,
-    userName: "user",
-    userLoginName: "user@example.com",
-    userProfilePicURL: "",
-  };
-}

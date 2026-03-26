@@ -87,12 +87,9 @@ export class BadgeManager {
   }
 
   private setIcon(paths: IconPaths): void {
-    chrome.action.setIcon({ path: paths }).catch((err) => {
-      // Fallback: warning icons may not exist, use offline icons instead
+    chrome.action.setIcon({ path: paths }).catch(() => {
       if (paths === WARNING_ICONS) {
-        chrome.action.setIcon({ path: OFFLINE_ICONS }).catch(() => {
-          // Ignore further errors
-        });
+        chrome.action.setIcon({ path: OFFLINE_ICONS }).catch(() => {});
       }
     });
   }

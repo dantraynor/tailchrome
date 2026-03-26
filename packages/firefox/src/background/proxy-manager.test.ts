@@ -1,58 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { FirefoxProxyManager } from "./proxy-manager";
-import type { TailscaleState } from "@tailchrome/shared/types";
+import { baseState, makePeer } from "@tailchrome/shared/__test__/fixtures";
 
-function baseState(overrides: Partial<TailscaleState> = {}): TailscaleState {
-  return {
-    hostConnected: true,
-    initialized: true,
-    proxyPort: 1055,
-    proxyEnabled: true,
-    backendState: "Running",
-    tailnet: "example.ts.net",
-    selfNode: {
-      id: "self1",
-      hostname: "my-laptop",
-      dnsName: "my-laptop.example.ts.net.",
-      tailscaleIPs: ["100.64.0.1"],
-      os: "linux",
-      online: true,
-      keyExpiry: null,
-    },
-    peers: [],
-    exitNode: null,
-    magicDNSSuffix: "example.ts.net",
-    browseToURL: null,
-    prefs: null,
-    health: [],
-    currentProfile: null,
-    profiles: [],
-    exitNodeSuggestion: null,
-    error: null,
-    installError: false,
-    ...overrides,
-  };
-}
-
-/**
- * Helper: apply state to the proxy manager and return a function
- * that resolves proxy for a given URL.
- */
-function setupProxy(
-  pm: FirefoxProxyManager,
-  state: TailscaleState,
-): (url: string) => { type: string; host?: string; port?: number } {
-  pm.apply(state);
-  // Access the internal listener via the browser mock
-  const listeners = (globalThis as any).browser.proxy.onRequest;
-  // The proxy manager registers one listener — call it directly
-  return (url: string) => {
-    // We call resolveProxy indirectly through apply -> listener
-    // Use a fresh apply to update state, then simulate a request
-    const result = (pm as any).resolveProxy(url);
-    return result;
-  };
-}
 
 describe("FirefoxProxyManager", () => {
   let pm: FirefoxProxyManager;
@@ -90,7 +39,7 @@ describe("FirefoxProxyManager", () => {
 
   describe("routing decisions", () => {
     it("routes Tailscale IPs through proxy, regular sites DIRECT", () => {
-      setupProxy(pm, baseState());
+      pm.apply(baseState());
       const resolve = (url: string) => (pm as any).resolveProxy(url);
 
       expect(resolve("http://google.com").type).toBe("direct");
@@ -101,7 +50,7 @@ describe("FirefoxProxyManager", () => {
     });
 
     it("routes MagicDNS names through proxy", () => {
-      setupProxy(pm, baseState());
+      pm.apply(baseState());
       const resolve = (url: string) => (pm as any).resolveProxy(url);
 
       expect(resolve("http://my-server.example.ts.net").type).toBe("socks");
@@ -111,7 +60,7 @@ describe("FirefoxProxyManager", () => {
     });
 
     it("routes everything through proxy when exit node is active", () => {
-      setupProxy(pm, baseState({
+      pm.apply(baseState({
         exitNode: { id: "exit1", hostname: "exit", location: null, online: true },
       }));
       const resolve = (url: string) => (pm as any).resolveProxy(url);
@@ -122,7 +71,7 @@ describe("FirefoxProxyManager", () => {
     });
 
     it("routes everything through proxy via Mullvad exit node", () => {
-      setupProxy(pm, baseState({
+      pm.apply(baseState({
         exitNode: {
           id: "mullvad-se1",
           hostname: "se-sto-wg-001",
@@ -139,7 +88,7 @@ describe("FirefoxProxyManager", () => {
     });
 
     it("routes subnet ranges through proxy", () => {
-      setupProxy(pm, baseState({
+      pm.apply(baseState({
         peers: [makePeer({ subnets: ["10.0.0.0/24", "172.16.0.0/12"] })],
       }));
       const resolve = (url: string) => (pm as any).resolveProxy(url);
@@ -153,7 +102,7 @@ describe("FirefoxProxyManager", () => {
     });
 
     it("does not proxy non-Tailscale IPs outside CGNAT range", () => {
-      setupProxy(pm, baseState());
+      pm.apply(baseState());
       const resolve = (url: string) => (pm as any).resolveProxy(url);
 
       expect(resolve("http://192.168.1.1").type).toBe("direct");
@@ -162,7 +111,7 @@ describe("FirefoxProxyManager", () => {
     });
 
     it("uses the configured proxy port", () => {
-      setupProxy(pm, baseState({ proxyPort: 9999 }));
+      pm.apply(baseState({ proxyPort: 9999 }));
       const resolve = (url: string) => (pm as any).resolveProxy(url);
 
       const result = resolve("http://100.64.0.1");
@@ -171,7 +120,7 @@ describe("FirefoxProxyManager", () => {
     });
 
     it("returns proxyDNS: true for SOCKS proxy", () => {
-      setupProxy(pm, baseState());
+      pm.apply(baseState());
       const resolve = (url: string) => (pm as any).resolveProxy(url);
 
       const result = resolve("http://100.64.0.1");
@@ -181,14 +130,14 @@ describe("FirefoxProxyManager", () => {
 
   describe("MagicDNS handling", () => {
     it("strips trailing dot from MagicDNS suffix", () => {
-      setupProxy(pm, baseState({ magicDNSSuffix: "example.ts.net." }));
+      pm.apply(baseState({ magicDNSSuffix: "example.ts.net." }));
       const resolve = (url: string) => (pm as any).resolveProxy(url);
 
       expect(resolve("http://my-server.example.ts.net").type).toBe("socks");
     });
 
     it("handles null MagicDNS suffix", () => {
-      setupProxy(pm, baseState({ magicDNSSuffix: null }));
+      pm.apply(baseState({ magicDNSSuffix: null }));
       const resolve = (url: string) => (pm as any).resolveProxy(url);
 
       // Regular hostname should go direct
@@ -196,7 +145,7 @@ describe("FirefoxProxyManager", () => {
     });
 
     it("sanitizes unsafe MagicDNS suffix characters", () => {
-      setupProxy(pm, baseState({ magicDNSSuffix: 'evil"); alert("xss' }));
+      pm.apply(baseState({ magicDNSSuffix: 'evil"); alert("xss' }));
       const resolve = (url: string) => (pm as any).resolveProxy(url);
 
       // Should not match since the suffix was rejected
@@ -206,36 +155,3 @@ describe("FirefoxProxyManager", () => {
 
 });
 
-/** Helper to create a minimal subnet-router peer */
-function makePeer(
-  overrides: Partial<{
-    subnets: string[];
-    isSubnetRouter: boolean;
-  }> = {},
-) {
-  return {
-    id: "peer-sr",
-    hostname: "subnet-router",
-    dnsName: "subnet-router.example.ts.net.",
-    tailscaleIPs: ["100.64.0.10"],
-    os: "linux",
-    online: true,
-    active: true,
-    exitNode: false,
-    exitNodeOption: false,
-    isSubnetRouter: overrides.isSubnetRouter ?? true,
-    subnets: overrides.subnets ?? [],
-    tags: [],
-    rxBytes: 0,
-    txBytes: 0,
-    lastSeen: null,
-    lastHandshake: null,
-    location: null,
-    taildropTarget: false,
-    sshHost: false,
-    userId: 1,
-    userName: "user",
-    userLoginName: "user@example.com",
-    userProfilePicURL: "",
-  };
-}
