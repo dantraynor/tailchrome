@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1280px;
+    height: 800px;
+    background: #fafaf9;
+    font-family: 'Inter', -apple-system, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+    gap: 80px;
+  }
+
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(168,162,158,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(168,162,158,0.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .left {
+    position: relative;
+    z-index: 1;
+    max-width: 400px;
+  }
+
+  .badge {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #a8a29e;
+    margin-bottom: 20px;
+    font-weight: 600;
+  }
+
+  h1 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 42px;
+    font-weight: 400;
+    color: #1c1917;
+    line-height: 1.15;
+    letter-spacing: -0.5px;
+    margin-bottom: 16px;
+  }
+
+  .desc {
+    font-size: 16px;
+    color: #78716c;
+    line-height: 1.6;
+    margin-bottom: 28px;
+  }
+
+  .features {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .feature {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: #57534e;
+    font-weight: 500;
+  }
+
+  .feature-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #4C78C6;
+    flex-shrink: 0;
+  }
+
+  /* Exit nodes panel */
+  .panel {
+    position: relative;
+    z-index: 1;
+    width: 320px;
+    background: #fafaf9;
+    border: 1px solid #e7e5e4;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+    overflow: hidden;
+  }
+
+  .panel-header {
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #e7e5e4;
+    background: #fff;
+  }
+
+  .back-btn {
+    font-size: 18px;
+    color: #4C78C6;
+    font-weight: 300;
+  }
+
+  .panel-title {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 14px;
+    color: #1c1917;
+  }
+
+  .exit-row {
+    padding: 11px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid #f0eeec;
+  }
+
+  .radio {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid #d6d3d1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .radio.selected {
+    border-color: #4C78C6;
+    background: #4C78C6;
+  }
+  .radio.selected::after {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #fff;
+  }
+
+  .exit-info { flex: 1; }
+  .exit-name { font-size: 12px; font-weight: 500; color: #1c1917; }
+  .exit-meta {
+    font-size: 10px; color: #a8a29e;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .exit-meta .od { width: 4px; height: 4px; border-radius: 50%; background: #34C759; }
+  .exit-flag { font-size: 16px; flex-shrink: 0; }
+
+  .section-label {
+    padding: 10px 16px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #a8a29e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: #f5f5f4;
+    border-bottom: 1px solid #e7e5e4;
+  }
+
+  .suggested-section {
+    background: rgba(76,120,198,0.04);
+    border-bottom: 1px solid #e7e5e4;
+  }
+
+  .suggested-label {
+    padding: 8px 16px 0;
+    font-size: 10px;
+    font-weight: 600;
+    color: #4C78C6;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+</style>
+</head>
+<body>
+  <div class="left">
+    <div class="badge">Routing Controls</div>
+    <h1>Pick your exit,<br>keep your choice</h1>
+    <div class="desc">Switch exit nodes by country with smart suggestions. Your selection persists across reconnections — no reconfiguring.</div>
+    <div class="features">
+      <div class="feature"><div class="feature-dot"></div> Suggested exit nodes</div>
+      <div class="feature"><div class="feature-dot"></div> Country flag indicators</div>
+      <div class="feature"><div class="feature-dot"></div> Real-time online status</div>
+      <div class="feature"><div class="feature-dot"></div> Persistent exit node selection</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span class="back-btn">‹</span>
+      <span class="panel-title">Exit Nodes</span>
+    </div>
+    <div class="exit-row">
+      <div class="radio"></div>
+      <div class="exit-info">
+        <div class="exit-name">None (direct connection)</div>
+      </div>
+    </div>
+    <div class="suggested-section">
+      <div class="suggested-label">Suggested</div>
+      <div class="exit-row" style="border-bottom: none;">
+        <div class="radio selected"></div>
+        <div class="exit-info">
+          <div class="exit-name">us-west-exit</div>
+          <div class="exit-meta"><div class="od"></div> Online</div>
+        </div>
+        <span class="exit-flag">🇺🇸</span>
+      </div>
+    </div>
+    <div class="section-label">All Exit Nodes</div>
+    <div class="exit-row">
+      <div class="radio"></div>
+      <div class="exit-info">
+        <div class="exit-name">us-east-exit</div>
+        <div class="exit-meta"><div class="od"></div> Online</div>
+      </div>
+      <span class="exit-flag">🇺🇸</span>
+    </div>
+    <div class="exit-row">
+      <div class="radio"></div>
+      <div class="exit-info">
+        <div class="exit-name">eu-london-exit</div>
+        <div class="exit-meta"><div class="od"></div> Online</div>
+      </div>
+      <span class="exit-flag">🇬🇧</span>
+    </div>
+    <div class="exit-row">
+      <div class="radio"></div>
+      <div class="exit-info">
+        <div class="exit-name">eu-frankfurt-exit</div>
+        <div class="exit-meta"><div class="od"></div> Online</div>
+      </div>
+      <span class="exit-flag">🇩🇪</span>
+    </div>
+    <div class="exit-row">
+      <div class="radio"></div>
+      <div class="exit-info">
+        <div class="exit-name">ap-tokyo-exit</div>
+        <div class="exit-meta"><div class="od"></div> Online</div>
+      </div>
+      <span class="exit-flag">🇯🇵</span>
+    </div>
+  </div>
+</body>
+</html>

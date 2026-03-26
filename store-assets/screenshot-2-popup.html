@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1280px;
+    height: 800px;
+    background: #fafaf9;
+    font-family: 'Inter', -apple-system, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+    gap: 80px;
+  }
+
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(168,162,158,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(168,162,158,0.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .left {
+    position: relative;
+    z-index: 1;
+    max-width: 400px;
+  }
+
+  .badge {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #a8a29e;
+    margin-bottom: 20px;
+    font-weight: 600;
+  }
+
+  h1 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 42px;
+    font-weight: 400;
+    color: #1c1917;
+    line-height: 1.15;
+    letter-spacing: -0.5px;
+    margin-bottom: 16px;
+  }
+
+  .desc {
+    font-size: 16px;
+    color: #78716c;
+    line-height: 1.6;
+    margin-bottom: 28px;
+  }
+
+  .features {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .feature {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: #57534e;
+    font-weight: 500;
+  }
+
+  .feature-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #4C78C6;
+    flex-shrink: 0;
+  }
+
+  /* Popup mockup */
+  .popup {
+    position: relative;
+    z-index: 1;
+    width: 300px;
+    background: #fafaf9;
+    border: 1px solid #e7e5e4;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+    overflow: hidden;
+  }
+
+  .popup-header {
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid #e7e5e4;
+    background: #fff;
+  }
+
+  .popup-logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .logo-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 5px);
+    gap: 2.5px;
+  }
+  .logo-dot { width: 5px; height: 5px; border-radius: 50%; background: #1c1917; }
+  .logo-dot.dim { opacity: 0.3; }
+  .logo-dot.mid { opacity: 0.6; }
+
+  .popup-name {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 14px;
+    color: #1c1917;
+  }
+
+  .toggle {
+    width: 36px;
+    height: 20px;
+    background: #34C759;
+    border-radius: 10px;
+    position: relative;
+  }
+  .toggle .knob {
+    width: 16px;
+    height: 16px;
+    background: #fff;
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  }
+
+  .status {
+    padding: 10px 16px;
+    background: #f5f5f4;
+    border-bottom: 1px solid #e7e5e4;
+  }
+
+  .status-tailnet {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #1c1917;
+    margin-bottom: 3px;
+  }
+
+  .status-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #34C759;
+  }
+
+  .status-ip {
+    font-size: 11px;
+    color: #a8a29e;
+    font-family: 'SF Mono', Menlo, monospace;
+  }
+
+  .settings {
+    border-bottom: 1px solid #e7e5e4;
+  }
+
+  .setting-row {
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #1c1917;
+    border-bottom: 1px solid #f0eeec;
+  }
+
+  .setting-value {
+    font-size: 11px;
+    color: #a8a29e;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .chevron { color: #d6d3d1; font-size: 10px; }
+
+  .toggle-sm {
+    width: 30px;
+    height: 16px;
+    border-radius: 8px;
+    position: relative;
+  }
+  .toggle-sm.on { background: #34C759; }
+  .toggle-sm.off { background: #e7e5e4; }
+  .toggle-sm .knob {
+    width: 12px;
+    height: 12px;
+    background: #fff;
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    box-shadow: 0 0.5px 1px rgba(0,0,0,0.15);
+  }
+  .toggle-sm.on .knob { right: 2px; }
+  .toggle-sm.off .knob { left: 2px; }
+
+  .peer-header {
+    padding: 8px 16px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #a8a29e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .peer {
+    padding: 9px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid #f0eeec;
+  }
+
+  .peer-icon { font-size: 14px; }
+  .peer-info { flex: 1; }
+  .peer-name { font-size: 12px; font-weight: 500; color: #1c1917; }
+  .peer-meta {
+    font-size: 9px;
+    color: #a8a29e;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .peer-meta .od { width: 4px; height: 4px; border-radius: 50%; background: #34C759; }
+  .peer-ip {
+    font-size: 10px;
+    color: #a8a29e;
+    font-family: 'SF Mono', Menlo, monospace;
+  }
+</style>
+</head>
+<body>
+  <div class="left">
+    <div class="badge">Chrome Extension</div>
+    <h1>Your popup<br>command center</h1>
+    <div class="desc">Check connection status, view peer counts, and manage settings — all from a clean, minimal popup.</div>
+    <div class="features">
+      <div class="feature"><div class="feature-dot"></div> Device status at a glance</div>
+      <div class="feature"><div class="feature-dot"></div> One-click IP and DNS copy</div>
+      <div class="feature"><div class="feature-dot"></div> Quick access to exit nodes</div>
+      <div class="feature"><div class="feature-dot"></div> Clean, platform-native design</div>
+    </div>
+  </div>
+
+  <div class="popup">
+    <div class="popup-header">
+      <div class="popup-logo">
+        <div class="logo-grid">
+          <div class="logo-dot dim"></div>
+          <div class="logo-dot"></div>
+          <div class="logo-dot mid"></div>
+          <div class="logo-dot"></div>
+          <div class="logo-dot mid"></div>
+          <div class="logo-dot dim"></div>
+          <div class="logo-dot mid"></div>
+          <div class="logo-dot dim"></div>
+          <div class="logo-dot"></div>
+        </div>
+        <span class="popup-name">Tailchrome</span>
+      </div>
+      <div class="toggle"><div class="knob"></div></div>
+    </div>
+    <div class="status">
+      <div class="status-tailnet"><div class="status-dot"></div> example.ts.net</div>
+      <div class="status-ip">100.64.1.42</div>
+    </div>
+    <div class="settings">
+      <div class="setting-row">
+        <span>Exit Node</span>
+        <span class="setting-value">None <span class="chevron">›</span></span>
+      </div>
+      <div class="setting-row">
+        <span>Shields Up</span>
+        <div class="toggle-sm off"><div class="knob"></div></div>
+      </div>
+      <div class="setting-row">
+        <span>MagicDNS</span>
+        <div class="toggle-sm on"><div class="knob"></div></div>
+      </div>
+      <div class="setting-row">
+        <span>Profile</span>
+        <span class="setting-value">Default <span class="chevron">›</span></span>
+      </div>
+    </div>
+    <div class="peer-header">
+      <span>Online</span>
+      <span>3</span>
+    </div>
+    <div class="peer">
+      <span class="peer-icon">💻</span>
+      <div class="peer-info">
+        <div class="peer-name">macbook-air</div>
+        <div class="peer-meta"><div class="od"></div> macOS</div>
+      </div>
+      <span class="peer-ip">100.64.1.12</span>
+    </div>
+    <div class="peer">
+      <span class="peer-icon">🖥️</span>
+      <div class="peer-info">
+        <div class="peer-name">home-server</div>
+        <div class="peer-meta"><div class="od"></div> Linux</div>
+      </div>
+      <span class="peer-ip">100.64.1.8</span>
+    </div>
+    <div class="peer">
+      <span class="peer-icon">📱</span>
+      <div class="peer-info">
+        <div class="peer-name">iphone-15</div>
+        <div class="peer-meta"><div class="od"></div> iOS</div>
+      </div>
+      <span class="peer-ip">100.64.1.20</span>
+    </div>
+  </div>
+</body>
+</html>
