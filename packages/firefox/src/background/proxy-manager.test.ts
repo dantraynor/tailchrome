@@ -204,54 +204,6 @@ describe("FirefoxProxyManager", () => {
     });
   });
 
-  describe("CIDR edge cases", () => {
-    it("handles /0 (all traffic)", () => {
-      setupProxy(pm, baseState({
-        peers: [makePeer({ subnets: ["0.0.0.0/0"] })],
-      }));
-      const resolve = (url: string) => (pm as any).resolveProxy(url);
-
-      expect(resolve("http://1.2.3.4").type).toBe("socks");
-    });
-
-    it("handles /32 (single host)", () => {
-      setupProxy(pm, baseState({
-        peers: [makePeer({ subnets: ["10.0.0.5/32"] })],
-      }));
-      const resolve = (url: string) => (pm as any).resolveProxy(url);
-
-      expect(resolve("http://10.0.0.5").type).toBe("socks");
-      expect(resolve("http://10.0.0.6").type).toBe("direct");
-    });
-
-    it("skips invalid CIDR notation", () => {
-      setupProxy(pm, baseState({
-        peers: [makePeer({ subnets: ["not-a-cidr", "10.0.0.0/24"] })],
-      }));
-      const resolve = (url: string) => (pm as any).resolveProxy(url);
-
-      expect(resolve("http://10.0.0.50").type).toBe("socks");
-    });
-
-    it("skips CIDR with prefix > 32", () => {
-      setupProxy(pm, baseState({
-        peers: [makePeer({ subnets: ["10.0.0.0/33"] })],
-      }));
-      const resolve = (url: string) => (pm as any).resolveProxy(url);
-
-      expect(resolve("http://10.0.0.1").type).toBe("direct");
-    });
-
-    it("handles non-IP hostnames gracefully", () => {
-      setupProxy(pm, baseState({
-        peers: [makePeer({ subnets: ["10.0.0.0/24"] })],
-      }));
-      const resolve = (url: string) => (pm as any).resolveProxy(url);
-
-      // Non-IP hostname shouldn't match subnet routes
-      expect(resolve("http://my-server.local").type).toBe("direct");
-    });
-  });
 });
 
 /** Helper to create a minimal subnet-router peer */

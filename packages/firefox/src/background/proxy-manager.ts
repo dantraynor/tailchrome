@@ -1,5 +1,14 @@
 import type { TailscaleState } from "@tailchrome/shared/shared/types";
 import { TAILSCALE_SERVICE_IP } from "@tailchrome/shared/shared/constants";
+import {
+  parseCIDR,
+  ipToNum,
+  sanitizeMagicDNSSuffix,
+  collectSubnetCIDRs,
+  shouldProxyState,
+  CGNAT_NETWORK,
+  CGNAT_MASK,
+} from "@tailchrome/shared/background/proxy-utils";
 
 /**
  * Firefox proxy manager using the browser.proxy.onRequest API.
@@ -46,12 +55,7 @@ export class FirefoxProxyManager {
   };
 
   apply(state: TailscaleState): void {
-    const shouldProxy =
-      state.proxyEnabled &&
-      state.proxyPort !== null &&
-      state.backendState === "Running";
-
-    if (!shouldProxy) {
+    if (!shouldProxyState(state)) {
       if (this.currentlyEnabled) {
         this.clear();
       }
@@ -63,21 +67,12 @@ export class FirefoxProxyManager {
     this.exitNodeActive = state.exitNode !== null;
 
     // Sanitize MagicDNS suffix
-    const rawSuffix = (state.magicDNSSuffix ?? "").replace(/\.$/, "");
-    this.magicDNSSuffix = /^[a-zA-Z0-9.\-]+$/.test(rawSuffix) ? rawSuffix : "";
+    this.magicDNSSuffix = sanitizeMagicDNSSuffix(state.magicDNSSuffix);
 
     // Collect subnet routes
-    this.subnetRanges = [];
-    for (const peer of state.peers) {
-      if (peer.isSubnetRouter && peer.subnets.length > 0) {
-        for (const cidr of peer.subnets) {
-          const parsed = this.parseCIDR(cidr);
-          if (parsed) {
-            this.subnetRanges.push(parsed);
-          }
-        }
-      }
-    }
+    this.subnetRanges = collectSubnetCIDRs(state.peers)
+      .map((cidr) => parseCIDR(cidr))
+      .filter((r): r is { network: number; mask: number } => r !== null);
 
     // Register the listener if not already active
     if (!this.currentlyEnabled) {
@@ -116,7 +111,10 @@ export class FirefoxProxyManager {
     if (host === TAILSCALE_SERVICE_IP) return proxy;
 
     // Proxy all Tailscale CGNAT IPs (100.64.0.0/10)
-    if (this.isInNet(host, 0x64400000, 0xffc00000)) return proxy;
+    const hostNum = ipToNum(host);
+    if (hostNum !== null && (hostNum & CGNAT_MASK) === (CGNAT_NETWORK & CGNAT_MASK)) {
+      return proxy;
+    }
 
     // Proxy MagicDNS names
     if (
@@ -127,7 +125,6 @@ export class FirefoxProxyManager {
     }
 
     // Proxy subnet router ranges
-    const hostNum = this.ipToNum(host);
     if (hostNum !== null) {
       for (const range of this.subnetRanges) {
         if ((hostNum & range.mask) === (range.network & range.mask)) {
@@ -140,39 +137,5 @@ export class FirefoxProxyManager {
     if (this.exitNodeActive) return proxy;
 
     return direct;
-  }
-
-  private isInNet(host: string, network: number, mask: number): boolean {
-    const hostNum = this.ipToNum(host);
-    if (hostNum === null) return false;
-    return (hostNum & mask) === (network & mask);
-  }
-
-  private ipToNum(ip: string): number | null {
-    const parts = ip.split(".");
-    if (parts.length !== 4) return null;
-    let num = 0;
-    for (const part of parts) {
-      const octet = parseInt(part, 10);
-      if (isNaN(octet) || octet < 0 || octet > 255) return null;
-      num = (num << 8) | octet;
-    }
-    return num >>> 0;
-  }
-
-  private parseCIDR(cidr: string): { network: number; mask: number } | null {
-    const parts = cidr.split("/");
-    if (parts.length !== 2) return null;
-
-    const network = parts[0]!;
-    if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(network)) return null;
-    const prefixLen = parseInt(parts[1]!, 10);
-    if (isNaN(prefixLen) || prefixLen < 0 || prefixLen > 32) return null;
-
-    const networkNum = this.ipToNum(network);
-    if (networkNum === null) return null;
-
-    const maskNum = prefixLen === 0 ? 0 : (~0 << (32 - prefixLen)) >>> 0;
-    return { network: networkNum, mask: maskNum };
   }
 }
