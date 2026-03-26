@@ -3,20 +3,14 @@ import type {
   TailscaleState,
   BackgroundMessage,
   PopupMessage,
+  ProxyManager,
 } from "../types";
 import { KEEPALIVE_INTERVAL_MS, ADMIN_URL, TAILSCALE_SERVICE_IP } from "../constants";
 import { StateStore } from "./state-store";
 import { NativeHostConnection } from "./native-host";
 import { BadgeManager } from "./badge-manager";
 
-// ---------------------------------------------------------------------------
-// Proxy manager interface — implemented by each browser package
-// ---------------------------------------------------------------------------
-
-export interface ProxyManager {
-  apply(state: TailscaleState): void;
-  clear(): void;
-}
+export type { ProxyManager };
 
 // ---------------------------------------------------------------------------
 // Return type so browser entry points can access the proxy manager

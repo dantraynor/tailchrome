@@ -188,3 +188,10 @@ export type BackgroundMessage =
   | { type: "suggest-exit-node" }
   | { type: "open-admin" }
   | { type: "open-web-client" };
+
+// === Proxy manager interface ===
+
+export interface ProxyManager {
+  apply(state: TailscaleState): void;
+  clear(): void;
+}
