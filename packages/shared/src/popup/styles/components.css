@@ -821,6 +821,39 @@
 }
 
 /* ==============================
+   Custom URL Editor
+   ============================== */
+
+.peer-url-edit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-xl) var(--space-md);
+  background: var(--bg-secondary);
+}
+
+.peer-url-input {
+  flex: 1;
+  padding: var(--space-xs) var(--space-sm);
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  font-size: var(--font-size-xs);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.peer-url-input:focus {
+  border-color: var(--ts-blue);
+}
+
+.peer-url-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* ==============================
    Exit Node Suggested Section
    ============================== */
 

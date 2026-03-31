@@ -1,6 +1,7 @@
 import type { PeerInfo } from "../../types";
 import { escapeHTML, copyToClipboard, showToast } from "../utils";
 import { sendMessage } from "../popup";
+import { getCustomUrl, setCustomUrl, clearCustomUrl, resolveOpenUrl } from "../custom-urls";
 
 /** Map OS strings to emoji icons. */
 function osIcon(os: string): string {
@@ -128,12 +129,17 @@ export function createPeerItem(peer: PeerInfo, options: PeerItemOptions = {}): H
     }));
   }
 
+  // Track openTarget for use in custom URL editor
+  let openTarget: string | undefined;
+  let openBtn: HTMLElement | null = null;
+
   if (peer.online) {
-    const openTarget = (options.magicDNS && shortDNS) || firstIP;
+    openTarget = (options.magicDNS && shortDNS) || firstIP || undefined;
     if (openTarget) {
-      actions.appendChild(createActionButton("Open", () => {
-        chrome.tabs.create({ url: `http://${openTarget}/` });
-      }));
+      openBtn = createActionButton(openButtonLabel(getCustomUrl(peer.id)), () => {
+        chrome.tabs.create({ url: resolveOpenUrl(openTarget!, getCustomUrl(peer.id)) });
+      });
+      actions.appendChild(openBtn);
     }
   }
 
@@ -149,10 +155,65 @@ export function createPeerItem(peer: PeerInfo, options: PeerItemOptions = {}): H
     }));
   }
 
+  // Custom URL editor (inline, hidden by default)
+  let editRow: HTMLElement | null = null;
+  if (peer.online && openTarget) {
+    const existingUrl = getCustomUrl(peer.id) || "";
+
+    editRow = document.createElement("div");
+    editRow.className = "peer-url-edit";
+    editRow.style.display = "none";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "peer-url-input";
+    input.placeholder = "port or full URL";
+    input.value = existingUrl;
+
+    const clearBtn = document.createElement("button");
+    clearBtn.className = "peer-action-btn";
+    clearBtn.textContent = "Clear";
+    clearBtn.style.display = existingUrl ? "" : "none";
+    clearBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await clearCustomUrl(peer.id);
+      input.value = "";
+      clearBtn.style.display = "none";
+      if (openBtn) openBtn.textContent = openButtonLabel(undefined);
+      showToast(`Custom URL cleared for ${peer.hostname}`);
+    });
+
+    const saveBtn = document.createElement("button");
+    saveBtn.className = "peer-action-btn";
+    saveBtn.textContent = "Save";
+    saveBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const val = input.value.trim();
+      if (val) {
+        await setCustomUrl(peer.id, val);
+        clearBtn.style.display = "";
+        if (openBtn) openBtn.textContent = openButtonLabel(val);
+        showToast(`Custom URL saved for ${peer.hostname}`);
+      }
+    });
+
+    editRow.appendChild(input);
+    editRow.appendChild(saveBtn);
+    editRow.appendChild(clearBtn);
+
+    actions.appendChild(createActionButton("Set URL", () => {
+      if (editRow) {
+        editRow.style.display = editRow.style.display === "none" ? "flex" : "none";
+        if (editRow.style.display === "flex") input.focus();
+      }
+    }));
+  }
+
   // Toggle actions on click or Enter/Space
   const toggleActions = () => {
     const isOpen = container.classList.toggle("peer-item-container--expanded");
     actions.style.display = isOpen ? "flex" : "none";
+    if (!isOpen && editRow) editRow.style.display = "none";
     row.setAttribute("aria-expanded", String(isOpen));
   };
   row.addEventListener("click", toggleActions);
@@ -166,8 +227,14 @@ export function createPeerItem(peer: PeerInfo, options: PeerItemOptions = {}): H
   actions.style.display = "none";
   container.appendChild(row);
   container.appendChild(actions);
+  if (editRow) container.appendChild(editRow);
 
   return container;
+}
+
+function openButtonLabel(customValue: string | undefined): string {
+  if (!customValue) return "Open";
+  return /^\d+$/.test(customValue) ? `Open :${customValue}` : "Open (custom)";
 }
 
 function createActionButton(label: string, onClick: () => void): HTMLElement {
