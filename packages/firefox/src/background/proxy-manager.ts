@@ -73,6 +73,16 @@ export class FirefoxProxyManager {
   private restorePromise: Promise<void> | null = null;
 
   /**
+   * Promise that resolves once apply() is called after an event-page wake.
+   * The native host exits when Firefox suspends the event page (stdin closes),
+   * so the port stored in session storage is always stale after wake. Rather
+   * than routing the first request to a dead SOCKS port, the listener waits
+   * on this promise until apply() provides the fresh port from the new host.
+   */
+  private reconnectPromise: Promise<void> | null = null;
+  private reconnectResolve: (() => void) | null = null;
+
+  /**
    * The proxy request listener. Exposed so the entry point can register it
    * synchronously at top level.
    *
@@ -84,8 +94,21 @@ export class FirefoxProxyManager {
   readonly listener = (
     details: { url: string },
   ): FirefoxProxyInfo | Promise<FirefoxProxyInfo> => {
+    // Config not yet loaded from storage — wait for the read to finish.
     if (this.proxyPort === 0 && this.restorePromise) {
-      return this.restorePromise.then(() => this.resolveProxy(details.url));
+      return this.restorePromise.then(() => {
+        // After restore, still need to wait for the fresh port.
+        if (this.reconnectPromise) {
+          return this.reconnectPromise.then(() =>
+            this.resolveProxy(details.url),
+          );
+        }
+        return this.resolveProxy(details.url);
+      });
+    }
+    // Config restored but port is stale — wait for apply() with a fresh port.
+    if (this.reconnectPromise) {
+      return this.reconnectPromise.then(() => this.resolveProxy(details.url));
     }
     return this.resolveProxy(details.url);
   };
@@ -121,6 +144,14 @@ export class FirefoxProxyManager {
     // promise so the listener stops deferring to it.
     this.restorePromise = null;
 
+    // Resolve the reconnect promise so any requests that were waiting for
+    // the fresh port can now proceed.
+    if (this.reconnectResolve) {
+      this.reconnectResolve();
+      this.reconnectResolve = null;
+    }
+    this.reconnectPromise = null;
+
     // Register the listener if not already active. Check the actual browser
     // state — the entry point may have already registered the listener
     // synchronously at top level before apply() runs.
@@ -147,6 +178,14 @@ export class FirefoxProxyManager {
     this.magicDNSSuffix = "";
     this.exitNodeActive = false;
     this.subnetRanges = [];
+
+    // Resolve any pending reconnect promise so waiting requests fall through
+    // to resolveProxy() (which will return "direct" since proxyPort is 0).
+    if (this.reconnectResolve) {
+      this.reconnectResolve();
+      this.reconnectResolve = null;
+    }
+    this.reconnectPromise = null;
   }
 
   /**
@@ -156,12 +195,12 @@ export class FirefoxProxyManager {
    * While the restore is in progress, the listener defers proxy decisions
    * to the returned promise so the wake-up request isn't missed.
    *
-   * Note on stale config after host crashes: if the native host crashed and
-   * restarted on a different port, the restored port will be stale until
-   * apply() is called with fresh state. Requests to a dead SOCKS port get
-   * a visible connection error, which is safer than silently routing direct
-   * and bypassing the proxy. The native host reconnects promptly on wake
-   * and apply() updates the port.
+   * The native host exits when Firefox suspends the event page (stdin
+   * closes), so the persisted proxyPort is always stale after wake. We
+   * restore the routing config (magicDNSSuffix, exitNodeActive, etc.) so
+   * the listener knows which requests need proxying, but hold those
+   * requests on a reconnect promise until apply() delivers the fresh port
+   * from the newly launched host.
    */
   restoreFromStorage(): Promise<boolean> {
     const doRestore = async (): Promise<boolean> => {
@@ -170,10 +209,18 @@ export class FirefoxProxyManager {
       if (!config || !config.proxyPort) {
         return false;
       }
-      this.proxyPort = config.proxyPort;
+      // Restore routing config so the listener can match requests, but
+      // don't use the stale port — leave proxyPort at 0 and let the
+      // reconnect promise gate requests until apply() sets the fresh port.
       this.magicDNSSuffix = config.magicDNSSuffix;
       this.exitNodeActive = config.exitNodeActive;
       this.subnetRanges = config.subnetRanges;
+
+      // Create a reconnect promise that the listener will wait on. It
+      // resolves when apply() or clear() is called.
+      this.reconnectPromise = new Promise<void>((resolve) => {
+        this.reconnectResolve = resolve;
+      });
       return true;
     };
 
