@@ -93,10 +93,11 @@ export function createPeerItem(peer: PeerInfo): HTMLElement {
   info.appendChild(name);
   info.appendChild(meta);
 
-  // IP display
+  // Address display
   const ip = document.createElement("div");
   ip.className = "peer-ip";
   const firstIP = peer.tailscaleIPs[0];
+  const shortDNS = peer.dnsName ? peer.dnsName.replace(/\.$/, "") : "";
   ip.textContent = firstIP ? escapeHTML(firstIP) : "";
 
   row.appendChild(icon);
@@ -122,10 +123,13 @@ export function createPeerItem(peer: PeerInfo): HTMLElement {
     }));
   }
 
-  if (peer.online && firstIP) {
-    actions.appendChild(createActionButton("Open", () => {
-      chrome.tabs.create({ url: `http://${firstIP}/` });
-    }));
+  if (peer.online) {
+    const openTarget = shortDNS || firstIP;
+    if (openTarget) {
+      actions.appendChild(createActionButton("Open", () => {
+        chrome.tabs.create({ url: `http://${openTarget}/` });
+      }));
+    }
   }
 
   if (peer.sshHost && peer.online) {
