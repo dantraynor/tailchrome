@@ -95,8 +95,9 @@ export function initBackground(
         store.update({ error: msg.init.error });
       } else {
         store.update({ initialized: true });
-        // Request initial status
+        // Request initial status and profile list
         nativeHost.send({ cmd: "get-status" });
+        nativeHost.send({ cmd: "list-profiles" });
       }
     }
 
@@ -142,8 +143,9 @@ export function initBackground(
       });
     }
 
-    // Exit node suggestion — show to user, do NOT auto-apply
+    // Exit node suggestion — store in state and show toast, do NOT auto-apply
     if (msg.exitNodeSuggestion) {
+      store.update({ exitNodeSuggestion: msg.exitNodeSuggestion });
       for (const port of popupPorts) {
         try {
           const popupMsg: PopupMessage = {
