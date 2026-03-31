@@ -36,10 +36,10 @@ const browserMock = {
     },
   },
   alarms: {
-    create: (_name: string, _info: Record<string, unknown>) => {},
+    create: (_name: string, _info: { periodInMinutes: number }) => {},
     clear: async (_name: string) => true,
     onAlarm: {
-      addListener: (_cb: (alarm: { name: string }) => void) => {},
+      addListener: (_fn: (alarm: { name: string }) => void) => {},
     },
   },
 };
@@ -59,3 +59,10 @@ Object.defineProperty(globalThis, "chrome", {
   value: chromeMock,
   writable: true,
 });
+
+/** Reset session storage between tests. */
+export function resetSessionStorage(): void {
+  for (const key of Object.keys(sessionStore)) {
+    delete sessionStore[key];
+  }
+}

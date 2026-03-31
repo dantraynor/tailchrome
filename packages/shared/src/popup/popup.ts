@@ -4,6 +4,7 @@ import { renderDisconnected } from "./views/disconnected";
 import { renderNeedsLogin } from "./views/needs-login";
 import { renderNeedsInstall } from "./views/needs-install";
 import { showToast } from "./utils";
+import { loadCustomUrls } from "./custom-urls";
 
 // --- Port management ---
 
@@ -134,10 +135,13 @@ function render(state: TailscaleState): void {
 
 // --- Initialization ---
 
-function init(): void {
+async function init(): Promise<void> {
   // Render disconnected view immediately so the popup is never empty
   const root = document.getElementById("root");
   if (root) renderDisconnected(root);
+
+  // Load per-device custom URL settings before rendering peer list
+  await loadCustomUrls();
 
   // Connect to the background service worker
   port = chrome.runtime.connect({ name: "popup" });

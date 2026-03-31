@@ -1,62 +1,73 @@
-import { initBackground } from "@tailchrome/shared/background/background";
-import {
-  FirefoxProxyManager,
-  resolveProxy,
-  type PersistedProxyConfig,
-  type FirefoxProxyInfo,
-} from "./proxy-manager";
-import { AlarmsTimerService } from "./timer-service";
+import { initBackground, type BackgroundHandle } from "@tailchrome/shared/background/background";
+import { FirefoxProxyManager } from "./proxy-manager";
 import { NATIVE_HOST_ID } from "../constants";
 
-// Firefox provides `browser.*` APIs which are not in @types/chrome.
+// Minimal type declarations for Firefox-specific APIs not in @types/chrome.
 declare const browser: {
   proxy: {
     onRequest: {
       addListener(
-        listener: (details: { url: string }) => FirefoxProxyInfo,
+        listener: (details: { url: string }) => unknown,
         filter: { urls: string[] },
       ): void;
     };
   };
-  storage: {
-    session: {
-      get(key: string): Promise<Record<string, unknown>>;
+  alarms: {
+    create(name: string, info: { periodInMinutes: number }): void;
+    onAlarm: {
+      addListener(listener: (alarm: { name: string }) => void): void;
     };
   };
 };
 
 // ---------------------------------------------------------------------------
-// Top-level proxy listener — registered synchronously so it survives
-// event page suspension. Reads from an in-memory config ref that is
-// restored from session storage on wake and updated by FirefoxProxyManager.
+// All event listeners must be registered synchronously at the top level so
+// Firefox persists them across event-page suspension/wake cycles.
 // ---------------------------------------------------------------------------
 
-let proxyConfig: PersistedProxyConfig | null = null;
+const proxyManager = new FirefoxProxyManager();
 
-browser.proxy.onRequest.addListener(
-  (details: { url: string }): FirefoxProxyInfo => {
-    if (!proxyConfig) return { type: "direct" };
-    return resolveProxy(details.url, proxyConfig);
-  },
-  { urls: ["<all_urls>"] },
-);
+// Register the proxy listener synchronously. Firefox re-runs top-level code
+// on event page wake and re-registers the listener, so the proxy keeps
+// working even after suspension.
+browser.proxy.onRequest.addListener(proxyManager.listener, {
+  urls: ["<all_urls>"],
+});
 
-// Restore proxy config from session storage (async, but completes
-// near-instantly since session storage is in-memory)
-browser.storage.session.get("proxyConfig").then((result) => {
-  if (result.proxyConfig) {
-    proxyConfig = result.proxyConfig as PersistedProxyConfig;
+// The background handle is set once start() completes. The alarm listener
+// below checks this before sending keepalives.
+let backgroundHandle: BackgroundHandle | null = null;
+
+// Register the alarm listener synchronously at top level so Firefox can use
+// it to wake the event page when the keepalive alarm fires.
+browser.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "keepalive" && backgroundHandle) {
+    backgroundHandle.sendKeepalive();
   }
 });
 
 // ---------------------------------------------------------------------------
-// Normal initialization with alarm-based timers
+// Restore persisted proxy config, then initialise the background.
 // ---------------------------------------------------------------------------
 
-const proxyManager = new FirefoxProxyManager((config) => {
-  proxyConfig = config;
-});
+// KEEPALIVE_INTERVAL_MS is 25 000 ms ≈ 0.42 minutes
+const KEEPALIVE_PERIOD_MINUTES = 25_000 / 60_000;
 
-initBackground(proxyManager, NATIVE_HOST_ID, {
-  timerService: new AlarmsTimerService(),
+async function start(): Promise<void> {
+  // Hydrate in-memory proxy state from session storage so the synchronous
+  // listener can route requests correctly before the native host reconnects.
+  await proxyManager.restoreFromStorage();
+
+  backgroundHandle = initBackground(proxyManager, NATIVE_HOST_ID, {
+    skipKeepalive: true,
+  });
+
+  // Create the alarm after init — the listener is already registered above.
+  browser.alarms.create("keepalive", {
+    periodInMinutes: KEEPALIVE_PERIOD_MINUTES,
+  });
+}
+
+start().catch((err) => {
+  console.error("[Firefox] Background start failed:", err);
 });
