@@ -18,6 +18,15 @@ export type { ProxyManager };
 
 export interface BackgroundHandle {
   proxyManager: ProxyManager;
+  /** Send a keepalive ping if the host is connected. */
+  sendKeepalive(): void;
+  /** Reconnect to the native host. */
+  reconnect(): Promise<void>;
+}
+
+export interface InitBackgroundOptions {
+  /** Skip the built-in setInterval keepalive (e.g. when the caller uses browser.alarms instead). */
+  skipKeepalive?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -47,6 +56,7 @@ function isValidLoginURL(url: string): boolean {
 export function initBackground(
   proxyManager: ProxyManager,
   nativeHostId: string,
+  options?: InitBackgroundOptions,
 ): BackgroundHandle {
   const store = new StateStore();
   const badgeManager = new BadgeManager();
@@ -393,11 +403,13 @@ export function initBackground(
   // Keepalive: ping native host periodically to keep service worker alive
   // ---------------------------------------------------------------------------
 
-  setInterval(() => {
-    if (store.getState().hostConnected) {
-      nativeHost.send({ cmd: "ping" });
-    }
-  }, KEEPALIVE_INTERVAL_MS);
+  if (!options?.skipKeepalive) {
+    setInterval(() => {
+      if (store.getState().hostConnected) {
+        nativeHost.send({ cmd: "ping" });
+      }
+    }, KEEPALIVE_INTERVAL_MS);
+  }
 
   // ---------------------------------------------------------------------------
   // Context menu: "Send page URL to Tailscale device"
@@ -437,5 +449,15 @@ export function initBackground(
     });
   });
 
-  return { proxyManager };
+  return {
+    proxyManager,
+    sendKeepalive() {
+      if (store.getState().hostConnected) {
+        nativeHost.send({ cmd: "ping" });
+      }
+    },
+    reconnect() {
+      return nativeHost.connect();
+    },
+  };
 }

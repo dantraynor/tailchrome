@@ -1,39 +1,58 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { FirefoxProxyManager } from "./proxy-manager";
 import { baseState, makePeer } from "@tailchrome/shared/__test__/fixtures";
+import { resetSessionStorage } from "../__test__/browser-mock";
 
 
 describe("FirefoxProxyManager", () => {
   let pm: FirefoxProxyManager;
 
   beforeEach(() => {
+    resetSessionStorage();
     pm = new FirefoxProxyManager();
   });
 
   describe("apply / clear", () => {
     it("registers listener when state is running and proxy enabled", () => {
       pm.apply(baseState());
-      const hasListener = (globalThis as any).browser.proxy.onRequest.hasListener;
-      // At least the listener was added (we can check the proxy manager is active)
-      expect((pm as any).currentlyEnabled).toBe(true);
+      const browserProxy = (globalThis as any).browser.proxy.onRequest;
+      expect(browserProxy.hasListener(pm.listener)).toBe(true);
     });
 
-    it("removes listener when backend is not running", () => {
+    it("clear() resets routing state so everything routes direct", () => {
       pm.apply(baseState());
-      expect((pm as any).currentlyEnabled).toBe(true);
-      pm.apply(baseState({ backendState: "Stopped" }));
-      expect((pm as any).currentlyEnabled).toBe(false);
+      pm.clear();
+      const resolve = (url: string) => (pm as any).resolveProxy(url);
+
+      // CGNAT IP should go direct after clear
+      expect(resolve("http://100.64.0.5").type).toBe("direct");
+      expect(resolve("http://100.100.100.100").type).toBe("direct");
     });
 
-    it("removes listener when proxyEnabled is false", () => {
+    it("clear() does NOT remove the proxy listener", () => {
+      const browserProxy = (globalThis as any).browser.proxy.onRequest;
+      pm.apply(baseState());
+      expect(browserProxy.hasListener(pm.listener)).toBe(true);
+
+      pm.clear();
+      // Listener stays — it's owned by the entry point, not the manager
+      expect(browserProxy.hasListener(pm.listener)).toBe(true);
+    });
+
+    it("apply with stopped state routes everything direct", () => {
+      pm.apply(baseState());
+      pm.apply(baseState({ backendState: "Stopped" }));
+      const resolve = (url: string) => (pm as any).resolveProxy(url);
+
+      expect(resolve("http://100.64.0.5").type).toBe("direct");
+    });
+
+    it("apply with proxyEnabled false routes everything direct", () => {
       pm.apply(baseState());
       pm.apply(baseState({ proxyEnabled: false }));
-      expect((pm as any).currentlyEnabled).toBe(false);
-    });
+      const resolve = (url: string) => (pm as any).resolveProxy(url);
 
-    it("does nothing when proxy was never enabled and state is stopped", () => {
-      pm.apply(baseState({ backendState: "Stopped" }));
-      expect((pm as any).currentlyEnabled).toBe(false);
+      expect(resolve("http://100.64.0.5").type).toBe("direct");
     });
   });
 
@@ -126,6 +145,17 @@ describe("FirefoxProxyManager", () => {
       const result = resolve("http://100.64.0.1");
       expect(result.proxyDNS).toBe(true);
     });
+
+    it("returns direct for all requests when proxyPort is 0 (no config)", () => {
+      // Fresh instance with no apply() or restoreFromStorage() — simulates
+      // the window between synchronous listener registration and async
+      // restore in the entry point.
+      const resolve = (url: string) => (pm as any).resolveProxy(url);
+
+      expect(resolve("http://100.64.0.5").type).toBe("direct");
+      expect(resolve("http://100.100.100.100").type).toBe("direct");
+      expect(resolve("http://my-server.example.ts.net").type).toBe("direct");
+    });
   });
 
   describe("MagicDNS handling", () => {
@@ -153,5 +183,167 @@ describe("FirefoxProxyManager", () => {
     });
   });
 
-});
+  describe("session storage persistence", () => {
+    it("persists proxy config to session storage on apply", async () => {
+      pm.apply(baseState({ proxyPort: 5555 }));
 
+      // Restore into a fresh instance
+      const pm2 = new FirefoxProxyManager();
+      const restored = await pm2.restoreFromStorage();
+      expect(restored).toBe(true);
+      expect((pm2 as any).proxyPort).toBe(5555);
+      expect((pm2 as any).magicDNSSuffix).toBe("example.ts.net");
+    });
+
+    it("restores exitNodeActive and subnetRanges", async () => {
+      pm.apply(baseState({
+        proxyPort: 1234,
+        exitNode: { id: "exit1", hostname: "exit", location: null, online: true },
+        peers: [makePeer({ subnets: ["10.0.0.0/24"] })],
+      }));
+
+      const pm2 = new FirefoxProxyManager();
+      await pm2.restoreFromStorage();
+      expect((pm2 as any).exitNodeActive).toBe(true);
+      expect((pm2 as any).subnetRanges.length).toBeGreaterThan(0);
+    });
+
+    it("returns false from restoreFromStorage when nothing is stored", async () => {
+      const restored = await pm.restoreFromStorage();
+      expect(restored).toBe(false);
+    });
+
+    it("clear() does not wipe stored config (needed for restore on wake)", async () => {
+      pm.apply(baseState());
+      pm.clear();
+
+      // Storage should survive — clear() is called during the disconnect
+      // path when the event page suspends.
+      const pm2 = new FirefoxProxyManager();
+      const restored = await pm2.restoreFromStorage();
+      expect(restored).toBe(true);
+    });
+
+    it("apply() with connected+stopped state wipes stored config", async () => {
+      pm.apply(baseState());
+
+      // Simulate the host reporting that Tailscale is stopped (authoritative)
+      pm.apply(baseState({ hostConnected: true, backendState: "Stopped" }));
+
+      const pm2 = new FirefoxProxyManager();
+      const restored = await pm2.restoreFromStorage();
+      expect(restored).toBe(false);
+    });
+
+    it("apply() on disconnect path preserves stored config", async () => {
+      pm.apply(baseState());
+
+      // Simulate the disconnect path (event page suspension):
+      // hostConnected=false, proxyEnabled=false, proxyPort=null
+      pm.apply(baseState({
+        hostConnected: false,
+        proxyEnabled: false,
+        proxyPort: null,
+        backendState: "NoState",
+      }));
+
+      // Storage must survive for restoreFromStorage() on next wake
+      const pm2 = new FirefoxProxyManager();
+      const restored = await pm2.restoreFromStorage();
+      expect(restored).toBe(true);
+    });
+
+    it("routes correctly after restoring from storage", async () => {
+      pm.apply(baseState({ proxyPort: 7777 }));
+
+      const pm2 = new FirefoxProxyManager();
+      await pm2.restoreFromStorage();
+      const resolve = (url: string) => (pm2 as any).resolveProxy(url);
+
+      expect(resolve("http://100.64.0.5").type).toBe("socks");
+      expect(resolve("http://100.64.0.5").port).toBe(7777);
+      expect(resolve("http://my-server.example.ts.net").type).toBe("socks");
+      expect(resolve("http://google.com").type).toBe("direct");
+    });
+  });
+
+  describe("suspend / wake lifecycle", () => {
+    it("full suspend/wake cycle: listener stays, state restores", async () => {
+      const browserProxy = (globalThis as any).browser.proxy.onRequest;
+
+      // 1. Entry point registers listener externally
+      browserProxy.addListener(pm.listener, { urls: ["<all_urls>"] });
+
+      // 2. Normal operation — apply with valid state
+      pm.apply(baseState({ proxyPort: 4444 }));
+      const resolve = (url: string) => (pm as any).resolveProxy(url);
+      expect(resolve("http://100.64.0.5").type).toBe("socks");
+
+      // 3. Simulate disconnect (event page about to suspend)
+      pm.apply(baseState({
+        hostConnected: false,
+        proxyEnabled: false,
+        proxyPort: null,
+        backendState: "NoState",
+      }));
+
+      // Listener must still be registered
+      expect(browserProxy.hasListener(pm.listener)).toBe(true);
+      // But routes direct because state was cleared
+      expect(resolve("http://100.64.0.5").type).toBe("direct");
+
+      // 4. Simulate wake — new instance, restore from storage
+      const woken = new FirefoxProxyManager();
+      browserProxy.addListener(woken.listener, { urls: ["<all_urls>"] });
+      const restored = await woken.restoreFromStorage();
+      expect(restored).toBe(true);
+
+      // Restored state routes correctly
+      const resolveWoken = (url: string) => (woken as any).resolveProxy(url);
+      expect(resolveWoken("http://100.64.0.5").type).toBe("socks");
+      expect(resolveWoken("http://100.64.0.5").port).toBe(4444);
+      expect(resolveWoken("http://google.com").type).toBe("direct");
+    });
+
+    it("before restoreFromStorage completes, listener returns direct", () => {
+      const browserProxy = (globalThis as any).browser.proxy.onRequest;
+
+      // Entry point registers listener on a fresh instance (no config yet)
+      const fresh = new FirefoxProxyManager();
+      browserProxy.addListener(fresh.listener, { urls: ["<all_urls>"] });
+
+      // Before restoreFromStorage() is called, everything routes direct
+      const resolve = (url: string) => (fresh as any).resolveProxy(url);
+      expect(resolve("http://100.64.0.5").type).toBe("direct");
+      expect(resolve("http://100.100.100.100").type).toBe("direct");
+      expect(resolve("http://my-server.example.ts.net").type).toBe("direct");
+    });
+  });
+
+  describe("external listener registration", () => {
+    it("apply() does not double-register when listener was added externally", () => {
+      const browserProxy = (globalThis as any).browser.proxy.onRequest;
+
+      // Simulate entry point registering the listener
+      browserProxy.addListener(pm.listener, { urls: ["<all_urls>"] });
+
+      // apply() should not add a second listener
+      pm.apply(baseState());
+      expect(browserProxy.hasListener(pm.listener)).toBe(true);
+    });
+
+    it("apply() with non-proxy state keeps listener but routes direct", () => {
+      const browserProxy = (globalThis as any).browser.proxy.onRequest;
+
+      // Simulate entry point registering the listener
+      browserProxy.addListener(pm.listener, { urls: ["<all_urls>"] });
+
+      // apply() with stopped state — listener stays, routes direct
+      pm.apply(baseState({ backendState: "Stopped" }));
+      expect(browserProxy.hasListener(pm.listener)).toBe(true);
+
+      const resolve = (url: string) => (pm as any).resolveProxy(url);
+      expect(resolve("http://100.64.0.5").type).toBe("direct");
+    });
+  });
+});

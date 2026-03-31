@@ -4,6 +4,9 @@ type ProxyListener = (details: { url: string }) => unknown;
 
 const listeners: ProxyListener[] = [];
 
+// In-memory session storage mock
+const sessionStore: Record<string, unknown> = {};
+
 const browserMock = {
   proxy: {
     onRequest: {
@@ -17,6 +20,25 @@ const browserMock = {
       hasListener: (listener: ProxyListener) => {
         return listeners.includes(listener);
       },
+    },
+  },
+  storage: {
+    session: {
+      get: async (key: string) => {
+        return key in sessionStore ? { [key]: sessionStore[key] } : {};
+      },
+      set: async (items: Record<string, unknown>) => {
+        Object.assign(sessionStore, items);
+      },
+      remove: async (key: string) => {
+        delete sessionStore[key];
+      },
+    },
+  },
+  alarms: {
+    create: (_name: string, _info: { periodInMinutes: number }) => {},
+    onAlarm: {
+      addListener: (_fn: (alarm: { name: string }) => void) => {},
     },
   },
 };
@@ -36,3 +58,10 @@ Object.defineProperty(globalThis, "chrome", {
   value: chromeMock,
   writable: true,
 });
+
+/** Reset session storage between tests. */
+export function resetSessionStorage(): void {
+  for (const key of Object.keys(sessionStore)) {
+    delete sessionStore[key];
+  }
+}

@@ -6,12 +6,13 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "tailchrome@tesseras.org",
-      "strict_min_version": "109.0"
+      "strict_min_version": "115.0"
     }
   },
   "permissions": [
     "proxy",
     "storage",
+    "alarms",
     "nativeMessaging",
     "contextMenus"
   ],
