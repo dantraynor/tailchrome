@@ -35,6 +35,19 @@ const chromeMock = {
         },
       };
     },
+    connect: (_connectInfo?: unknown) => {
+      return {
+        postMessage: (_msg: unknown) => {},
+        disconnect: () => {},
+        onMessage: {
+          addListener: (_fn: (msg: unknown) => void) => {},
+        },
+        onDisconnect: {
+          addListener: (_fn: (port: unknown) => void) => {},
+        },
+        name: "popup",
+      };
+    },
     onConnect: {
       addListener: (_fn: (port: unknown) => void) => {},
     },
@@ -64,3 +77,51 @@ Object.defineProperty(globalThis, "chrome", {
   value: chromeMock,
   writable: true,
 });
+
+// Minimal document mock for popup module imports (top-level readyState check).
+// Only installed when document is not already defined (i.e. not in a real DOM env).
+if (typeof globalThis.document === "undefined") {
+  const listeners: Record<string, Array<() => void>> = {};
+  Object.defineProperty(globalThis, "document", {
+    value: {
+      readyState: "complete",
+      addEventListener: (event: string, fn: () => void) => {
+        (listeners[event] ??= []).push(fn);
+      },
+      getElementById: (_id: string) => null,
+      querySelector: (_sel: string) => null,
+      createElement: (tag: string) => {
+        const el: Record<string, unknown> = {
+          tagName: tag.toUpperCase(),
+          className: "",
+          textContent: "",
+          style: {},
+          children: [] as unknown[],
+          innerHTML: "",
+          appendChild: (child: unknown) => {
+            (el.children as unknown[]).push(child);
+            // For escapeHTML: textNode → innerHTML
+            if (typeof (child as { textContent?: string }).textContent === "string") {
+              el.innerHTML = (child as { textContent: string }).textContent
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
+            }
+            return child;
+          },
+          setAttribute: () => {},
+          addEventListener: () => {},
+        };
+        return el;
+      },
+      createTextNode: (text: string) => ({ textContent: text }),
+      body: {
+        appendChild: () => {},
+        removeChild: () => {},
+      },
+    },
+    writable: true,
+    configurable: true,
+  });
+}

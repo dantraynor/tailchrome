@@ -76,7 +76,7 @@ export function getLatestState(): TailscaleState | null {
 /**
  * Determines the view name for a given state.
  */
-function viewForState(state: TailscaleState): string {
+export function viewForState(state: TailscaleState): string {
   if (state.installError) return "needs-install";
   if (state.backendState === "NeedsLogin") return "needs-login";
   if (state.backendState === "Running") return "connected";
