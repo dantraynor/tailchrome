@@ -146,15 +146,13 @@ describe("FirefoxProxyManager", () => {
       expect(result.proxyDNS).toBe(true);
     });
 
-    it("returns direct for all requests when proxyPort is 0 (no config)", () => {
-      // Fresh instance with no apply() or restoreFromStorage() — simulates
-      // the window between synchronous listener registration and async
-      // restore in the entry point.
-      const resolve = (url: string) => (pm as any).resolveProxy(url);
-
-      expect(resolve("http://100.64.0.5").type).toBe("direct");
-      expect(resolve("http://100.100.100.100").type).toBe("direct");
-      expect(resolve("http://my-server.example.ts.net").type).toBe("direct");
+    it("returns direct synchronously when no config and no pending restore", () => {
+      // Fresh instance with no apply() or restoreFromStorage() — no stored
+      // config exists, so the listener returns direct synchronously.
+      const result = pm.listener({ url: "http://100.64.0.5" });
+      // Should be a synchronous FirefoxProxyInfo, not a Promise
+      expect(result).not.toBeInstanceOf(Promise);
+      expect((result as any).type).toBe("direct");
     });
   });
 
@@ -247,7 +245,13 @@ describe("FirefoxProxyManager", () => {
         backendState: "NoState",
       }));
 
-      // Storage must survive for restoreFromStorage() on next wake
+      // Storage must survive for restoreFromStorage() on next wake.
+      //
+      // Trade-off: if the disconnect was a real host crash (not suspension),
+      // the restored port may be stale. This is intentional — requests to a
+      // dead SOCKS port produce a visible connection error, which is safer
+      // than silently routing Tailscale traffic direct. The native host
+      // reconnects on wake and apply() updates the port promptly.
       const pm2 = new FirefoxProxyManager();
       const restored = await pm2.restoreFromStorage();
       expect(restored).toBe(true);
@@ -305,18 +309,41 @@ describe("FirefoxProxyManager", () => {
       expect(resolveWoken("http://google.com").type).toBe("direct");
     });
 
-    it("before restoreFromStorage completes, listener returns direct", () => {
+    it("listener defers to restore promise during wake, proxies correctly", async () => {
+      // Populate storage from a previous session
+      pm.apply(baseState({ proxyPort: 3333 }));
+
+      // Simulate wake — new instance, listener registered before restore
+      const woken = new FirefoxProxyManager();
       const browserProxy = (globalThis as any).browser.proxy.onRequest;
+      browserProxy.addListener(woken.listener, { urls: ["<all_urls>"] });
 
-      // Entry point registers listener on a fresh instance (no config yet)
-      const fresh = new FirefoxProxyManager();
-      browserProxy.addListener(fresh.listener, { urls: ["<all_urls>"] });
+      // Start restore (but don't await — the listener should defer to it)
+      const restorePromise = woken.restoreFromStorage();
 
-      // Before restoreFromStorage() is called, everything routes direct
-      const resolve = (url: string) => (fresh as any).resolveProxy(url);
-      expect(resolve("http://100.64.0.5").type).toBe("direct");
-      expect(resolve("http://100.100.100.100").type).toBe("direct");
-      expect(resolve("http://my-server.example.ts.net").type).toBe("direct");
+      // The first request arrives before restore completes — listener should
+      // return a Promise, NOT a synchronous "direct"
+      const result = woken.listener({ url: "http://100.64.0.5" });
+      expect(result).toBeInstanceOf(Promise);
+
+      // The promise should resolve to the correct proxy info
+      const resolved = await result;
+      expect(resolved.type).toBe("socks");
+      expect((resolved as any).port).toBe(3333);
+
+      await restorePromise;
+    });
+
+    it("non-tailscale requests during deferred restore still go direct", async () => {
+      pm.apply(baseState({ proxyPort: 3333 }));
+
+      const woken = new FirefoxProxyManager();
+      const restorePromise = woken.restoreFromStorage();
+
+      const result = await woken.listener({ url: "http://google.com" });
+      expect(result.type).toBe("direct");
+
+      await restorePromise;
     });
   });
 
