@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1280px;
+    height: 800px;
+    background: #fafaf9;
+    font-family: 'Inter', -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(168,162,158,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(168,162,158,0.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .content {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+  }
+
+  .badge {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #a8a29e;
+    margin-bottom: 16px;
+    font-weight: 600;
+  }
+
+  h1 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 42px;
+    font-weight: 400;
+    color: #1c1917;
+    line-height: 1.15;
+    letter-spacing: -0.5px;
+    margin-bottom: 12px;
+  }
+
+  .subtitle {
+    font-size: 16px;
+    color: #78716c;
+    max-width: 500px;
+    margin: 0 auto 56px;
+    line-height: 1.6;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    max-width: 900px;
+  }
+
+  .card {
+    background: #fff;
+    border: 1px solid #e7e5e4;
+    border-radius: 8px;
+    padding: 28px 24px;
+    text-align: left;
+  }
+
+  .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1c1917;
+    margin-bottom: 8px;
+  }
+
+  .card-desc {
+    font-size: 12px;
+    color: #78716c;
+    line-height: 1.5;
+  }
+
+  .card-icon {
+    width: 32px;
+    height: 32px;
+    background: rgba(76,120,198,0.08);
+    border: 1px solid rgba(76,120,198,0.12);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 16px;
+    font-size: 16px;
+  }
+</style>
+</head>
+<body>
+  <div class="content">
+    <div class="badge">Everything you need</div>
+    <h1>Built for power users</h1>
+    <div class="subtitle">Six features that make tailnet management fast, safe, and effortless.</div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-icon">📋</div>
+        <div class="card-title">Quick Actions</div>
+        <div class="card-desc">Copy IPs, DNS names, open SSH, or send files to any peer in a single click. No more typing.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🌍</div>
+        <div class="card-title">Exit Node Switching</div>
+        <div class="card-desc">Pick an exit node by country, see suggestions, and switch instantly. Your choice persists across sessions.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🔒</div>
+        <div class="card-title">Safe & Private</div>
+        <div class="card-desc">Talks directly to your local Tailscale daemon. No servers, no tracking, no third-party access.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🏢</div>
+        <div class="card-title">Workspace Ready</div>
+        <div class="card-desc">Supports multiple profiles and tailnets. Switch between work and personal networks seamlessly.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">⚡</div>
+        <div class="card-title">Real-time Updates</div>
+        <div class="card-desc">Live peer status, health warnings, and connection state. Always know what's happening on your tailnet.</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🎨</div>
+        <div class="card-title">Native Interface</div>
+        <div class="card-desc">Follows Apple's Human Interface Guidelines with full light and dark mode support. Feels right at home.</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

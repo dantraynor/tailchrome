@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1280px;
+    height: 800px;
+    background: #fafaf9;
+    font-family: 'Inter', -apple-system, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+    gap: 80px;
+  }
+
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(168,162,158,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(168,162,158,0.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .left {
+    position: relative;
+    z-index: 1;
+    max-width: 400px;
+  }
+
+  .badge {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #a8a29e;
+    margin-bottom: 20px;
+    font-weight: 600;
+  }
+
+  h1 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 42px;
+    font-weight: 400;
+    color: #1c1917;
+    line-height: 1.15;
+    letter-spacing: -0.5px;
+    margin-bottom: 16px;
+  }
+
+  .desc {
+    font-size: 16px;
+    color: #78716c;
+    line-height: 1.6;
+    margin-bottom: 28px;
+  }
+
+  .features {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .feature {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: #57534e;
+    font-weight: 500;
+  }
+
+  .feature-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #4C78C6;
+    flex-shrink: 0;
+  }
+
+  /* Panel */
+  .panel {
+    position: relative;
+    z-index: 1;
+    width: 320px;
+    background: #fafaf9;
+    border: 1px solid #e7e5e4;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+    overflow: hidden;
+  }
+
+  .peer-header {
+    padding: 10px 16px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #a8a29e;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: flex;
+    justify-content: space-between;
+    background: #f5f5f4;
+    border-bottom: 1px solid #e7e5e4;
+  }
+
+  .peer {
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid #f0eeec;
+    background: #fff;
+  }
+  .peer.expanded {
+    background: #f5f5f4;
+  }
+
+  .peer-icon { font-size: 16px; }
+  .peer-info { flex: 1; }
+  .peer-name { font-size: 12px; font-weight: 500; color: #1c1917; }
+  .peer-meta {
+    font-size: 9px; color: #a8a29e;
+    display: flex; align-items: center; gap: 3px;
+  }
+  .od { width: 4px; height: 4px; border-radius: 50%; background: #34C759; }
+  .od-off { width: 4px; height: 4px; border-radius: 50%; background: #d6d3d1; }
+  .peer-ip {
+    font-size: 10px; color: #a8a29e;
+    font-family: 'SF Mono', Menlo, monospace;
+  }
+
+  .actions {
+    padding: 8px 16px 10px 48px;
+    background: #f5f5f4;
+    display: flex;
+    gap: 6px;
+    border-bottom: 1px solid #e7e5e4;
+  }
+
+  .action-btn {
+    padding: 5px 10px;
+    background: #fff;
+    border: 1px solid #e7e5e4;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 500;
+    color: #1c1917;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-family: 'Inter', sans-serif;
+  }
+  .action-btn .icon { font-size: 11px; }
+
+  .toast {
+    margin: 0 16px 12px;
+    margin-top: 8px;
+    background: #1c1917;
+    color: #fafaf9;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+  <div class="left">
+    <div class="badge">Peer Actions</div>
+    <h1>Work with your<br>devices, faster</h1>
+    <div class="desc">Expand any peer to copy IPs, grab DNS names, open SSH sessions, or initiate file transfers. No terminal required.</div>
+    <div class="features">
+      <div class="feature"><div class="feature-dot"></div> Copy Tailscale IP address</div>
+      <div class="feature"><div class="feature-dot"></div> Copy MagicDNS hostname</div>
+      <div class="feature"><div class="feature-dot"></div> Open SSH in terminal</div>
+      <div class="feature"><div class="feature-dot"></div> Send files via Taildrop</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="peer-header">
+      <span>Online</span>
+      <span>3</span>
+    </div>
+    <div class="peer">
+      <span class="peer-icon">💻</span>
+      <div class="peer-info">
+        <div class="peer-name">macbook-air</div>
+        <div class="peer-meta"><div class="od"></div> macOS</div>
+      </div>
+      <span class="peer-ip">100.64.1.12</span>
+    </div>
+    <div class="peer expanded">
+      <span class="peer-icon">🖥️</span>
+      <div class="peer-info">
+        <div class="peer-name">home-server</div>
+        <div class="peer-meta"><div class="od"></div> Linux</div>
+      </div>
+      <span class="peer-ip">100.64.1.8</span>
+    </div>
+    <div class="actions">
+      <div class="action-btn"><span class="icon">📋</span> Copy IP</div>
+      <div class="action-btn"><span class="icon">🔗</span> Copy DNS</div>
+      <div class="action-btn"><span class="icon">🖥</span> SSH</div>
+      <div class="action-btn"><span class="icon">📂</span> Send File</div>
+    </div>
+    <div class="peer">
+      <span class="peer-icon">📱</span>
+      <div class="peer-info">
+        <div class="peer-name">iphone-15</div>
+        <div class="peer-meta"><div class="od"></div> iOS</div>
+      </div>
+      <span class="peer-ip">100.64.1.20</span>
+    </div>
+    <div class="peer-header">
+      <span>Offline</span>
+      <span>1</span>
+    </div>
+    <div class="peer" style="opacity: 0.6;">
+      <span class="peer-icon">🪟</span>
+      <div class="peer-info">
+        <div class="peer-name">work-desktop</div>
+        <div class="peer-meta"><div class="od-off"></div> Windows · 3h ago</div>
+      </div>
+      <span class="peer-ip">100.64.1.35</span>
+    </div>
+    <div class="toast">IP address copied</div>
+  </div>
+</body>
+</html>

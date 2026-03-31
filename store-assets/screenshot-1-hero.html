@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1280px;
+    height: 800px;
+    background: #fafaf9;
+    font-family: 'Inter', -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    position: relative;
+  }
+
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(circle at 30% 40%, rgba(76,120,198,0.03) 0%, transparent 60%),
+      radial-gradient(circle at 70% 60%, rgba(52,199,89,0.03) 0%, transparent 60%),
+      linear-gradient(rgba(168,162,158,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(168,162,158,0.06) 1px, transparent 1px);
+    background-size: 100%, 100%, 40px 40px, 40px 40px;
+  }
+
+  .content {
+    text-align: center;
+    position: relative;
+    z-index: 1;
+  }
+
+  .badge {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #a8a29e;
+    margin-bottom: 24px;
+    font-weight: 600;
+  }
+
+  h1 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 56px;
+    font-weight: 400;
+    color: #1c1917;
+    line-height: 1.12;
+    letter-spacing: -1px;
+    margin-bottom: 20px;
+  }
+
+  .desc {
+    font-size: 18px;
+    color: #78716c;
+    max-width: 520px;
+    margin: 0 auto 40px;
+    line-height: 1.6;
+  }
+
+  .cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: #1c1917;
+    color: #fafaf9;
+    padding: 16px 36px;
+    border-radius: 6px;
+    font-size: 15px;
+    font-weight: 500;
+    font-family: 'Inter', sans-serif;
+    letter-spacing: -0.1px;
+    margin-bottom: 32px;
+  }
+
+  .cta svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .meta {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    flex-wrap: wrap;
+  }
+
+  .meta-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #a8a29e;
+    font-weight: 500;
+  }
+
+  .meta-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #d6d3d1;
+  }
+
+  /* Floating UI elements */
+  .float-popup {
+    position: absolute;
+    bottom: 80px;
+    right: 120px;
+    width: 240px;
+    background: #fafaf9;
+    border: 1px solid #e7e5e4;
+    border-radius: 8px;
+    padding: 14px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.06);
+    z-index: 2;
+    transform: rotate(2deg);
+  }
+
+  .float-popup .fp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .float-popup .fp-title {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: 13px;
+    color: #1c1917;
+  }
+
+  .float-popup .fp-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #34C759;
+  }
+
+  .float-popup .fp-peer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-top: 1px solid #f0eeec;
+  }
+
+  .float-popup .fp-peer-icon { font-size: 14px; }
+  .float-popup .fp-peer-name { font-size: 12px; font-weight: 500; color: #1c1917; flex: 1; }
+  .float-popup .fp-peer-ip { font-size: 10px; color: #a8a29e; font-family: 'SF Mono', Menlo, monospace; }
+
+  .float-filter {
+    position: absolute;
+    top: 80px;
+    left: 100px;
+    width: 200px;
+    background: #fafaf9;
+    border: 1px solid #e7e5e4;
+    border-radius: 8px;
+    padding: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.06);
+    z-index: 2;
+    transform: rotate(-3deg);
+  }
+
+  .float-filter .ff-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #a8a29e;
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+
+  .float-filter .ff-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #1c1917;
+    font-weight: 500;
+  }
+
+  .ff-toggle {
+    width: 28px;
+    height: 16px;
+    background: #34C759;
+    border-radius: 8px;
+    position: relative;
+  }
+  .ff-toggle .knob {
+    width: 12px;
+    height: 12px;
+    background: #fff;
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    box-shadow: 0 0.5px 1px rgba(0,0,0,0.15);
+  }
+
+  .float-logo {
+    position: absolute;
+    top: 100px;
+    right: 140px;
+    width: 40px;
+    height: 40px;
+    background: #f5f5f4;
+    border: 1px solid #e7e5e4;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    transform: rotate(5deg);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.04);
+  }
+
+  .logo-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 4px);
+    gap: 2px;
+  }
+  .logo-dot { width: 4px; height: 4px; border-radius: 50%; background: #1c1917; }
+  .logo-dot.dim { opacity: 0.3; }
+  .logo-dot.mid { opacity: 0.6; }
+</style>
+</head>
+<body>
+  <div class="float-filter">
+    <div class="ff-label">MagicDNS</div>
+    <div class="ff-row">
+      <span>Enabled</span>
+      <div class="ff-toggle"><div class="knob"></div></div>
+    </div>
+  </div>
+
+  <div class="float-logo">
+    <div class="logo-grid">
+      <div class="logo-dot dim"></div>
+      <div class="logo-dot"></div>
+      <div class="logo-dot mid"></div>
+      <div class="logo-dot"></div>
+      <div class="logo-dot mid"></div>
+      <div class="logo-dot dim"></div>
+      <div class="logo-dot mid"></div>
+      <div class="logo-dot dim"></div>
+      <div class="logo-dot"></div>
+    </div>
+  </div>
+
+  <div class="float-popup">
+    <div class="fp-header">
+      <span class="fp-title">Online Peers</span>
+      <span class="fp-dot"></span>
+    </div>
+    <div class="fp-peer">
+      <span class="fp-peer-icon">💻</span>
+      <span class="fp-peer-name">macbook-air</span>
+      <span class="fp-peer-ip">100.64.1.12</span>
+    </div>
+    <div class="fp-peer">
+      <span class="fp-peer-icon">🖥️</span>
+      <span class="fp-peer-name">home-server</span>
+      <span class="fp-peer-ip">100.64.1.8</span>
+    </div>
+    <div class="fp-peer">
+      <span class="fp-peer-icon">📱</span>
+      <span class="fp-peer-name">iphone-15</span>
+      <span class="fp-peer-ip">100.64.1.20</span>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="badge">Tailchrome</div>
+    <h1>Your tailnet,<br>one click away.</h1>
+    <div class="desc">Manage your Tailscale network directly from Chrome's toolbar. See peers, switch exit nodes, and copy IPs in seconds.</div>
+    <div class="cta">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Add to Chrome — Free
+    </div>
+    <div class="meta">
+      <span class="meta-item"><span class="meta-dot"></span> Native Tailscale CLI</span>
+      <span class="meta-item"><span class="meta-dot"></span> macOS, Linux & Windows</span>
+      <span class="meta-item"><span class="meta-dot"></span> Light & Dark Mode</span>
+      <span class="meta-item"><span class="meta-dot"></span> Free & Open Source</span>
+    </div>
+  </div>
+</body>
+</html>
