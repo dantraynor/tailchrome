@@ -185,7 +185,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   // --- Peer List ---
   const peerContainer = document.createElement("div");
-  renderPeerList(peerContainer, state.peers);
+  renderPeerList(peerContainer, state.peers, { magicDNS: state.prefs?.corpDNS ?? true });
   view.appendChild(peerContainer);
 
   // --- Footer ---

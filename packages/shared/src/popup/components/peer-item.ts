@@ -46,10 +46,15 @@ export function formatRelativeTime(isoDate: string | null): string {
   return "long ago";
 }
 
+export interface PeerItemOptions {
+  /** When true, MagicDNS is enabled and DNS names can be used to reach peers. */
+  magicDNS?: boolean;
+}
+
 /**
  * Creates a single peer item row element with expandable actions.
  */
-export function createPeerItem(peer: PeerInfo): HTMLElement {
+export function createPeerItem(peer: PeerInfo, options: PeerItemOptions = {}): HTMLElement {
   const container = document.createElement("div");
   container.className = "peer-item-container";
 
@@ -93,10 +98,11 @@ export function createPeerItem(peer: PeerInfo): HTMLElement {
   info.appendChild(name);
   info.appendChild(meta);
 
-  // IP display
+  // Address display
   const ip = document.createElement("div");
   ip.className = "peer-ip";
   const firstIP = peer.tailscaleIPs[0];
+  const shortDNS = peer.dnsName ? peer.dnsName.replace(/\.$/, "") : "";
   ip.textContent = firstIP ? escapeHTML(firstIP) : "";
 
   row.appendChild(icon);
@@ -122,10 +128,13 @@ export function createPeerItem(peer: PeerInfo): HTMLElement {
     }));
   }
 
-  if (peer.online && firstIP) {
-    actions.appendChild(createActionButton("Open", () => {
-      chrome.tabs.create({ url: `http://${firstIP}/` });
-    }));
+  if (peer.online) {
+    const openTarget = (options.magicDNS && shortDNS) || firstIP;
+    if (openTarget) {
+      actions.appendChild(createActionButton("Open", () => {
+        chrome.tabs.create({ url: `http://${openTarget}/` });
+      }));
+    }
   }
 
   if (peer.sshHost && peer.online) {
