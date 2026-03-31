@@ -3,6 +3,7 @@ import {
   RECONNECT_BASE_MS,
   RECONNECT_MAX_MS,
 } from "../constants";
+import { DefaultTimerService, type TimerService } from "./timer-service";
 
 export type NativeMessageHandler = (msg: NativeReply) => void;
 export type NativeStateChangeHandler = (connected: boolean) => void;
@@ -11,24 +12,24 @@ export class NativeHostConnection {
   private port: chrome.runtime.Port | null = null;
   private profileID: string | null = null;
   private reconnectDelay: number = RECONNECT_BASE_MS;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalDisconnect = false;
   private connectedNotified = false;
+  private timerService: TimerService;
 
   constructor(
     private nativeHostId: string,
     private onMessage: NativeMessageHandler,
-    private onStateChange: NativeStateChangeHandler
-  ) {}
+    private onStateChange: NativeStateChangeHandler,
+    timerService?: TimerService,
+  ) {
+    this.timerService = timerService ?? new DefaultTimerService();
+  }
 
   async connect(): Promise<void> {
     this.intentionalDisconnect = false;
 
     // Cancel any pending reconnect to avoid overlapping connect calls
-    if (this.reconnectTimer !== null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+    this.timerService.clear("reconnect");
 
     // Clean up any existing port
     if (this.port) {
@@ -54,10 +55,7 @@ export class NativeHostConnection {
 
   disconnect(): void {
     this.intentionalDisconnect = true;
-    if (this.reconnectTimer !== null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+    this.timerService.clear("reconnect");
     if (this.port) {
       this.port.disconnect();
       this.port = null;
@@ -134,20 +132,16 @@ export class NativeHostConnection {
   }
 
   private backoffAndReconnect(): void {
-    if (this.reconnectTimer !== null) {
-      return;
-    }
+    const delay = this.reconnectDelay;
 
     console.log(
-      `[NativeHost] Reconnecting in ${this.reconnectDelay}ms...`
+      `[NativeHost] Reconnecting in ${delay}ms...`
     );
 
-    const delay = this.reconnectDelay;
     // Apply exponential backoff for next attempt
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
 
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
+    this.timerService.setTimeout("reconnect", () => {
       this.connect().catch((err) => {
         console.error("[NativeHost] Reconnect failed:", err);
         this.backoffAndReconnect();

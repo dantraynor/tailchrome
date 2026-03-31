@@ -9,6 +9,7 @@ import { KEEPALIVE_INTERVAL_MS, ADMIN_URL, TAILSCALE_SERVICE_IP } from "../const
 import { StateStore } from "./state-store";
 import { NativeHostConnection } from "./native-host";
 import { BadgeManager } from "./badge-manager";
+import { DefaultTimerService, type TimerService } from "./timer-service";
 
 export type { ProxyManager };
 
@@ -44,10 +45,16 @@ function isValidLoginURL(url: string): boolean {
 // Main initialization
 // ---------------------------------------------------------------------------
 
+export interface InitBackgroundOptions {
+  timerService?: TimerService;
+}
+
 export function initBackground(
   proxyManager: ProxyManager,
   nativeHostId: string,
+  options?: InitBackgroundOptions,
 ): BackgroundHandle {
+  const timerService = options?.timerService ?? new DefaultTimerService();
   const store = new StateStore();
   const badgeManager = new BadgeManager();
 
@@ -228,7 +235,8 @@ export function initBackground(
   const nativeHost = new NativeHostConnection(
     nativeHostId,
     handleNativeMessage,
-    handleNativeStateChange
+    handleNativeStateChange,
+    timerService,
   );
 
   // Start the connection
@@ -393,7 +401,7 @@ export function initBackground(
   // Keepalive: ping native host periodically to keep service worker alive
   // ---------------------------------------------------------------------------
 
-  setInterval(() => {
+  timerService.setInterval("keepalive", () => {
     if (store.getState().hostConnected) {
       nativeHost.send({ cmd: "ping" });
     }

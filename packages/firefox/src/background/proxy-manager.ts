@@ -10,21 +10,25 @@ import {
   CGNAT_MASK,
 } from "@tailchrome/shared/background/proxy-utils";
 
-/**
- * Firefox proxy manager using the browser.proxy.onRequest API.
- *
- * Unlike Chrome's PAC script approach, Firefox uses a listener-based model
- * where each request triggers a callback that returns proxy info.
- */
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-interface FirefoxProxyInfo {
+export interface FirefoxProxyInfo {
   type: "socks" | "direct";
   host?: string;
   port?: number;
   proxyDNS?: boolean;
 }
 
-// Firefox provides `browser.proxy` which is not in @types/chrome.
+export interface PersistedProxyConfig {
+  proxyPort: number;
+  magicDNSSuffix: string;
+  exitNodeActive: boolean;
+  subnetRanges: Array<{ network: number; mask: number }>;
+}
+
+// Firefox provides `browser.*` APIs which are not in @types/chrome.
 // We declare the minimal interface we need.
 declare const browser: {
   proxy: {
@@ -41,101 +45,119 @@ declare const browser: {
       ): boolean;
     };
   };
+  storage: {
+    session: {
+      get(key: string): Promise<Record<string, unknown>>;
+      set(items: Record<string, unknown>): Promise<void>;
+      remove(key: string): Promise<void>;
+    };
+  };
 };
 
-export class FirefoxProxyManager {
-  private currentlyEnabled = false;
-  private proxyPort: number = 0;
-  private magicDNSSuffix: string = "";
-  private exitNodeActive: boolean = false;
-  private subnetRanges: Array<{ network: number; mask: number }> = [];
+// ---------------------------------------------------------------------------
+// Pure proxy resolution function
+// ---------------------------------------------------------------------------
 
-  private listener = (details: { url: string }): FirefoxProxyInfo => {
-    return this.resolveProxy(details.url);
+/**
+ * Determine whether a URL should be proxied through Tailscale.
+ * This is a pure function so it can be used both by the top-level
+ * browser.proxy.onRequest listener and by FirefoxProxyManager.
+ */
+export function resolveProxy(
+  url: string,
+  config: PersistedProxyConfig,
+): FirefoxProxyInfo {
+  const direct: FirefoxProxyInfo = { type: "direct" };
+  const proxy: FirefoxProxyInfo = {
+    type: "socks",
+    host: "127.0.0.1",
+    port: config.proxyPort,
+    proxyDNS: true,
   };
+
+  let host: string;
+  try {
+    host = new URL(url).hostname;
+  } catch {
+    return direct;
+  }
+
+  // Always proxy Tailscale service IP
+  if (host === TAILSCALE_SERVICE_IP) return proxy;
+
+  // Proxy all Tailscale CGNAT IPs (100.64.0.0/10)
+  const hostNum = ipToNum(host);
+  if (hostNum !== null && (hostNum & CGNAT_MASK) === CGNAT_NETWORK) {
+    return proxy;
+  }
+
+  // Proxy MagicDNS names
+  if (
+    config.magicDNSSuffix &&
+    (host === config.magicDNSSuffix ||
+      host.endsWith("." + config.magicDNSSuffix))
+  ) {
+    return proxy;
+  }
+
+  // Proxy subnet router ranges
+  if (hostNum !== null) {
+    for (const range of config.subnetRanges) {
+      if ((hostNum & range.mask) === (range.network & range.mask)) {
+        return proxy;
+      }
+    }
+  }
+
+  // If exit node is active, proxy ALL traffic
+  if (config.exitNodeActive) return proxy;
+
+  return direct;
+}
+
+// ---------------------------------------------------------------------------
+// Firefox proxy manager
+// ---------------------------------------------------------------------------
+
+/**
+ * Firefox proxy manager that persists proxy config to browser.storage.session
+ * and updates an in-memory config ref for the top-level proxy.onRequest listener.
+ *
+ * The listener itself is registered at the top level of the background script
+ * (index.ts) so it survives event page suspension. This class only manages
+ * the config state that the listener reads.
+ */
+export class FirefoxProxyManager {
+  constructor(
+    private setConfig: (config: PersistedProxyConfig | null) => void,
+  ) {}
 
   apply(state: TailscaleState): void {
     if (!shouldProxyState(state)) {
-      if (this.currentlyEnabled) {
-        this.clear();
-      }
+      // Always clear — after an event page wake the in-memory `enabled` flag
+      // resets to false, but restored session storage config may still be active.
+      this.clear();
       return;
     }
 
-    // Update routing state
-    this.proxyPort = state.proxyPort!;
-    this.exitNodeActive = state.exitNode !== null;
+    const config: PersistedProxyConfig = {
+      proxyPort: state.proxyPort!,
+      exitNodeActive: state.exitNode !== null,
+      magicDNSSuffix: sanitizeMagicDNSSuffix(state.magicDNSSuffix),
+      subnetRanges: collectSubnetCIDRs(state.peers)
+        .map((cidr) => parseCIDR(cidr))
+        .filter((r): r is { network: number; mask: number } => r !== null),
+    };
 
-    // Sanitize MagicDNS suffix
-    this.magicDNSSuffix = sanitizeMagicDNSSuffix(state.magicDNSSuffix);
+    // Update in-memory config for the top-level listener
+    this.setConfig(config);
 
-    // Collect subnet routes
-    this.subnetRanges = collectSubnetCIDRs(state.peers)
-      .map((cidr) => parseCIDR(cidr))
-      .filter((r): r is { network: number; mask: number } => r !== null);
-
-    // Register the listener if not already active
-    if (!this.currentlyEnabled) {
-      browser.proxy.onRequest.addListener(
-        this.listener,
-        { urls: ["<all_urls>"] },
-      );
-      this.currentlyEnabled = true;
-    }
+    // Persist to session storage so config survives event page suspension
+    browser.storage.session.set({ proxyConfig: config });
   }
 
   clear(): void {
-    if (this.currentlyEnabled) {
-      browser.proxy.onRequest.removeListener(this.listener);
-      this.currentlyEnabled = false;
-    }
-  }
-
-  private resolveProxy(url: string): FirefoxProxyInfo {
-    const direct: FirefoxProxyInfo = { type: "direct" };
-    const proxy: FirefoxProxyInfo = {
-      type: "socks",
-      host: "127.0.0.1",
-      port: this.proxyPort,
-      proxyDNS: true,
-    };
-
-    let host: string;
-    try {
-      host = new URL(url).hostname;
-    } catch {
-      return direct;
-    }
-
-    // Always proxy Tailscale service IP
-    if (host === TAILSCALE_SERVICE_IP) return proxy;
-
-    // Proxy all Tailscale CGNAT IPs (100.64.0.0/10)
-    const hostNum = ipToNum(host);
-    if (hostNum !== null && (hostNum & CGNAT_MASK) === CGNAT_NETWORK) {
-      return proxy;
-    }
-
-    // Proxy MagicDNS names
-    if (
-      this.magicDNSSuffix &&
-      (host === this.magicDNSSuffix || host.endsWith("." + this.magicDNSSuffix))
-    ) {
-      return proxy;
-    }
-
-    // Proxy subnet router ranges
-    if (hostNum !== null) {
-      for (const range of this.subnetRanges) {
-        if ((hostNum & range.mask) === (range.network & range.mask)) {
-          return proxy;
-        }
-      }
-    }
-
-    // If exit node is active, proxy ALL traffic
-    if (this.exitNodeActive) return proxy;
-
-    return direct;
+    this.setConfig(null);
+    browser.storage.session.remove("proxyConfig");
   }
 }
