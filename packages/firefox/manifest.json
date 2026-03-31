@@ -5,7 +5,7 @@
   "description": "Access your tailnet from your browser. Run a full Tailscale node per browser profile without affecting system networking.",
   "browser_specific_settings": {
     "gecko": {
-      "id": "tailchrome@tailscale.com",
+      "id": "tailchrome@tesseras.org",
       "strict_min_version": "109.0"
     }
   },

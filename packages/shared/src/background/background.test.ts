@@ -79,7 +79,7 @@ describe("initBackground", () => {
     } as unknown as chrome.runtime.ExtensionConnectEvent;
     chrome.runtime.onInstalled = {
       addListener: vi.fn(),
-    } as unknown as chrome.runtime.InstalledEvent;
+    } as unknown as chrome.events.Event<(details: chrome.runtime.InstalledDetails) => void>;
     chrome.contextMenus = {
       create: vi.fn(),
       onClicked: { addListener: vi.fn() },

@@ -43,7 +43,7 @@ describe("NativeHostConnection", () => {
     chrome.runtime.connectNative = connectNativeSpy as unknown as typeof chrome.runtime.connectNative;
     chrome.storage.local.get = storageGetSpy;
     chrome.storage.local.set = storageSetSpy;
-    chrome.runtime.lastError = null;
+    chrome.runtime.lastError = undefined;
 
     onMessage = vi.fn();
     onStateChange = vi.fn();
@@ -296,7 +296,7 @@ describe("NativeHostConnection", () => {
         error: { cmd: "connect", message: "install_error" },
       });
 
-      chrome.runtime.lastError = null;
+      chrome.runtime.lastError = undefined;
       vi.restoreAllMocks();
     });
 
@@ -308,7 +308,7 @@ describe("NativeHostConnection", () => {
       await conn.connect();
 
       // Firefox-style error via port.error
-      chrome.runtime.lastError = null;
+      chrome.runtime.lastError = undefined;
       const portWithError = {
         ...mockPort.port,
         error: { message: "No such native application com.tailscale.test" },

@@ -17,7 +17,7 @@ const manifestNameFirefox = "com.tailscale.browserext.firefox"
 const chromeWebStoreExtensionID = "bhfeceecialgilpedkoflminjgcjljll"
 
 // firefoxExtensionID is the gecko addon ID for the Firefox extension.
-const firefoxExtensionID = "tailchrome@tailscale.com"
+const firefoxExtensionID = "tailchrome@tesseras.org"
 
 // chromeManifest is the native messaging host manifest for Chrome.
 type nativeManifest struct {
