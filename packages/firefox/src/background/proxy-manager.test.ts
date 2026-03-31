@@ -189,8 +189,12 @@ describe("FirefoxProxyManager", () => {
       const pm2 = new FirefoxProxyManager();
       const restored = await pm2.restoreFromStorage();
       expect(restored).toBe(true);
-      expect((pm2 as any).proxyPort).toBe(5555);
+      // proxyPort stays at 0 — the stale port is not restored. Only routing
+      // config is restored so the listener knows which requests need proxying.
+      expect((pm2 as any).proxyPort).toBe(0);
       expect((pm2 as any).magicDNSSuffix).toBe("example.ts.net");
+      // A reconnect promise is created so requests wait for apply().
+      expect((pm2 as any).reconnectPromise).toBeInstanceOf(Promise);
     });
 
     it("restores exitNodeActive and subnetRanges", async () => {
@@ -246,33 +250,37 @@ describe("FirefoxProxyManager", () => {
       }));
 
       // Storage must survive for restoreFromStorage() on next wake.
-      //
-      // Trade-off: if the disconnect was a real host crash (not suspension),
-      // the restored port may be stale. This is intentional — requests to a
-      // dead SOCKS port produce a visible connection error, which is safer
-      // than silently routing Tailscale traffic direct. The native host
-      // reconnects on wake and apply() updates the port promptly.
+      // The restored config lets the listener know which requests need
+      // proxying; those requests wait on a reconnect promise until apply()
+      // delivers the fresh port from the new native host.
       const pm2 = new FirefoxProxyManager();
       const restored = await pm2.restoreFromStorage();
       expect(restored).toBe(true);
     });
 
-    it("routes correctly after restoring from storage", async () => {
+    it("routes correctly after restoring from storage and reconnecting", async () => {
       pm.apply(baseState({ proxyPort: 7777 }));
 
       const pm2 = new FirefoxProxyManager();
       await pm2.restoreFromStorage();
+
+      // Before apply(), proxyPort is 0 so resolveProxy returns direct.
+      const resolveBefore = (url: string) => (pm2 as any).resolveProxy(url);
+      expect(resolveBefore("http://100.64.0.5").type).toBe("direct");
+
+      // Simulate native host reconnecting with a fresh port.
+      pm2.apply(baseState({ proxyPort: 8888 }));
       const resolve = (url: string) => (pm2 as any).resolveProxy(url);
 
       expect(resolve("http://100.64.0.5").type).toBe("socks");
-      expect(resolve("http://100.64.0.5").port).toBe(7777);
+      expect(resolve("http://100.64.0.5").port).toBe(8888);
       expect(resolve("http://my-server.example.ts.net").type).toBe("socks");
       expect(resolve("http://google.com").type).toBe("direct");
     });
   });
 
   describe("suspend / wake lifecycle", () => {
-    it("full suspend/wake cycle: listener stays, state restores", async () => {
+    it("full suspend/wake cycle: listener stays, state restores after reconnect", async () => {
       const browserProxy = (globalThis as any).browser.proxy.onRequest;
 
       // 1. Entry point registers listener externally
@@ -302,14 +310,18 @@ describe("FirefoxProxyManager", () => {
       const restored = await woken.restoreFromStorage();
       expect(restored).toBe(true);
 
-      // Restored state routes correctly
+      // Before reconnect, proxyPort is 0 — resolveProxy returns direct
       const resolveWoken = (url: string) => (woken as any).resolveProxy(url);
+      expect(resolveWoken("http://100.64.0.5").type).toBe("direct");
+
+      // 5. Native host reconnects with a fresh port
+      woken.apply(baseState({ proxyPort: 5555 }));
       expect(resolveWoken("http://100.64.0.5").type).toBe("socks");
-      expect(resolveWoken("http://100.64.0.5").port).toBe(4444);
+      expect(resolveWoken("http://100.64.0.5").port).toBe(5555);
       expect(resolveWoken("http://google.com").type).toBe("direct");
     });
 
-    it("listener defers to restore promise during wake, proxies correctly", async () => {
+    it("listener defers to restore and reconnect promises during wake", async () => {
       // Populate storage from a previous session
       pm.apply(baseState({ proxyPort: 3333 }));
 
@@ -326,24 +338,32 @@ describe("FirefoxProxyManager", () => {
       const result = woken.listener({ url: "http://100.64.0.5" });
       expect(result).toBeInstanceOf(Promise);
 
-      // The promise should resolve to the correct proxy info
+      // Await restore, then simulate native host reconnecting with fresh port
+      await restorePromise;
+      woken.apply(baseState({ proxyPort: 4444 }));
+
+      // The deferred request should now resolve with the fresh port
       const resolved = await result;
       expect(resolved.type).toBe("socks");
-      expect((resolved as any).port).toBe(3333);
-
-      await restorePromise;
+      expect((resolved as any).port).toBe(4444);
     });
 
-    it("non-tailscale requests during deferred restore still go direct", async () => {
+    it("non-tailscale requests resolve direct after reconnect", async () => {
       pm.apply(baseState({ proxyPort: 3333 }));
 
       const woken = new FirefoxProxyManager();
       const restorePromise = woken.restoreFromStorage();
 
-      const result = await woken.listener({ url: "http://google.com" });
-      expect(result.type).toBe("direct");
+      // Non-tailscale request also waits — we can't know if an exit node is
+      // active until apply() is called.
+      const result = woken.listener({ url: "http://google.com" });
+      expect(result).toBeInstanceOf(Promise);
 
       await restorePromise;
+      woken.apply(baseState({ proxyPort: 4444 }));
+
+      const resolved = await result;
+      expect(resolved.type).toBe("direct");
     });
   });
 
