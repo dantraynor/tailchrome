@@ -12,8 +12,11 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.0.300",
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.27.4",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
+  },
+  "overrides": {
+    "picomatch": "^4.0.4"
   }
 }
