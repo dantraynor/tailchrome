@@ -1,0 +1,31 @@
+{
+  "name": "@tailchrome/extension",
+  "version": "0.1.5",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt --mv3",
+    "dev:firefox": "wxt -b firefox --mv3",
+    "build:chrome": "wxt build --mv3",
+    "build:firefox": "wxt build -b firefox --mv3",
+    "zip:chrome": "wxt zip --mv3",
+    "zip:firefox": "wxt zip -b firefox --mv3",
+    "lint:firefox": "wxt build -b firefox --mv3 && web-ext lint -s .output/firefox-mv3",
+    "submit": "wxt submit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf .output .wxt",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "@tailchrome/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.300",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "web-ext": "^10.1.0",
+    "wxt": "^0.20.20"
+  }
+}

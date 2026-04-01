@@ -50,37 +50,44 @@ They communicate over the browser's native messaging protocol.
 
 - Go 1.21+
 - Node.js / pnpm
-- macOS (native host currently targets Darwin)
+- Desktop Chrome or Firefox for manual extension testing
 
 ### Project Structure
 
 ```
-packages/
-  shared/     # Shared code (types, state management, UI, background logic)
-  chrome/     # Chrome-specific build (manifest, proxy manager)
-  firefox/    # Firefox-specific build (manifest, proxy manager)
+packages/extension/ # WXT app for Chrome and Firefox packaging/submission
+packages/shared/    # Shared code (types, state management, popup logic)
 host/         # Native messaging host (Go)
 ```
 
 ### Build
 
 ```
-make all              # build everything
-make extension        # both browser extensions
-make extension-chrome # Chrome extension only
-make extension-firefox # Firefox extension only
-make host             # native host only
-make dev              # Chrome extension watch mode
+pnpm build:chrome     # Chrome extension build
+pnpm build:firefox    # Firefox extension build
+pnpm zip:chrome       # chrome.zip
+pnpm zip:firefox      # firefox.zip + firefox-sources.zip
+pnpm lint:firefox     # AMO-style validation via web-ext lint
+make host             # native host for the current platform
+make host-all         # release host binaries for all supported targets
+make dev              # Chrome watch mode via WXT
 ```
 
-The Chrome extension is built to `packages/chrome/dist/`, Firefox to `packages/firefox/dist/`. The native host binary goes to `dist/tailscale-browser-ext`.
+The extension outputs land in `packages/extension/.output/`. The native host binaries land in `dist/`.
 
 ### Install for Development
 
-1. Build the extension and native host with `make all`
-2. **Chrome:** Go to `chrome://extensions`, enable Developer Mode, and load `packages/chrome/dist/` as an unpacked extension
-3. **Firefox:** Go to `about:debugging#/runtime/this-firefox` and load `packages/firefox/dist/manifest.json` as a temporary addon
-4. Install the native host by running the binary directly (it auto-installs for both browsers)
+1. Run `pnpm install --frozen-lockfile`
+2. Build the extension and native host with `pnpm build:chrome`, `pnpm build:firefox`, and `make host`
+3. **Chrome:** Go to `chrome://extensions`, enable Developer Mode, and load `packages/extension/.output/chrome-mv3/` as an unpacked extension
+4. **Firefox:** Go to `about:debugging#/runtime/this-firefox` and load `packages/extension/.output/firefox-mv3/manifest.json` as a temporary addon
+5. Install the native host by running the binary directly (it auto-installs for both browsers)
+
+## Release Pipeline
+
+- Pull requests run extension typecheck/tests, Chrome build, Firefox build, Firefox lint, and native-host builds in GitHub Actions.
+- Tagged releases (`v*`) build `chrome.zip`, `firefox.zip`, `firefox-sources.zip`, host binaries, and checksums, then attach them to the GitHub Release.
+- Store publication is driven from GitHub Actions with manual environment approvals before Chrome Web Store and AMO submission.
 
 ## Contributing
 

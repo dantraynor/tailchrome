@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+.output/
+.wxt/
 *.js.map
 *.tsbuildinfo
 

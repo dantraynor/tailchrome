@@ -1,0 +1,130 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing Git tag / GitHub Release to publish
+        required: true
+        type: string
+      targets:
+        description: Store targets to submit
+        required: true
+        type: choice
+        options:
+          - chrome
+          - firefox
+          - both
+
+permissions:
+  contents: read
+
+jobs:
+  submit-chrome:
+    if: ${{ inputs.targets == 'chrome' || inputs.targets == 'both' }}
+    runs-on: ubuntu-latest
+    environment: chrome-web-store
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm validate:ids
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh release download "${{ inputs.release_tag }}" --dir dist --pattern chrome.zip --pattern SHA256SUMS.txt
+      - name: Verify checksums
+        run: |
+          grep '  chrome.zip$' dist/SHA256SUMS.txt | (cd dist && sha256sum -c -)
+      - name: Submit to Chrome Web Store
+        env:
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+          pnpm --filter @tailchrome/extension submit -- \
+            --chrome-zip "$PWD/dist/chrome.zip" \
+            --chrome-extension-id "$CHROME_EXTENSION_ID" \
+            --chrome-client-id "$CHROME_CLIENT_ID" \
+            --chrome-client-secret "$CHROME_CLIENT_SECRET" \
+            --chrome-refresh-token "$CHROME_REFRESH_TOKEN" \
+            2>&1 | tee dist/chrome-submit.log
+      - name: Write workflow summary
+        run: |
+          {
+            echo "## Chrome Web Store Submission"
+            echo
+            echo "Release tag: \`${{ inputs.release_tag }}\`"
+            echo
+            echo '```'
+            cat dist/chrome-submit.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  submit-firefox:
+    if: ${{ inputs.targets == 'firefox' || inputs.targets == 'both' }}
+    runs-on: ubuntu-latest
+    environment: firefox-amo
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm validate:ids
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist/firefox-unpacked
+          gh release download "${{ inputs.release_tag }}" --dir dist --pattern firefox.zip --pattern firefox-sources.zip --pattern SHA256SUMS.txt
+          unzip -q dist/firefox.zip -d dist/firefox-unpacked
+      - name: Verify checksums
+        run: |
+          grep -E '  (firefox.zip|firefox-sources.zip)$' dist/SHA256SUMS.txt | (cd dist && sha256sum -c -)
+      - name: Validate Firefox publish gate
+        run: |
+          pnpm validate:firefox-publish -- \
+            --build-dir dist/firefox-unpacked \
+            --firefox-zip dist/firefox.zip \
+            --firefox-sources-zip dist/firefox-sources.zip
+      - name: Submit to AMO
+        env:
+          FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
+          FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
+          FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
+        run: |
+          set -euo pipefail
+          pnpm --filter @tailchrome/extension submit -- \
+            --firefox-zip "$PWD/dist/firefox.zip" \
+            --firefox-sources-zip "$PWD/dist/firefox-sources.zip" \
+            --firefox-extension-id "$FIREFOX_EXTENSION_ID" \
+            --firefox-jwt-issuer "$FIREFOX_JWT_ISSUER" \
+            --firefox-jwt-secret "$FIREFOX_JWT_SECRET" \
+            --firefox-channel listed \
+            2>&1 | tee dist/firefox-submit.log
+      - name: Write workflow summary
+        run: |
+          {
+            echo "## Firefox AMO Submission"
+            echo
+            echo "Release tag: \`${{ inputs.release_tag }}\`"
+            echo
+            echo '```'
+            cat dist/firefox-submit.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  extension-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: host/go.mod
+      - run: pnpm install --frozen-lockfile
+      - run: go mod download
+        working-directory: host
+      - run: pnpm validate:ids
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  build-chrome:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:chrome
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chrome-build
+          path: packages/extension/.output/chrome-mv3/
+
+  build-firefox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:firefox
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firefox-build
+          path: packages/extension/.output/firefox-mv3/
+
+  lint-firefox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:firefox
+      - run: pnpm lint:firefox
+
+  host-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: host/go.mod
+      - run: go mod download
+        working-directory: host
+      - run: make host-all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-binaries
+          path: |
+            dist/tailscale-browser-ext-darwin-amd64
+            dist/tailscale-browser-ext-darwin-arm64
+            dist/tailscale-browser-ext-linux-amd64
+            dist/tailscale-browser-ext-windows-amd64.exe

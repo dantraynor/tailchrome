@@ -8,10 +8,10 @@ all: extension host
 extension: extension-chrome extension-firefox
 
 extension-chrome:
-	cd packages/chrome && pnpm install && pnpm run build
+	pnpm build:chrome
 
 extension-firefox:
-	cd packages/firefox && pnpm install && pnpm run build
+	pnpm build:firefox
 
 host:
 	cd host && CGO_ENABLED=0 go build $(LDFLAGS) -o ../dist/tailscale-browser-ext .
@@ -25,15 +25,13 @@ host-all:
 zip: zip-chrome zip-firefox
 
 zip-chrome: extension-chrome
-	mkdir -p dist
-	cd packages/chrome/dist && zip -r ../../../dist/tailchrome-chrome-$(VERSION).zip .
+	pnpm zip:chrome
 
 zip-firefox: extension-firefox
-	mkdir -p dist
-	cd packages/firefox/dist && zip -r ../../../dist/tailchrome-firefox-$(VERSION).zip .
+	pnpm zip:firefox
 
 clean:
-	rm -rf dist/ packages/chrome/dist/ packages/firefox/dist/
+	pnpm clean
 
 dev:
-	cd packages/chrome && pnpm run watch
+	pnpm --filter @tailchrome/extension dev

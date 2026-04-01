@@ -17,20 +17,10 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Update package.json files
-for pkg in shared chrome firefox; do
-  FILE="$ROOT/packages/$pkg/package.json"
-  sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$FILE"
-  echo "Updated $FILE"
-done
-
-# Update manifest.json files
-for pkg in chrome firefox; do
-  FILE="$ROOT/packages/$pkg/manifest.json"
-  sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$FILE"
-  echo "Updated $FILE"
-done
+FILE="$ROOT/packages/extension/package.json"
+sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$FILE"
+echo "Updated $FILE"
 
 echo ""
-echo "Version updated to $VERSION in all 5 files."
+echo "Version updated to $VERSION in packages/extension/package.json."
 echo "Don't forget to commit and tag: git tag v$VERSION"

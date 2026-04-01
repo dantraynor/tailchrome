@@ -1,0 +1,10 @@
+{
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "types": ["chrome"],
+    "paths": {
+      "@tailchrome/shared/*": ["../shared/src/*"]
+    }
+  }
+}
