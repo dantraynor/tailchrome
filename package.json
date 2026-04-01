@@ -1,12 +1,19 @@
 {
   "private": true,
   "scripts": {
-    "build": "pnpm -r build",
-    "build:chrome": "pnpm --filter @tailchrome/chrome build",
-    "build:firefox": "pnpm --filter @tailchrome/firefox build",
+    "build": "pnpm build:chrome && pnpm build:firefox",
+    "build:chrome": "pnpm --filter @tailchrome/extension build:chrome",
+    "build:firefox": "pnpm --filter @tailchrome/extension build:firefox",
+    "zip": "pnpm zip:chrome && pnpm zip:firefox",
+    "zip:chrome": "pnpm --filter @tailchrome/extension zip:chrome",
+    "zip:firefox": "pnpm --filter @tailchrome/extension zip:firefox",
+    "lint:firefox": "pnpm --filter @tailchrome/extension lint:firefox",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "clean": "pnpm -r clean"
+    "validate:ids": "node ./scripts/validate-extension-ids.mjs",
+    "validate:firefox-publish": "node ./scripts/validate-firefox-publish.mjs",
+    "validate:release-tag": "node ./scripts/validate-release-tag.mjs",
+    "clean": "pnpm --filter @tailchrome/extension clean && rm -rf dist/"
   },
   "pnpm": {
     "overrides": {

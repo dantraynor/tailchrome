@@ -17,7 +17,8 @@ Thanks for your interest in contributing!
 
 ## Development
 
-- Chrome extension: `cd extension && pnpm install && pnpm dev`
+- Extension: `pnpm install --frozen-lockfile && pnpm --filter @tailchrome/extension dev`
+- Firefox dev build: `pnpm build:firefox && pnpm lint:firefox`
 - Native host: `cd host && go build ./...`
 - Test your changes in both Chrome and Firefox before submitting
 

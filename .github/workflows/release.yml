@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing tag to release, for example v0.1.5
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: host/go.mod
+      - run: pnpm install --frozen-lockfile
+      - run: go mod download
+        working-directory: host
+      - run: pnpm validate:ids
+      - run: pnpm validate:release-tag "$RELEASE_TAG"
+      - run: pnpm zip:chrome
+      - run: pnpm zip:firefox
+      - run: make host-all
+      - name: Verify Firefox source ZIP rebuild
+        run: |
+          set -euo pipefail
+          ORIGINAL_DIR="$RUNNER_TEMP/firefox-original"
+          SOURCE_DIR="$RUNNER_TEMP/firefox-source"
+          REBUILT_DIR="$RUNNER_TEMP/firefox-rebuilt"
+          rm -rf "$ORIGINAL_DIR" "$SOURCE_DIR" "$REBUILT_DIR"
+          mkdir -p "$ORIGINAL_DIR" "$SOURCE_DIR" "$REBUILT_DIR"
+          unzip -q packages/extension/.output/firefox.zip -d "$ORIGINAL_DIR"
+          unzip -q packages/extension/.output/firefox-sources.zip -d "$SOURCE_DIR"
+          pushd "$SOURCE_DIR" >/dev/null
+          pnpm install --frozen-lockfile
+          pnpm --filter @tailchrome/extension zip:firefox
+          unzip -q packages/extension/.output/firefox.zip -d "$REBUILT_DIR"
+          diff -qr "$ORIGINAL_DIR" "$REBUILT_DIR"
+          popd >/dev/null
+      - name: Collect release assets
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp packages/extension/.output/chrome.zip dist/chrome.zip
+          cp packages/extension/.output/firefox.zip dist/firefox.zip
+          cp packages/extension/.output/firefox-sources.zip dist/firefox-sources.zip
+          find dist -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > dist/SHA256SUMS.txt
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(find dist -maxdepth 1 -type f | sort)
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" --title "$RELEASE_TAG" --notes "Automated release for $RELEASE_TAG"
+          fi
+      - name: Write workflow summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo "## Release Assets"
+            echo
+            echo "Release: $(gh release view "$RELEASE_TAG" --json url --jq '.url')"
+            echo
+            echo '```'
+            find dist -maxdepth 1 -type f -printf '%f\n' | sort
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
