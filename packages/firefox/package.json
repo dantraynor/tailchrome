@@ -1,0 +1,22 @@
+{
+  "name": "@tailchrome/firefox",
+  "version": "0.1.5",
+  "private": true,
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "watch": "node esbuild.config.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist/"
+  },
+  "dependencies": {
+    "@tailchrome/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.300",
+    "esbuild": "^0.27.4",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}

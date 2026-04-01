@@ -1,0 +1,16 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r build",
+    "build:chrome": "pnpm --filter @tailchrome/chrome build",
+    "build:firefox": "pnpm --filter @tailchrome/firefox build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "clean": "pnpm -r clean"
+  },
+  "pnpm": {
+    "overrides": {
+      "picomatch": "^4.0.4"
+    }
+  }
+}

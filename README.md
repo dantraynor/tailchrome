@@ -1,11 +1,11 @@
 # Tailchrome
 
-Access your Tailscale network directly from Chrome. No system VPN required.
+Access your Tailscale network directly from your browser. No system VPN required.
 <img width="1400" height="560" alt="promo-marquee" src="https://github.com/user-attachments/assets/88f6953e-014c-4c35-aa44-d612786f6d17" />
 
 https://tesseras.org/tailchrome/ | [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
 
-Tailchrome runs a full Tailscale node per browser profile, without touching system networking. Tailnet traffic is routed through a local SOCKS5/HTTP proxy using a PAC script, so it works alongside (or without) the Tailscale system app.
+Tailchrome runs a full Tailscale node per browser profile, without touching system networking. Tailnet traffic is routed through a local SOCKS5/HTTP proxy, so it works alongside (or without) the Tailscale system app.
 
 <p align="center">
   <img src="tailchrome-popup-full.png" alt="Tailchrome popup" width="300">
@@ -13,7 +13,8 @@ Tailchrome runs a full Tailscale node per browser profile, without touching syst
 
 ## Features
 
-- **Per-profile isolation** — each Chrome profile gets its own independent Tailscale node and identity
+- **Chrome and Firefox** — works in both browsers with full feature parity
+- **Per-profile isolation** — each browser profile gets its own independent Tailscale node and identity
 - **Exit nodes** — route all browser traffic through any exit node on your tailnet
 - **MagicDNS** — access devices by name, not IP
 - **Subnet routing** — reach resources behind subnet routers
@@ -24,14 +25,22 @@ Tailchrome runs a full Tailscale node per browser profile, without touching syst
 
 The extension has two parts:
 
-- A **Chrome extension** (Manifest V3) that manages proxy configuration and provides the popup UI
+- A **browser extension** (Manifest V3, Chrome and Firefox) that manages proxy configuration and provides the popup UI
 - A **native host** (Go, using `tsnet`) that runs the actual Tailscale node and exposes a local proxy
 
-They communicate over Chrome's native messaging protocol.
+They communicate over the browser's native messaging protocol.
 
-## Install from the Chrome Web Store
+## Install
+
+### Chrome
 
 1. [Install Tailchrome](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) from the Chrome Web Store
+2. Click the extension icon and follow the prompts to install the native host
+3. Log in to your Tailscale account
+
+### Firefox
+
+1. Install Tailchrome from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest) (Firefox addon coming to AMO soon)
 2. Click the extension icon and follow the prompts to install the native host
 3. Log in to your Tailscale account
 
@@ -40,30 +49,38 @@ They communicate over Chrome's native messaging protocol.
 ### Requirements
 
 - Go 1.21+
-- Node.js / npm
+- Node.js / pnpm
 - macOS (native host currently targets Darwin)
+
+### Project Structure
+
+```
+packages/
+  shared/     # Shared code (types, state management, UI, background logic)
+  chrome/     # Chrome-specific build (manifest, proxy manager)
+  firefox/    # Firefox-specific build (manifest, proxy manager)
+host/         # Native messaging host (Go)
+```
 
 ### Build
 
 ```
-make all          # build everything
-make extension    # extension only
-make host         # native host only
-make dev          # extension watch mode
+make all              # build everything
+make extension        # both browser extensions
+make extension-chrome # Chrome extension only
+make extension-firefox # Firefox extension only
+make host             # native host only
+make dev              # Chrome extension watch mode
 ```
 
-The extension is built to `extension/dist/`. The native host binary goes to `dist/tailscale-browser-ext`.
+The Chrome extension is built to `packages/chrome/dist/`, Firefox to `packages/firefox/dist/`. The native host binary goes to `dist/tailscale-browser-ext`.
 
-### Install
+### Install for Development
 
 1. Build the extension and native host with `make all`
-2. Go to `chrome://extensions`, enable Developer Mode, and load `extension/dist/` as an unpacked extension
-3. Copy the extension ID Chrome assigns
-4. Install the native host:
-
-```
-./dist/tailscale-browser-ext --install=<extension-id>
-```
+2. **Chrome:** Go to `chrome://extensions`, enable Developer Mode, and load `packages/chrome/dist/` as an unpacked extension
+3. **Firefox:** Go to `about:debugging#/runtime/this-firefox` and load `packages/firefox/dist/manifest.json` as a temporary addon
+4. Install the native host by running the binary directly (it auto-installs for both browsers)
 
 ## Contributing
 

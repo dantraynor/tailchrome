@@ -91,6 +91,26 @@ func removeRegistryKey(baseKey registry.Key, path string) error {
 	return nil
 }
 
+// isBrowserInstalled checks whether a browser is present on the system.
+func isBrowserInstalled(browser string) bool {
+	switch browser {
+	case "chrome":
+		// Check common Chrome install location on Windows.
+		localAppData := os.Getenv("LOCALAPPDATA")
+		_, err := os.Stat(filepath.Join(localAppData, "Google", "Chrome", "Application", "chrome.exe"))
+		if err != nil {
+			progFiles := os.Getenv("PROGRAMFILES")
+			_, err = os.Stat(filepath.Join(progFiles, "Google", "Chrome", "Application", "chrome.exe"))
+		}
+		return err == nil
+	case "firefox":
+		progFiles := os.Getenv("PROGRAMFILES")
+		_, err := os.Stat(filepath.Join(progFiles, "Mozilla Firefox", "firefox.exe"))
+		return err == nil
+	}
+	return false
+}
+
 // ensureWindowsRegistryKeys creates the Windows registry keys for both
 // Chrome and Firefox after the manifest files have been written.
 func ensureWindowsRegistryKeys() error {
