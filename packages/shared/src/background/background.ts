@@ -273,11 +273,12 @@ export function initBackground(
 
     popupPorts.add(port);
 
-    // If we're in install error state, retry the native host connection
-    // in case the user just installed the helper
-    if (store.getState().installError) {
+    // If we're in install error or version mismatch state, retry the native
+    // host connection in case the user just installed or updated the helper
+    const currentState = store.getState();
+    if (currentState.installError || currentState.hostVersionMismatch) {
       nativeHost.connect().catch(() => {
-        // Still in install error state, popup will show needs-install
+        // Still in error state, popup will show needs-install or needs-update
       });
     }
 
