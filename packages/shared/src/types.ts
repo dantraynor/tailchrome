@@ -27,7 +27,7 @@ export type NativeRequest =
   | { cmd: "logout" };
 
 export interface NativeReply {
-  procRunning?: { port: number; pid: number; error?: string };
+  procRunning?: { port: number; pid: number; version?: string; error?: string };
   init?: { error?: string };
   pong?: Record<string, never>;
   status?: StatusUpdate;
@@ -166,6 +166,8 @@ export interface TailscaleState {
 
   error: string | null;
   installError: boolean;
+  hostVersion: string | null;
+  hostVersionMismatch: boolean;
 }
 
 // Messages from background to popup

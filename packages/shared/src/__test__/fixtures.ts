@@ -20,6 +20,8 @@ export function baseState(overrides: Partial<TailscaleState> = {}): TailscaleSta
     exitNodeSuggestion: null,
     error: null,
     installError: false,
+    hostVersion: null,
+    hostVersionMismatch: false,
     ...overrides,
   };
 }

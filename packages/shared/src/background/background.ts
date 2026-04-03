@@ -5,7 +5,7 @@ import type {
   PopupMessage,
   ProxyManager,
 } from "../types";
-import { KEEPALIVE_INTERVAL_MS, ADMIN_URL, TAILSCALE_SERVICE_IP } from "../constants";
+import { KEEPALIVE_INTERVAL_MS, ADMIN_URL, TAILSCALE_SERVICE_IP, EXPECTED_HOST_VERSION } from "../constants";
 import { StateStore } from "./state-store";
 import { NativeHostConnection } from "./native-host";
 import { BadgeManager } from "./badge-manager";
@@ -52,6 +52,21 @@ function isValidLoginURL(url: string): boolean {
   }
 }
 
+/**
+ * Returns true if the host version's major.minor doesn't match the expected version.
+ * Patch differences are tolerated. Missing or unparseable versions are treated as a mismatch.
+ */
+function isVersionMismatch(hostVersion: string | null): boolean {
+  if (!hostVersion) return true;
+  // Strip leading "v" if present
+  const host = hostVersion.replace(/^v/, "");
+  const expected = EXPECTED_HOST_VERSION.replace(/^v/, "");
+  const hostParts = host.split(".");
+  const expectedParts = expected.split(".");
+  if (hostParts.length < 2 || expectedParts.length < 2) return true;
+  return hostParts[0] !== expectedParts[0] || hostParts[1] !== expectedParts[1];
+}
+
 export function initBackground(
   proxyManager: ProxyManager,
   nativeHostId: string,
@@ -84,16 +99,21 @@ export function initBackground(
   function handleNativeMessage(msg: NativeReply): void {
     // Process running: the native host tells us which port to proxy through
     if (msg.procRunning) {
+      const hostVersion = msg.procRunning.version ?? null;
+      const hostVersionMismatch = isVersionMismatch(hostVersion);
+
       if (msg.procRunning.error) {
         console.error(
           "[Background] procRunning error:",
           msg.procRunning.error
         );
-        store.update({ error: msg.procRunning.error });
+        store.update({ error: msg.procRunning.error, hostVersion, hostVersionMismatch });
       } else {
         store.update({
           proxyPort: msg.procRunning.port,
           proxyEnabled: true,
+          hostVersion,
+          hostVersionMismatch,
         });
       }
     }
@@ -204,6 +224,8 @@ export function initBackground(
             proxyPort: null,
             proxyEnabled: false,
             backendState: "NoState" as const,
+            hostVersion: null,
+            hostVersionMismatch: false,
           }),
     });
   }
@@ -251,11 +273,12 @@ export function initBackground(
 
     popupPorts.add(port);
 
-    // If we're in install error state, retry the native host connection
-    // in case the user just installed the helper
-    if (store.getState().installError) {
+    // If we're in install error or version mismatch state, retry the native
+    // host connection in case the user just installed or updated the helper
+    const currentState = store.getState();
+    if (currentState.installError || currentState.hostVersionMismatch) {
       nativeHost.connect().catch(() => {
-        // Still in install error state, popup will show needs-install
+        // Still in error state, popup will show needs-install or needs-update
       });
     }
 
