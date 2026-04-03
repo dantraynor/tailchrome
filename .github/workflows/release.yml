@@ -65,9 +65,10 @@ jobs:
           cp packages/extension/.output/chrome.zip dist/chrome.zip
           cp packages/extension/.output/firefox.zip dist/firefox.zip
           cp packages/extension/.output/firefox-sources.zip dist/firefox-sources.zip
-          find dist -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -print0 \
-            | sort -z \
-            | xargs -0 sha256sum > dist/SHA256SUMS.txt
+          cd dist
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\n' \
+            | sort \
+            | xargs sha256sum > SHA256SUMS.txt
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
