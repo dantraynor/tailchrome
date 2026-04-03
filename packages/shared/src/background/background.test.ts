@@ -289,6 +289,138 @@ describe("initBackground", () => {
       expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "up" });
     });
 
+    it("sends info toast when toggle is clicked during Starting state", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "Starting",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: false,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "toggle" });
+
+      expect(nativePort.postMessage).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "toast",
+        message: "Tailscale is starting up\u2026",
+        level: "info",
+      });
+    });
+
+    it("sends info toast when toggle is clicked during NeedsLogin state", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "toggle" });
+
+      expect(nativePort.postMessage).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "toast",
+        message: "Please log in to Tailscale first.",
+        level: "info",
+      });
+    });
+
+    it("sends error toast when toggle is clicked during NeedsMachineAuth state", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsMachineAuth",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: false,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "toggle" });
+
+      expect(nativePort.postMessage).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "toast",
+        message: "This machine needs admin approval to join the tailnet.",
+        level: "error",
+      });
+    });
+
+    it("sends error toast when toggle is clicked during InUseOtherUser state", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "InUseOtherUser",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: false,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "toggle" });
+
+      expect(nativePort.postMessage).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "toast",
+        message: "Tailscale is in use by another user on this machine.",
+        level: "error",
+      });
+    });
+
     it("handles set-exit-node message", async () => {
       await setupBackground();
       nativePort.postMessage.mockClear();

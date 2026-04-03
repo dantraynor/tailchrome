@@ -46,6 +46,7 @@ export function sendMessage(msg: BackgroundMessage): void {
     port.postMessage(msg);
   } else {
     console.warn("[popup] Cannot send message, port not connected:", msg);
+    showToast("Connection lost. Please reopen the popup.", "error");
   }
 }
 
@@ -128,7 +129,7 @@ function render(state: TailscaleState): void {
       break;
     case "disconnected":
     default:
-      renderDisconnected(root);
+      renderDisconnected(root, state);
       break;
   }
 }

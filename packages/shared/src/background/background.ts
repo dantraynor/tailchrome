@@ -156,38 +156,23 @@ export function initBackground(
     // Exit node suggestion — store in state and show toast, do NOT auto-apply
     if (msg.exitNodeSuggestion) {
       store.update({ exitNodeSuggestion: msg.exitNodeSuggestion });
-      for (const port of popupPorts) {
-        try {
-          const popupMsg: PopupMessage = {
-            type: "toast",
-            message: `Suggested exit node: ${msg.exitNodeSuggestion.hostname}`,
-            level: "info",
-          };
-          port.postMessage(popupMsg);
-        } catch {
-          // Port may have disconnected
-        }
-      }
+      sendToastToPopup(
+        `Suggested exit node: ${msg.exitNodeSuggestion.hostname}`,
+        "info",
+      );
     }
 
     // File send progress
     if (msg.fileSendProgress) {
-      for (const port of popupPorts) {
-        try {
-          const popupMsg: PopupMessage = {
-            type: "toast",
-            message: msg.fileSendProgress.done
-              ? msg.fileSendProgress.error
-                ? `File send failed: ${msg.fileSendProgress.error}`
-                : `File "${msg.fileSendProgress.name}" sent successfully`
-              : `Sending "${msg.fileSendProgress.name}": ${msg.fileSendProgress.percent}%`,
-            level: msg.fileSendProgress.error ? "error" : "info",
-          };
-          port.postMessage(popupMsg);
-        } catch {
-          // Port may have disconnected
-        }
-      }
+      const message = msg.fileSendProgress.done
+        ? msg.fileSendProgress.error
+          ? `File send failed: ${msg.fileSendProgress.error}`
+          : `File "${msg.fileSendProgress.name}" sent successfully`
+        : `Sending "${msg.fileSendProgress.name}": ${msg.fileSendProgress.percent}%`;
+      sendToastToPopup(
+        message,
+        msg.fileSendProgress.error ? "error" : "info",
+      );
     }
 
     // Error from native host
@@ -200,19 +185,7 @@ export function initBackground(
           msg.error.message
         );
         store.update({ error: msg.error.message });
-        // Forward error to popup
-        for (const port of popupPorts) {
-          try {
-            const popupMsg: PopupMessage = {
-              type: "toast",
-              message: msg.error.message,
-              level: "error",
-            };
-            port.postMessage(popupMsg);
-          } catch {
-            // Port may have disconnected
-          }
-        }
+        sendToastToPopup(msg.error.message, "error");
       }
     }
   }
@@ -258,6 +231,17 @@ export function initBackground(
         port.postMessage(msg);
       } catch {
         popupPorts.delete(port);
+      }
+    }
+  }
+
+  function sendToastToPopup(message: string, level: "info" | "error"): void {
+    for (const port of popupPorts) {
+      try {
+        const popupMsg: PopupMessage = { type: "toast", message, level };
+        port.postMessage(popupMsg);
+      } catch {
+        // Port may have disconnected
       }
     }
   }
@@ -312,6 +296,14 @@ export function initBackground(
           state.backendState === "NoState"
         ) {
           nativeHost.send({ cmd: "up" });
+        } else if (state.backendState === "Starting") {
+          sendToastToPopup("Tailscale is starting up\u2026", "info");
+        } else if (state.backendState === "NeedsLogin") {
+          sendToastToPopup("Please log in to Tailscale first.", "info");
+        } else if (state.backendState === "NeedsMachineAuth") {
+          sendToastToPopup("This machine needs admin approval to join the tailnet.", "error");
+        } else if (state.backendState === "InUseOtherUser") {
+          sendToastToPopup("Tailscale is in use by another user on this machine.", "error");
         }
         break;
       }
