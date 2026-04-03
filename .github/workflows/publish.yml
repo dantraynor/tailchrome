@@ -52,12 +52,8 @@ jobs:
           CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
         run: |
           set -euo pipefail
-          pnpm --filter @tailchrome/extension submit -- \
+          pnpm wxt submit \
             --chrome-zip "$PWD/dist/chrome.zip" \
-            --chrome-extension-id "$CHROME_EXTENSION_ID" \
-            --chrome-client-id "$CHROME_CLIENT_ID" \
-            --chrome-client-secret "$CHROME_CLIENT_SECRET" \
-            --chrome-refresh-token "$CHROME_REFRESH_TOKEN" \
             2>&1 | tee dist/chrome-submit.log
       - name: Write workflow summary
         run: |
@@ -109,12 +105,9 @@ jobs:
           FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
         run: |
           set -euo pipefail
-          pnpm --filter @tailchrome/extension submit -- \
+          pnpm wxt submit \
             --firefox-zip "$PWD/dist/firefox.zip" \
             --firefox-sources-zip "$PWD/dist/firefox-sources.zip" \
-            --firefox-extension-id "$FIREFOX_EXTENSION_ID" \
-            --firefox-jwt-issuer "$FIREFOX_JWT_ISSUER" \
-            --firefox-jwt-secret "$FIREFOX_JWT_SECRET" \
             --firefox-channel listed \
             2>&1 | tee dist/firefox-submit.log
       - name: Write workflow summary
