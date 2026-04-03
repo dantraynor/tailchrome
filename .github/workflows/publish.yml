@@ -52,9 +52,11 @@ jobs:
           CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
         run: |
           set -euo pipefail
+          REPO_ROOT="$PWD"
+          cd packages/extension
           pnpm wxt submit \
-            --chrome-zip "$PWD/dist/chrome.zip" \
-            2>&1 | tee dist/chrome-submit.log
+            --chrome-zip "$REPO_ROOT/dist/chrome.zip" \
+            2>&1 | tee "$REPO_ROOT/dist/chrome-submit.log"
       - name: Write workflow summary
         run: |
           {
@@ -105,11 +107,13 @@ jobs:
           FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
         run: |
           set -euo pipefail
+          REPO_ROOT="$PWD"
+          cd packages/extension
           pnpm wxt submit \
-            --firefox-zip "$PWD/dist/firefox.zip" \
-            --firefox-sources-zip "$PWD/dist/firefox-sources.zip" \
+            --firefox-zip "$REPO_ROOT/dist/firefox.zip" \
+            --firefox-sources-zip "$REPO_ROOT/dist/firefox-sources.zip" \
             --firefox-channel listed \
-            2>&1 | tee dist/firefox-submit.log
+            2>&1 | tee "$REPO_ROOT/dist/firefox-submit.log"
       - name: Write workflow summary
         run: |
           {
