@@ -21,6 +21,10 @@ FILE="$ROOT/packages/extension/package.json"
 sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$FILE"
 echo "Updated $FILE"
 
+CONSTANTS="$ROOT/packages/shared/src/constants.ts"
+sed -i '' "s/EXPECTED_HOST_VERSION = \"[^\"]*\"/EXPECTED_HOST_VERSION = \"$VERSION\"/" "$CONSTANTS"
+echo "Updated $CONSTANTS"
+
 echo ""
-echo "Version updated to $VERSION in packages/extension/package.json."
+echo "Version updated to $VERSION in packages/extension/package.json and constants.ts."
 echo "Don't forget to commit and tag: git tag v$VERSION"

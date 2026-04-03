@@ -3,6 +3,7 @@ import { renderConnected } from "./views/connected";
 import { renderDisconnected } from "./views/disconnected";
 import { renderNeedsLogin } from "./views/needs-login";
 import { renderNeedsInstall } from "./views/needs-install";
+import { renderNeedsUpdate } from "./views/needs-update";
 import { showToast } from "./utils";
 import { loadCustomUrls } from "./custom-urls";
 
@@ -79,6 +80,7 @@ export function getLatestState(): TailscaleState | null {
  */
 export function viewForState(state: TailscaleState): string {
   if (state.installError) return "needs-install";
+  if (state.hostVersionMismatch) return "needs-update";
   if (state.backendState === "NeedsLogin") return "needs-login";
   if (state.backendState === "Running") return "connected";
   return "disconnected";
@@ -120,6 +122,9 @@ function render(state: TailscaleState): void {
   switch (view) {
     case "needs-install":
       renderNeedsInstall(root);
+      break;
+    case "needs-update":
+      renderNeedsUpdate(root, state.hostVersion);
       break;
     case "needs-login":
       renderNeedsLogin(root, state);
