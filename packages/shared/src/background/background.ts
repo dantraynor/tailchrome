@@ -290,12 +290,16 @@ export function initBackground(
     switch (msg.type) {
       case "toggle": {
         if (state.backendState === "Running") {
-          nativeHost.send({ cmd: "down" });
+          if (!nativeHost.send({ cmd: "down" })) {
+            sendToastToPopup("Could not reach Tailscale service. Please check that the native host is installed.", "error");
+          }
         } else if (
           state.backendState === "Stopped" ||
           state.backendState === "NoState"
         ) {
-          nativeHost.send({ cmd: "up" });
+          if (!nativeHost.send({ cmd: "up" })) {
+            sendToastToPopup("Could not reach Tailscale service. Please check that the native host is installed.", "error");
+          }
         } else if (state.backendState === "Starting") {
           sendToastToPopup("Tailscale is starting up\u2026", "info");
         } else if (state.backendState === "NeedsLogin") {
