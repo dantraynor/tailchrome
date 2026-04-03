@@ -1,5 +1,5 @@
 import type { PeerInfo } from "../../types";
-import { createPeerItem, type PeerItemOptions } from "./peer-item";
+import { createPeerItem } from "./peer-item";
 
 /**
  * Creates a section header element with label and optional count.
@@ -25,7 +25,7 @@ function createSectionHeader(label: string, count: number): HTMLElement {
  * Renders the peer list, grouped by online/offline status.
  * Online peers appear first, followed by offline peers.
  */
-export function renderPeerList(container: HTMLElement, peers: PeerInfo[], options: PeerItemOptions = {}): void {
+export function renderPeerList(container: HTMLElement, peers: PeerInfo[]): void {
   container.textContent = "";
 
   if (peers.length === 0) {
@@ -60,7 +60,7 @@ export function renderPeerList(container: HTMLElement, peers: PeerInfo[], option
     const list = document.createElement("div");
     list.className = "peer-list";
     for (const peer of online) {
-      list.appendChild(createPeerItem(peer, options));
+      list.appendChild(createPeerItem(peer));
     }
     container.appendChild(list);
   }
@@ -71,7 +71,7 @@ export function renderPeerList(container: HTMLElement, peers: PeerInfo[], option
     const list = document.createElement("div");
     list.className = "peer-list";
     for (const peer of offline) {
-      list.appendChild(createPeerItem(peer, options));
+      list.appendChild(createPeerItem(peer));
     }
     container.appendChild(list);
   }

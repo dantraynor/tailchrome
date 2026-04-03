@@ -47,15 +47,10 @@ export function formatRelativeTime(isoDate: string | null): string {
   return "long ago";
 }
 
-export interface PeerItemOptions {
-  /** When true, MagicDNS is enabled and DNS names can be used to reach peers. */
-  magicDNS?: boolean;
-}
-
 /**
  * Creates a single peer item row element with expandable actions.
  */
-export function createPeerItem(peer: PeerInfo, options: PeerItemOptions = {}): HTMLElement {
+export function createPeerItem(peer: PeerInfo): HTMLElement {
   const container = document.createElement("div");
   container.className = "peer-item-container";
 
@@ -134,7 +129,7 @@ export function createPeerItem(peer: PeerInfo, options: PeerItemOptions = {}): H
   let openBtn: HTMLElement | null = null;
 
   if (peer.online) {
-    openTarget = (options.magicDNS && shortDNS) || firstIP || undefined;
+    openTarget = shortDNS || firstIP || undefined;
     if (openTarget) {
       openBtn = createActionButton(openButtonLabel(getCustomUrl(peer.id)), () => {
         chrome.tabs.create({ url: resolveOpenUrl(openTarget!, getCustomUrl(peer.id)) });
