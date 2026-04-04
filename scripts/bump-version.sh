@@ -17,14 +17,18 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-FILE="$ROOT/packages/extension/package.json"
-sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$FILE"
-echo "Updated $FILE"
+EXTENSION_PKG="$ROOT/packages/extension/package.json"
+sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$EXTENSION_PKG"
+echo "Updated $EXTENSION_PKG"
+
+SHARED_PKG="$ROOT/packages/shared/package.json"
+sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$SHARED_PKG"
+echo "Updated $SHARED_PKG"
 
 CONSTANTS="$ROOT/packages/shared/src/constants.ts"
 sed -i '' "s/EXPECTED_HOST_VERSION = \"[^\"]*\"/EXPECTED_HOST_VERSION = \"$VERSION\"/" "$CONSTANTS"
 echo "Updated $CONSTANTS"
 
 echo ""
-echo "Version updated to $VERSION in packages/extension/package.json and constants.ts."
+echo "Version bumped to $VERSION."
 echo "Don't forget to commit and tag: git tag v$VERSION"
