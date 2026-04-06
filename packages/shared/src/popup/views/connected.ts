@@ -141,6 +141,22 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   shieldsRow.appendChild(shieldsToggle);
   settings.appendChild(shieldsRow);
 
+  // Run as Exit Node toggle
+  const exitAdRow = document.createElement("div");
+  exitAdRow.className = "setting-row";
+
+  const exitAdLabel = document.createElement("span");
+  exitAdLabel.className = "setting-label";
+  exitAdLabel.textContent = "Run as Exit Node";
+  exitAdRow.appendChild(exitAdLabel);
+
+  const advertisingExit = state.prefs?.advertiseExitNode ?? false;
+  const exitAdToggle = createToggle(advertisingExit, (checked) => {
+    sendMessage({ type: "set-pref", key: "advertiseExitNode", value: checked });
+  });
+  exitAdRow.appendChild(exitAdToggle);
+  settings.appendChild(exitAdRow);
+
   // MagicDNS toggle
   const dnsRow = document.createElement("div");
   dnsRow.className = "setting-row";
