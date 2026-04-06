@@ -342,6 +342,7 @@ func (h *Host) handleSetPrefs(req Request) {
 		WantRunning            *bool   `json:"wantRunning,omitempty"`
 		RunSSH                 *bool   `json:"runSSH,omitempty"`
 		Hostname               *string `json:"hostname,omitempty"`
+		AdvertiseExitNode      *bool   `json:"advertiseExitNode,omitempty"`
 	}
 	if err := json.Unmarshal(req.Prefs, &partial); err != nil {
 		h.sendError("set-prefs", fmt.Sprintf("invalid prefs JSON: %v", err))
@@ -380,6 +381,17 @@ func (h *Host) handleSetPrefs(req Request) {
 	if partial.Hostname != nil {
 		mp.HostnameSet = true
 		mp.Prefs.Hostname = *partial.Hostname
+	}
+	if partial.AdvertiseExitNode != nil {
+		// Read current prefs to preserve any existing subnet routes.
+		currentPrefs, err := h.lc.GetPrefs(context.Background())
+		if err != nil {
+			h.sendError("set-prefs", fmt.Sprintf("failed to get current prefs: %v", err))
+			return
+		}
+		currentPrefs.SetAdvertiseExitNode(*partial.AdvertiseExitNode)
+		mp.AdvertiseRoutesSet = true
+		mp.Prefs.AdvertiseRoutes = currentPrefs.AdvertiseRoutes
 	}
 
 	ctx := context.Background()
