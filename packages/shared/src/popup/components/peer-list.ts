@@ -1,6 +1,7 @@
 import type { PeerInfo } from "../../types";
 import { addListKeyboardNav } from "../utils";
 import { createPeerItem, peerDisplayKey, updatePeerItemText } from "./peer-item";
+import { iconSearch } from "../icons";
 
 /**
  * Filters peers by a search query, matching hostname, DNS name, and IP.
@@ -40,8 +41,8 @@ function renderEmptyState(container: HTMLElement): void {
   empty.className = "empty-state";
 
   const icon = document.createElement("div");
-  icon.className = "empty-state-icon";
-  icon.textContent = "\uD83D\uDD0D"; // magnifying glass
+  icon.className = "empty-state-icon icon icon-xl";
+  icon.appendChild(iconSearch());
 
   const title = document.createElement("div");
   title.className = "empty-state-title";
