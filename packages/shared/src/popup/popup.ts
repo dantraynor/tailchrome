@@ -1,5 +1,5 @@
 import type { TailscaleState, PopupMessage, BackgroundMessage } from "../types";
-import { renderConnected } from "./views/connected";
+import { renderConnected, updateConnected } from "./views/connected";
 import { renderDisconnected } from "./views/disconnected";
 import { renderNeedsLogin } from "./views/needs-login";
 import { renderNeedsInstall } from "./views/needs-install";
@@ -23,7 +23,7 @@ export function enterSubView(updater?: (state: TailscaleState) => void): void {
   subViewActive = true;
   deferredState = null;
   subViewUpdater = updater ?? null;
-  subViewSnapshot = null;
+  subViewVersion = -1;
 }
 
 /**
@@ -32,12 +32,12 @@ export function enterSubView(updater?: (state: TailscaleState) => void): void {
 export function leaveSubView(): void {
   subViewActive = false;
   subViewUpdater = null;
-  subViewSnapshot = null;
+  subViewVersion = -1;
   const state = deferredState ?? lastKnownState;
   deferredState = null;
   if (state) {
     currentView = null;
-    lastStateSnapshot = null;
+    lastStateVersion = -1;
     render(state);
   }
 }
@@ -55,15 +55,15 @@ export function sendMessage(msg: BackgroundMessage): void {
 
 /** Tracks which view is currently rendered to avoid unnecessary re-renders. */
 let currentView: string | null = null;
-/** Tracks a serialized snapshot of the last rendered state for the same view. */
-let lastStateSnapshot: string | null = null;
+/** Tracks the stateVersion of the last rendered state to cheaply skip redundant renders. */
+let lastStateVersion = -1;
 /** When a sub-view (exit nodes, profiles) is active, defer main re-renders until it closes. */
 let subViewActive = false;
 let deferredState: TailscaleState | null = null;
 /** Optional callback to live-update the active sub-view when new state arrives. */
 let subViewUpdater: ((state: TailscaleState) => void) | null = null;
-/** Snapshot of the last state sent to the sub-view updater, to skip redundant re-renders. */
-let subViewSnapshot: string | null = null;
+/** stateVersion of the last state sent to the sub-view updater. */
+let subViewVersion = -1;
 /** Last state passed to render(), so we can always re-render on sub-view exit. */
 let lastKnownState: TailscaleState | null = null;
 
@@ -98,27 +98,31 @@ function render(state: TailscaleState): void {
   // If a sub-view is active, live-update it or defer main re-render
   if (subViewActive) {
     deferredState = state;
-    if (subViewUpdater) {
-      const snap = JSON.stringify(state);
-      if (snap !== subViewSnapshot) {
-        subViewSnapshot = snap;
-        subViewUpdater(state);
-      }
+    if (subViewUpdater && state.stateVersion !== subViewVersion) {
+      subViewVersion = state.stateVersion;
+      subViewUpdater(state);
     }
     return;
   }
 
   const view = viewForState(state);
-  const snapshot = JSON.stringify(state);
 
-  // Skip re-render if same view and same state
-  if (view === currentView && snapshot === lastStateSnapshot) {
+  // Skip re-render if same view and same state version
+  if (view === currentView && state.stateVersion === lastStateVersion) {
     return;
   }
 
+  const isSameView = view === currentView;
   currentView = view;
-  lastStateSnapshot = snapshot;
+  lastStateVersion = state.stateVersion;
 
+  // For the connected view, use in-place patching when possible
+  if (view === "connected" && isSameView) {
+    updateConnected(root, state);
+    return;
+  }
+
+  // Full render for view transitions or simple views
   switch (view) {
     case "needs-install":
       renderNeedsInstall(root);
