@@ -1,3 +1,5 @@
+import { iconWarning, iconChevronDown, iconChevronUp } from "../icons";
+
 /**
  * Renders health warnings as a collapsible banner above the peer list.
  */
@@ -15,7 +17,10 @@ export function renderHealthWarnings(
 
   const icon = document.createElement("span");
   icon.className = "health-warnings-icon";
-  icon.textContent = "\u26A0";
+  const iconInner = document.createElement("span");
+  iconInner.className = "icon";
+  iconInner.appendChild(iconWarning());
+  icon.appendChild(iconInner);
 
   const label = document.createElement("span");
   label.className = "health-warnings-label";
@@ -29,6 +34,8 @@ export function renderHealthWarnings(
 
   const list = document.createElement("ul");
   list.className = "health-warnings-list";
+  const listId = "health-warnings-list";
+  list.id = listId;
 
   for (const warning of warnings) {
     const item = document.createElement("li");
@@ -39,19 +46,39 @@ export function renderHealthWarnings(
 
   // Toggle list visibility on header click
   let expanded = warnings.length <= 2;
-  list.style.display = expanded ? "block" : "none";
+  if (!expanded) {
+    list.classList.add("collapsed");
+  }
 
   if (warnings.length > 2) {
     const chevron = document.createElement("span");
     chevron.className = "health-warnings-chevron";
-    chevron.textContent = expanded ? "\u25B2" : "\u25BC";
-    header.appendChild(chevron);
+    const chevronIcon = document.createElement("span");
+    chevronIcon.className = "icon";
+    chevronIcon.appendChild(expanded ? iconChevronUp() : iconChevronDown());
+    chevron.appendChild(chevronIcon);
 
-    header.style.cursor = "pointer";
-    header.addEventListener("click", () => {
+    header.appendChild(chevron);
+    header.classList.add("health-warnings-header--clickable");
+    header.setAttribute("role", "button");
+    header.setAttribute("tabindex", "0");
+    header.setAttribute("aria-expanded", String(expanded));
+    header.setAttribute("aria-controls", listId);
+
+    const toggle = () => {
       expanded = !expanded;
-      list.style.display = expanded ? "block" : "none";
-      chevron.textContent = expanded ? "\u25B2" : "\u25BC";
+      list.classList.toggle("collapsed", !expanded);
+      chevronIcon.textContent = "";
+      chevronIcon.appendChild(expanded ? iconChevronUp() : iconChevronDown());
+      header.setAttribute("aria-expanded", String(expanded));
+    };
+
+    header.addEventListener("click", toggle);
+    header.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggle();
+      }
     });
   }
 
