@@ -1,6 +1,7 @@
 import type { TailscaleState, PeerInfo } from "../../types";
 import { addListKeyboardNav } from "../utils";
 import { sendMessage } from "../popup";
+import { iconArrowLeft } from "../icons";
 
 interface ExitNodeGroup {
   label: string;
@@ -33,7 +34,11 @@ export function renderExitNodes(
 
   const backBtn = document.createElement("button");
   backBtn.className = "btn btn-ghost";
-  backBtn.textContent = "\u2190 Back";
+  const backIcon = document.createElement("span");
+  backIcon.className = "icon icon-sm";
+  backIcon.appendChild(iconArrowLeft());
+  backBtn.appendChild(backIcon);
+  backBtn.appendChild(document.createTextNode(" Back"));
   backBtn.addEventListener("click", onBack);
   header.appendChild(backBtn);
 
