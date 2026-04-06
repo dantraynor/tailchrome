@@ -26,10 +26,23 @@ export async function copyToClipboard(text: string): Promise<void> {
   }
 }
 
+interface ToastOptions {
+  level?: "info" | "error";
+  /** If true, the toast stays visible until replaced by another toast. */
+  persistent?: boolean;
+}
+
 /**
- * Shows a transient toast notification at the bottom of the popup.
+ * Shows a toast notification at the bottom of the popup.
+ * By default, auto-dismisses after 2.5s. Pass persistent: true to keep it visible.
  */
-export function showToast(message: string, level: "info" | "error" = "info"): void {
+export function showToast(message: string, levelOrOptions: "info" | "error" | ToastOptions = "info"): void {
+  const opts: ToastOptions = typeof levelOrOptions === "string"
+    ? { level: levelOrOptions }
+    : levelOrOptions;
+  const level = opts.level ?? "info";
+  const persistent = opts.persistent ?? false;
+
   // Remove any existing toast
   const existing = document.querySelector(".toast");
   if (existing) {
@@ -37,14 +50,18 @@ export function showToast(message: string, level: "info" | "error" = "info"): vo
   }
 
   const toast = document.createElement("div");
-  toast.className = "toast" + (level === "error" ? " toast-error" : "");
+  toast.className = "toast"
+    + (level === "error" ? " toast-error" : "")
+    + (persistent ? " toast-persistent" : "");
   toast.textContent = message;
   document.body.appendChild(toast);
 
-  // Remove after animation completes
-  setTimeout(() => {
-    toast.remove();
-  }, 2500);
+  if (!persistent) {
+    // Remove after animation completes
+    setTimeout(() => {
+      toast.remove();
+    }, 2500);
+  }
 }
 
 /**
