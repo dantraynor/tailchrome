@@ -24,6 +24,7 @@ const DEFAULT_STATE: TailscaleState = {
   installError: false,
   hostVersion: null,
   hostVersionMismatch: false,
+  reconnecting: false,
 };
 
 export class StateStore {
