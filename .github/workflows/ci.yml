@@ -43,22 +43,6 @@ jobs:
           name: chrome-build
           path: packages/extension/.output/chrome-mv3/
 
-  build-firefox:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          package-manager-cache: false
-      - run: corepack enable
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build:firefox
-      - uses: actions/upload-artifact@v6
-        with:
-          name: firefox-build
-          path: packages/extension/.output/firefox-mv3/
-
   review-firefox:
     runs-on: ubuntu-latest
     steps:
@@ -70,6 +54,10 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm review:firefox
+      - uses: actions/upload-artifact@v6
+        with:
+          name: firefox-build
+          path: packages/extension/.output/firefox-mv3/
 
   host-build:
     runs-on: ubuntu-latest

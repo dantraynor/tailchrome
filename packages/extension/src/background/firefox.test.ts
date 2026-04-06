@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FIREFOX_NATIVE_HOST_ID } from "../constants";
 
 const mocks = vi.hoisted(() => ({
@@ -31,6 +31,18 @@ describe("startFirefoxBackground", () => {
   let alarmAddListener: ReturnType<typeof vi.fn>;
   let alarmsCreate: ReturnType<typeof vi.fn>;
   let alarmListener: ((alarm: { name: string }) => void) | null;
+  let originalBrowser: unknown;
+
+  const getBrowser = (): unknown =>
+    (globalThis as typeof globalThis & { browser?: unknown }).browser;
+
+  const setBrowser = (value: unknown) => {
+    Object.defineProperty(globalThis, "browser", {
+      value,
+      writable: true,
+      configurable: true,
+    });
+  };
 
   beforeEach(() => {
     proxyAddListener = vi.fn();
@@ -40,22 +52,19 @@ describe("startFirefoxBackground", () => {
     });
     alarmsCreate = vi.fn();
 
-    Object.defineProperty(globalThis, "browser", {
-      value: {
-        proxy: {
-          onRequest: {
-            addListener: proxyAddListener,
-          },
-        },
-        alarms: {
-          create: alarmsCreate,
-          onAlarm: {
-            addListener: alarmAddListener,
-          },
+    originalBrowser = getBrowser();
+    setBrowser({
+      proxy: {
+        onRequest: {
+          addListener: proxyAddListener,
         },
       },
-      writable: true,
-      configurable: true,
+      alarms: {
+        create: alarmsCreate,
+        onAlarm: {
+          addListener: alarmAddListener,
+        },
+      },
     });
 
     mocks.sendKeepalive.mockReset();
@@ -72,6 +81,10 @@ describe("startFirefoxBackground", () => {
       reconnect: vi.fn(),
       sendKeepalive: mocks.sendKeepalive,
     });
+  });
+
+  afterEach(() => {
+    setBrowser(originalBrowser);
   });
 
   it("registers the Firefox proxy and alarm listeners immediately", () => {
