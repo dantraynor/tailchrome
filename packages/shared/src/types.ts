@@ -144,6 +144,8 @@ export interface FileSendProgress {
 // === Extension internal state ===
 
 export interface TailscaleState {
+  /** Monotonically increasing counter, incremented on every state update. */
+  stateVersion: number;
   hostConnected: boolean;
   initialized: boolean;
   proxyPort: number | null;
@@ -168,12 +170,14 @@ export interface TailscaleState {
   installError: boolean;
   hostVersion: string | null;
   hostVersionMismatch: boolean;
+  /** True when the native host disconnected and reconnection is being attempted. */
+  reconnecting: boolean;
 }
 
 // Messages from background to popup
 export type PopupMessage =
   | { type: "state"; state: TailscaleState }
-  | { type: "toast"; message: string; level: "info" | "error" };
+  | { type: "toast"; message: string; level: "info" | "error"; persistent?: boolean };
 
 // Messages from popup to background
 export type BackgroundMessage =

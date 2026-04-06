@@ -319,6 +319,7 @@ describe("initBackground", () => {
         type: "toast",
         message: "Tailscale is starting up\u2026",
         level: "info",
+        persistent: false,
       });
     });
 
@@ -352,6 +353,7 @@ describe("initBackground", () => {
         type: "toast",
         message: "Please log in to Tailscale first.",
         level: "info",
+        persistent: false,
       });
     });
 
@@ -385,6 +387,7 @@ describe("initBackground", () => {
         type: "toast",
         message: "This machine needs admin approval to join the tailnet.",
         level: "error",
+        persistent: false,
       });
     });
 
@@ -418,6 +421,7 @@ describe("initBackground", () => {
         type: "toast",
         message: "Tailscale is in use by another user on this machine.",
         level: "error",
+        persistent: false,
       });
     });
 

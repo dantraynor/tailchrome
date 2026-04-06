@@ -109,6 +109,11 @@ function createProfileRow(
 
   if (!isCurrent) {
     row.addEventListener("click", () => {
+      // Show loading spinner for immediate feedback
+      const spinner = document.createElement("div");
+      spinner.className = "spinner spinner-sm";
+      row.appendChild(spinner);
+      row.classList.add("profile-row--current");
       sendMessage({ type: "switch-profile", profileID: profile.id });
     });
     row.style.cursor = "pointer";
