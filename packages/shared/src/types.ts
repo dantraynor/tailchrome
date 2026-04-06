@@ -114,6 +114,7 @@ export interface TailscalePrefs {
   exitNodeAllowLANAccess: boolean;
   corpDNS: boolean;
   shieldsUp: boolean;
+  advertiseExitNode: boolean;
 }
 
 export interface ProfileInfo {
