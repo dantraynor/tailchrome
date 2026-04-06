@@ -48,11 +48,49 @@ export function formatRelativeTime(isoDate: string | null): string {
 }
 
 /**
+ * Returns a string key representing the displayed fields of a peer.
+ * Used to detect whether a peer item needs updating.
+ */
+export function peerDisplayKey(peer: PeerInfo): string {
+  return `${peer.hostname}|${peer.online}|${peer.tailscaleIPs[0] ?? ""}|${peer.lastSeen ?? ""}|${peer.exitNode}|${peer.dnsName}`;
+}
+
+/**
+ * Updates the visible text content of an existing peer item container in place.
+ * Preserves expansion state and event listeners.
+ */
+export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void {
+  const nameEl = container.querySelector(".peer-name");
+  if (nameEl) nameEl.textContent = peer.hostname;
+
+  const metaEl = container.querySelector(".peer-meta");
+  if (metaEl) {
+    const dot = metaEl.querySelector(".status-dot");
+    if (dot) dot.className = "status-dot " + (peer.online ? "online" : "offline");
+    // Update the text node after the dot
+    const textSpan = metaEl.querySelectorAll("span");
+    if (textSpan.length >= 2) {
+      textSpan[1]!.textContent = peer.online ? "online" : formatRelativeTime(peer.lastSeen);
+    }
+  }
+
+  const ipEl = container.querySelector(".peer-ip");
+  if (ipEl) {
+    const firstIP = peer.tailscaleIPs[0];
+    ipEl.textContent = firstIP ? escapeHTML(firstIP) : "";
+  }
+
+  container.dataset.displayKey = peerDisplayKey(peer);
+}
+
+/**
  * Creates a single peer item row element with expandable actions.
  */
 export function createPeerItem(peer: PeerInfo): HTMLElement {
   const container = document.createElement("div");
   container.className = "peer-item-container";
+  container.dataset.peerId = peer.id;
+  container.dataset.displayKey = peerDisplayKey(peer);
 
   const row = document.createElement("div");
   row.className = "peer-item";
