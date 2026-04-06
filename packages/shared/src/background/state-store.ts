@@ -3,6 +3,7 @@ import type { TailscaleState, StatusUpdate, PeerInfo } from "../types";
 export type StateListener = (state: TailscaleState) => void;
 
 const DEFAULT_STATE: TailscaleState = {
+  stateVersion: 0,
   hostConnected: false,
   initialized: false,
   proxyPort: null,
@@ -23,6 +24,7 @@ const DEFAULT_STATE: TailscaleState = {
   installError: false,
   hostVersion: null,
   hostVersionMismatch: false,
+  reconnecting: false,
 };
 
 export class StateStore {
@@ -38,7 +40,7 @@ export class StateStore {
   }
 
   update(partial: Partial<TailscaleState>): void {
-    this.state = { ...this.state, ...partial };
+    this.state = { ...this.state, ...partial, stateVersion: this.state.stateVersion + 1 };
     this.notifyListeners();
   }
 
