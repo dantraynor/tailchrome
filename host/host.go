@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
@@ -382,9 +383,12 @@ func (h *Host) handleSetPrefs(req Request) {
 		mp.HostnameSet = true
 		mp.Prefs.Hostname = *partial.Hostname
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	if partial.AdvertiseExitNode != nil {
 		// Read current prefs to preserve any existing subnet routes.
-		currentPrefs, err := h.lc.GetPrefs(context.Background())
+		currentPrefs, err := h.lc.GetPrefs(ctx)
 		if err != nil {
 			h.sendError("set-prefs", fmt.Sprintf("failed to get current prefs: %v", err))
 			return
@@ -394,7 +398,6 @@ func (h *Host) handleSetPrefs(req Request) {
 		mp.Prefs.AdvertiseRoutes = currentPrefs.AdvertiseRoutes
 	}
 
-	ctx := context.Background()
 	_, err := h.lc.EditPrefs(ctx, mp)
 	if err != nil {
 		h.sendError("set-prefs", fmt.Sprintf("failed to set prefs: %v", err))
