@@ -144,6 +144,8 @@ export interface FileSendProgress {
 // === Extension internal state ===
 
 export interface TailscaleState {
+  /** Monotonically increasing counter, incremented on every state update. */
+  stateVersion: number;
   hostConnected: boolean;
   initialized: boolean;
   proxyPort: number | null;
