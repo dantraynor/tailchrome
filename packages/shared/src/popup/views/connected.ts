@@ -1,7 +1,7 @@
 import type { TailscaleState } from "../../types";
 import { ADMIN_URL } from "../../constants";
 import { renderHeader } from "../components/header";
-import { renderPeerList, updatePeerList } from "../components/peer-list";
+import { renderPeerList, updatePeerList, filterPeers } from "../components/peer-list";
 import { renderHealthWarnings } from "../components/health-warnings";
 import { createCopyButton } from "../utils";
 import { sendMessage, enterSubView, leaveSubView, getLatestState } from "../popup";
@@ -10,6 +10,11 @@ import { renderExitNodes } from "./exit-nodes";
 import { renderProfiles } from "./profiles";
 
 type SubViewRenderer = (root: HTMLElement, state: TailscaleState, onBack: () => void) => void;
+
+/** Persists the peer search query across state updates within the connected view. */
+let peerSearchQuery = "";
+
+const PEER_SEARCH_THRESHOLD = 6;
 
 function openSubView(root: HTMLElement, renderFn: SubViewRenderer): void {
   const currentState = getLatestState();
@@ -184,10 +189,35 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   view.appendChild(settings);
 
+  // --- Peer Search (only for larger peer lists) ---
+  const filteredPeers = filterPeers(state.peers, peerSearchQuery);
+  if (state.peers.length >= PEER_SEARCH_THRESHOLD) {
+    const searchContainer = document.createElement("div");
+    searchContainer.className = "peer-search-container";
+
+    const searchInput = document.createElement("input");
+    searchInput.type = "text";
+    searchInput.className = "peer-search";
+    searchInput.placeholder = "Search devices\u2026";
+    searchInput.value = peerSearchQuery;
+    searchInput.addEventListener("input", () => {
+      peerSearchQuery = searchInput.value;
+      const peerEl = view.querySelector<HTMLElement>(".peer-container");
+      if (peerEl) {
+        const latest = getLatestState();
+        if (latest) {
+          updatePeerList(peerEl, filterPeers(latest.peers, peerSearchQuery));
+        }
+      }
+    });
+    searchContainer.appendChild(searchInput);
+    view.appendChild(searchContainer);
+  }
+
   // --- Peer List ---
   const peerContainer = document.createElement("div");
   peerContainer.className = "peer-container";
-  renderPeerList(peerContainer, state.peers);
+  renderPeerList(peerContainer, filteredPeers);
   view.appendChild(peerContainer);
 
   // --- Footer ---
@@ -260,6 +290,15 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
   const view = root.querySelector(".view");
   if (!view) {
     // Fallback: full render if DOM structure is unexpected
+    renderConnected(root, state);
+    return;
+  }
+
+  // If peer count crossed the search threshold, fall back to full render
+  // so the search container is correctly added or removed.
+  const hasSearchBox = view.querySelector(".peer-search-container") !== null;
+  const shouldHaveSearchBox = state.peers.length >= PEER_SEARCH_THRESHOLD;
+  if (hasSearchBox !== shouldHaveSearchBox) {
     renderConnected(root, state);
     return;
   }
@@ -354,9 +393,9 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     }
   }
 
-  // --- Peer List (incremental) ---
+  // --- Peer List (incremental, with search filter applied) ---
   const peerContainer = view.querySelector<HTMLElement>(".peer-container");
   if (peerContainer) {
-    updatePeerList(peerContainer, state.peers);
+    updatePeerList(peerContainer, filterPeers(state.peers, peerSearchQuery));
   }
 }
