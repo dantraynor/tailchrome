@@ -170,6 +170,8 @@ export interface TailscaleState {
   installError: boolean;
   hostVersion: string | null;
   hostVersionMismatch: boolean;
+  /** True when the native host disconnected and reconnection is being attempted. */
+  reconnecting: boolean;
 }
 
 // Messages from background to popup

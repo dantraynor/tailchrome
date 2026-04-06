@@ -15,21 +15,29 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
   // Determine toggle and subtitle based on backend state
   let disabled = false;
   let subtitleText = "Toggle the switch to connect to your tailnet.";
+  let showSpinner = false;
 
   if (state) {
-    switch (state.backendState) {
-      case "Starting":
-        disabled = true;
-        subtitleText = "Tailscale is starting\u2026";
-        break;
-      case "NeedsMachineAuth":
-        disabled = true;
-        subtitleText = "Waiting for admin approval to join the tailnet.";
-        break;
-      case "InUseOtherUser":
-        disabled = true;
-        subtitleText = "Tailscale is in use by another user on this machine.";
-        break;
+    if (state.reconnecting) {
+      disabled = true;
+      subtitleText = "Reconnecting to Tailscale\u2026";
+      showSpinner = true;
+    } else {
+      switch (state.backendState) {
+        case "Starting":
+          disabled = true;
+          subtitleText = "Tailscale is starting\u2026";
+          showSpinner = true;
+          break;
+        case "NeedsMachineAuth":
+          disabled = true;
+          subtitleText = "Waiting for admin approval to join the tailnet.";
+          break;
+        case "InUseOtherUser":
+          disabled = true;
+          subtitleText = "Tailscale is in use by another user on this machine.";
+          break;
+      }
     }
   }
 
@@ -40,19 +48,28 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
   const content = document.createElement("div");
   content.className = "centered-view";
 
-  const icon = document.createElement("div");
-  icon.className = "centered-view-icon";
-  icon.textContent = "\uD83D\uDD0C"; // electric plug
+  if (showSpinner) {
+    const spinner = document.createElement("div");
+    spinner.className = "spinner";
+    spinner.style.marginBottom = "16px";
+    content.appendChild(spinner);
+  } else {
+    const icon = document.createElement("div");
+    icon.className = "centered-view-icon";
+    icon.textContent = "\uD83D\uDD0C"; // electric plug
+    content.appendChild(icon);
+  }
 
   const title = document.createElement("h2");
   title.className = "centered-view-title";
-  title.textContent = "Tailscale is not connected";
+  title.textContent = state?.reconnecting
+    ? "Reconnecting\u2026"
+    : "Tailscale is not connected";
 
   const subtitle = document.createElement("p");
   subtitle.className = "centered-view-text";
   subtitle.textContent = subtitleText;
 
-  content.appendChild(icon);
   content.appendChild(title);
   content.appendChild(subtitle);
   view.appendChild(content);
