@@ -177,7 +177,7 @@ export interface TailscaleState {
 // Messages from background to popup
 export type PopupMessage =
   | { type: "state"; state: TailscaleState }
-  | { type: "toast"; message: string; level: "info" | "error" };
+  | { type: "toast"; message: string; level: "info" | "error"; persistent?: boolean };
 
 // Messages from popup to background
 export type BackgroundMessage =

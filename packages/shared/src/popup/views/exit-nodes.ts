@@ -187,11 +187,21 @@ function createExitNodeRow(
     row.appendChild(flag);
   }
 
-  row.addEventListener("click", onSelect);
+  const handleSelect = () => {
+    if (!isSelected) {
+      // Show loading spinner for immediate feedback
+      const spinner = document.createElement("div");
+      spinner.className = "spinner spinner-sm";
+      row.appendChild(spinner);
+      row.classList.add("exit-node-row--selected");
+    }
+    onSelect();
+  };
+  row.addEventListener("click", handleSelect);
   row.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      onSelect();
+      handleSelect();
     }
   });
   return row;

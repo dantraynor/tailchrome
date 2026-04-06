@@ -184,15 +184,19 @@ export function initBackground(
 
     // File send progress
     if (msg.fileSendProgress) {
-      const message = msg.fileSendProgress.done
-        ? msg.fileSendProgress.error
+      if (msg.fileSendProgress.done) {
+        const message = msg.fileSendProgress.error
           ? `File send failed: ${msg.fileSendProgress.error}`
-          : `File "${msg.fileSendProgress.name}" sent successfully`
-        : `Sending "${msg.fileSendProgress.name}": ${msg.fileSendProgress.percent}%`;
-      sendToastToPopup(
-        message,
-        msg.fileSendProgress.error ? "error" : "info",
-      );
+          : `File "${msg.fileSendProgress.name}" sent successfully`;
+        sendToastToPopup(message, msg.fileSendProgress.error ? "error" : "info");
+      } else {
+        // In-progress: use persistent toast so it stays visible
+        sendToastToPopup(
+          `Sending "${msg.fileSendProgress.name}": ${msg.fileSendProgress.percent}%`,
+          "info",
+          true,
+        );
+      }
     }
 
     // Error from native host
@@ -258,10 +262,10 @@ export function initBackground(
     }
   }
 
-  function sendToastToPopup(message: string, level: "info" | "error"): void {
+  function sendToastToPopup(message: string, level: "info" | "error", persistent = false): void {
     for (const port of popupPorts) {
       try {
-        const popupMsg: PopupMessage = { type: "toast", message, level };
+        const popupMsg: PopupMessage = { type: "toast", message, level, persistent };
         port.postMessage(popupMsg);
       } catch {
         // Port may have disconnected

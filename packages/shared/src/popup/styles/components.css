@@ -377,6 +377,10 @@
   background: var(--ts-red);
 }
 
+.toast.toast-persistent {
+  animation: toastIn var(--transition-normal) ease;
+}
+
 @keyframes toastIn {
   from {
     opacity: 0;

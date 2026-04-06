@@ -163,7 +163,7 @@ function init(): void {
         render(msg.state);
         break;
       case "toast":
-        showToast(msg.message, msg.level);
+        showToast(msg.message, { level: msg.level, persistent: msg.persistent });
         break;
     }
   });
