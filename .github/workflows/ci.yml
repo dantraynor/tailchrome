@@ -64,7 +64,7 @@ jobs:
           name: firefox-build
           path: packages/extension/.output/firefox-mv3/
 
-  lint-firefox:
+  review-firefox:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -76,8 +76,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build:firefox
-      - run: pnpm lint:firefox
+      - run: pnpm review:firefox
 
   host-build:
     runs-on: ubuntu-latest
