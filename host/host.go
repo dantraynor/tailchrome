@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
@@ -342,6 +343,7 @@ func (h *Host) handleSetPrefs(req Request) {
 		WantRunning            *bool   `json:"wantRunning,omitempty"`
 		RunSSH                 *bool   `json:"runSSH,omitempty"`
 		Hostname               *string `json:"hostname,omitempty"`
+		AdvertiseExitNode      *bool   `json:"advertiseExitNode,omitempty"`
 	}
 	if err := json.Unmarshal(req.Prefs, &partial); err != nil {
 		h.sendError("set-prefs", fmt.Sprintf("invalid prefs JSON: %v", err))
@@ -381,8 +383,21 @@ func (h *Host) handleSetPrefs(req Request) {
 		mp.HostnameSet = true
 		mp.Prefs.Hostname = *partial.Hostname
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	ctx := context.Background()
+	if partial.AdvertiseExitNode != nil {
+		// Read current prefs to preserve any existing subnet routes.
+		currentPrefs, err := h.lc.GetPrefs(ctx)
+		if err != nil {
+			h.sendError("set-prefs", fmt.Sprintf("failed to get current prefs: %v", err))
+			return
+		}
+		currentPrefs.SetAdvertiseExitNode(*partial.AdvertiseExitNode)
+		mp.AdvertiseRoutesSet = true
+		mp.Prefs.AdvertiseRoutes = currentPrefs.AdvertiseRoutes
+	}
+
 	_, err := h.lc.EditPrefs(ctx, mp)
 	if err != nil {
 		h.sendError("set-prefs", fmt.Sprintf("failed to set prefs: %v", err))

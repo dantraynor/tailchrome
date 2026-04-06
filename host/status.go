@@ -57,6 +57,7 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 				Hostname:               p.Hostname(),
 				RunSSH:                 p.RunSSH(),
 				RunWebClient:           p.RunWebClient(),
+				AdvertiseExitNode:      p.AdvertisesExitNode(),
 			}
 			if p.ExitNodeID() != "" {
 				id := string(p.ExitNodeID())
