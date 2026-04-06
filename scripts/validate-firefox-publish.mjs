@@ -35,6 +35,8 @@ const firefoxSourcesZip = resolve(
 const extensionIds = JSON.parse(
   await readFile(resolve(root, "config/extension-ids.json"), "utf8"),
 );
+const expectedMinVersion = "140.0";
+const approvedRequiredCategories = ["browsingActivity", "websiteContent"];
 
 await assertExists(firefoxZip, "Firefox ZIP");
 await assertExists(firefoxSourcesZip, "Firefox sources ZIP");
@@ -49,6 +51,12 @@ const dataCollectionPermissions = gecko?.data_collection_permissions;
 if (gecko?.id !== extensionIds.firefoxAddonId) {
   throw new Error(
     `Firefox add-on ID mismatch: expected "${extensionIds.firefoxAddonId}", found "${gecko?.id ?? "missing"}"`,
+  );
+}
+
+if (gecko?.strict_min_version !== expectedMinVersion) {
+  throw new Error(
+    `Firefox strict_min_version mismatch: expected "${expectedMinVersion}", found "${gecko?.strict_min_version ?? "missing"}"`,
   );
 }
 
@@ -85,6 +93,29 @@ for (const category of categories) {
       `Firefox data_collection_permissions contains a placeholder value: ${String(category)}`,
     );
   }
+}
+
+const requiredCategories = Array.isArray(dataCollectionPermissions.required)
+  ? [...dataCollectionPermissions.required].sort()
+  : [];
+const optionalCategories = Array.isArray(dataCollectionPermissions.optional)
+  ? [...dataCollectionPermissions.optional].sort()
+  : [];
+const approvedRequiredSorted = [...approvedRequiredCategories].sort();
+
+if (
+  requiredCategories.length !== approvedRequiredSorted.length ||
+  requiredCategories.some((category, index) => category !== approvedRequiredSorted[index])
+) {
+  throw new Error(
+    `Firefox required data_collection_permissions must exactly match ${approvedRequiredCategories.join(", ")}; found ${requiredCategories.join(", ") || "none"}`,
+  );
+}
+
+if (optionalCategories.length > 0) {
+  throw new Error(
+    `Firefox optional data_collection_permissions must be empty for launch; found ${optionalCategories.join(", ")}`,
+  );
 }
 
 console.log("Firefox publish validation passed.");

@@ -16,7 +16,11 @@ export type FirefoxDisclosure =
 export const firefoxDisclosure: FirefoxDisclosure = {
   status: "ready",
   dataCollectionPermissions: {
-    required: ["none"],
+    // Tailchrome only proxies traffic after the user enables the helper and
+    // signs in, but Firefox still requires a conservative disclosure because
+    // extension-managed browsing activity is transmitted through the local
+    // native messaging helper for routing onto the user's tailnet.
+    required: ["browsingActivity", "websiteContent"],
     optional: [],
   },
 };
