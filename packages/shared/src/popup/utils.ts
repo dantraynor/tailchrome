@@ -117,6 +117,28 @@ export function createCopyButton(textToCopy: string): HTMLElement {
 }
 
 /**
+ * Adds arrow-key navigation to a container of focusable items.
+ * ArrowDown/ArrowUp moves focus between items matching the given selector.
+ */
+export function addListKeyboardNav(container: HTMLElement, itemSelector: string): void {
+  container.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const items = Array.from(container.querySelectorAll<HTMLElement>(itemSelector));
+    if (items.length === 0) return;
+    const current = document.activeElement as HTMLElement | null;
+    const idx = current ? items.indexOf(current) : -1;
+    let next: number;
+    if (e.key === "ArrowDown") {
+      next = idx < items.length - 1 ? idx + 1 : 0;
+    } else {
+      next = idx > 0 ? idx - 1 : items.length - 1;
+    }
+    e.preventDefault();
+    items[next]!.focus();
+  });
+}
+
+/**
  * Detects the user's platform for platform-specific instructions.
  */
 export function detectPlatform(): "macos" | "linux" | "windows" | "unknown" {

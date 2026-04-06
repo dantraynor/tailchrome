@@ -1,5 +1,19 @@
 import type { PeerInfo } from "../../types";
+import { addListKeyboardNav } from "../utils";
 import { createPeerItem, peerDisplayKey, updatePeerItemText } from "./peer-item";
+
+/**
+ * Filters peers by a search query, matching hostname, DNS name, and IP.
+ */
+export function filterPeers(peers: PeerInfo[], query: string): PeerInfo[] {
+  if (!query) return peers;
+  const lower = query.toLowerCase();
+  return peers.filter((p) =>
+    p.hostname.toLowerCase().includes(lower) ||
+    (p.dnsName && p.dnsName.toLowerCase().includes(lower)) ||
+    p.tailscaleIPs.some((ip) => ip.includes(lower))
+  );
+}
 
 /**
  * Creates a section header element with label and optional count.
@@ -77,6 +91,10 @@ function renderPeerSection(
  * Online peers appear first, followed by offline peers.
  */
 export function renderPeerList(container: HTMLElement, peers: PeerInfo[]): void {
+  if (!container.dataset.kbnav) {
+    addListKeyboardNav(container, ".peer-item");
+    container.dataset.kbnav = "1";
+  }
   container.textContent = "";
 
   if (peers.length === 0) {
