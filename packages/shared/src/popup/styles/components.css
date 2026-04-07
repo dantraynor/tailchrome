@@ -819,6 +819,77 @@
 }
 
 /* ==============================
+   Mullvad VPN Country Groups
+   ============================== */
+
+.mullvad-country {
+  border-bottom: 1px solid var(--border-light);
+}
+
+.mullvad-country:last-child {
+  border-bottom: none;
+}
+
+.mullvad-country-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-xl);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+  user-select: none;
+}
+
+.mullvad-country-row:hover {
+  background: var(--bg-secondary);
+}
+
+.mullvad-country-flag {
+  font-size: var(--font-size-xl);
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+}
+
+.mullvad-country-name {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mullvad-country-count {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.mullvad-country-chevron {
+  font-size: var(--font-size-base);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  transition: transform var(--transition-fast);
+  width: 12px;
+  text-align: center;
+}
+
+.mullvad-country-chevron--expanded {
+  transform: rotate(90deg);
+}
+
+.mullvad-city-list {
+  background: var(--bg-secondary);
+}
+
+.mullvad-city-row {
+  padding-left: calc(var(--space-xl) + 24px + var(--space-sm));
+}
+
+/* ==============================
    Peer Actions Panel
    ============================== */
 

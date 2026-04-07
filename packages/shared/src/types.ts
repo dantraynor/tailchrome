@@ -92,6 +92,7 @@ export interface PeerInfo {
 
 export interface PeerLocation {
   city: string;
+  cityCode: string;
   country: string;
   countryCode: string;
 }
