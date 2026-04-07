@@ -80,6 +80,7 @@ type PrefsView struct {
 	Hostname               string `json:"hostname,omitempty"`
 	RunSSH                 bool   `json:"runSSH"`
 	RunWebClient           bool   `json:"runWebClient"`
+	AdvertiseExitNode      bool   `json:"advertiseExitNode"`
 }
 
 // PeerInfo contains information about a Tailscale peer node.
