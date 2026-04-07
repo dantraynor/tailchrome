@@ -1,7 +1,7 @@
 import type { TailscaleState } from "../../types";
 import { ADMIN_URL } from "../../constants";
 import { renderHeader } from "../components/header";
-import { renderPeerList } from "../components/peer-list";
+import { renderPeerList, updatePeerList } from "../components/peer-list";
 import { renderHealthWarnings } from "../components/health-warnings";
 import { createCopyButton } from "../utils";
 import { sendMessage, enterSubView, leaveSubView, getLatestState } from "../popup";
@@ -89,6 +89,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   view.appendChild(statusBar);
 
   // --- Health Warnings ---
+  lastHealthKey = state.health.join("\0");
   if (state.health.length > 0) {
     renderHealthWarnings(view, state.health);
   }
@@ -185,6 +186,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   // --- Peer List ---
   const peerContainer = document.createElement("div");
+  peerContainer.className = "peer-container";
   renderPeerList(peerContainer, state.peers);
   view.appendChild(peerContainer);
 
@@ -233,4 +235,128 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   view.appendChild(footer);
 
   root.appendChild(view);
+}
+
+// Track health key to detect changes during in-place updates
+let lastHealthKey = "";
+
+/**
+ * Helper: compute the exit node display text from state.
+ */
+function exitNodeDisplayText(state: TailscaleState): string {
+  if (state.exitNode) {
+    return state.exitNode.location
+      ? `${state.exitNode.location.city}, ${state.exitNode.location.countryCode}`
+      : state.exitNode.hostname;
+  }
+  return "None";
+}
+
+/**
+ * Updates the connected view in place, patching only changed elements.
+ * Preserves peer expansion state and avoids full DOM teardown.
+ */
+export function updateConnected(root: HTMLElement, state: TailscaleState): void {
+  const view = root.querySelector(".view");
+  if (!view) {
+    // Fallback: full render if DOM structure is unexpected
+    renderConnected(root, state);
+    return;
+  }
+
+  // --- Status Bar ---
+  const tailnetEl = view.querySelector(".status-bar-tailnet");
+  if (tailnetEl) {
+    const newTailnet = state.tailnet || "My Tailnet";
+    if (tailnetEl.textContent !== newTailnet) {
+      tailnetEl.textContent = newTailnet;
+    }
+  }
+
+  const ipEl = view.querySelector(".status-bar-ip");
+  if (ipEl) {
+    const newIP = state.selfNode?.tailscaleIPs[0] ?? "";
+    if (ipEl.textContent !== newIP) {
+      ipEl.textContent = newIP;
+    }
+  }
+
+  const hostnameEl = view.querySelector(".status-bar-hostname");
+  if (hostnameEl) {
+    const newHostname = state.selfNode?.hostname ?? "";
+    if (hostnameEl.textContent !== newHostname) {
+      hostnameEl.textContent = newHostname;
+    }
+  }
+
+  // --- Health Warnings ---
+  const healthKey = state.health.join("\0");
+  if (healthKey !== lastHealthKey) {
+    lastHealthKey = healthKey;
+    const existingHealth = view.querySelector(".health-warnings");
+    if (existingHealth) existingHealth.remove();
+
+    if (state.health.length > 0) {
+      // Insert after status bar
+      const statusBar = view.querySelector(".status-bar");
+      const quickSettings = view.querySelector(".quick-settings");
+      if (statusBar && quickSettings) {
+        const tempContainer = document.createElement("div");
+        renderHealthWarnings(tempContainer, state.health);
+        const newHealth = tempContainer.firstElementChild;
+        if (newHealth) {
+          view.insertBefore(newHealth, quickSettings);
+        }
+      }
+    }
+  }
+
+  // --- Quick Settings: Exit Node text ---
+  const quickSettings = view.querySelector(".quick-settings");
+  if (quickSettings) {
+    const settingValues = quickSettings.querySelectorAll<HTMLElement>(".setting-value");
+    // First .setting-value is exit node
+    if (settingValues.length > 0) {
+      const exitValueEl = settingValues[0]!;
+      const newText = exitNodeDisplayText(state);
+      // Update the text node (first child) while preserving the chevron span
+      const textNode = exitValueEl.firstChild;
+      if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+        if (textNode.textContent !== newText) {
+          textNode.textContent = newText;
+        }
+      }
+    }
+
+    // Profile value (last .setting-value if profiles exist)
+    if (state.profiles.length > 0 && settingValues.length > 1) {
+      const profileValueEl = settingValues[settingValues.length - 1]!;
+      const newProfileName = state.currentProfile?.name ?? "Default";
+      const profileTextNode = profileValueEl.firstChild;
+      if (profileTextNode && profileTextNode.nodeType === Node.TEXT_NODE) {
+        if (profileTextNode.textContent !== newProfileName) {
+          profileTextNode.textContent = newProfileName;
+        }
+      }
+    }
+
+    // Toggle states: Shields Up and MagicDNS
+    const toggleInputs = quickSettings.querySelectorAll<HTMLInputElement>("input[type=checkbox]");
+    if (toggleInputs.length >= 2) {
+      const shieldsUp = state.prefs?.shieldsUp ?? false;
+      if (toggleInputs[0]!.checked !== shieldsUp) {
+        toggleInputs[0]!.checked = shieldsUp;
+      }
+      const corpDNS = state.prefs?.corpDNS ?? true;
+      if (toggleInputs[1]!.checked !== corpDNS) {
+        toggleInputs[1]!.checked = corpDNS;
+      }
+    }
+  }
+
+  // --- Peer List (incremental) ---
+  const peerContainer = view.querySelector<HTMLElement>(".peer-container");
+  if (peerContainer) {
+    updatePeerList(peerContainer, state.peers);
+  }
 }
