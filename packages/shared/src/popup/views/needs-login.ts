@@ -1,6 +1,7 @@
 import type { TailscaleState } from "../../types";
 import { renderHeader } from "../components/header";
 import { sendMessage } from "../popup";
+import { iconLock } from "../icons";
 
 /**
  * Renders the login-required view.
@@ -20,7 +21,10 @@ export function renderNeedsLogin(root: HTMLElement, state: TailscaleState): void
 
   const icon = document.createElement("div");
   icon.className = "centered-view-icon";
-  icon.textContent = "\uD83D\uDD12"; // lock
+  const iconEl = document.createElement("span");
+  iconEl.className = "icon icon-2xl";
+  iconEl.appendChild(iconLock());
+  icon.appendChild(iconEl);
 
   const title = document.createElement("h2");
   title.className = "centered-view-title";

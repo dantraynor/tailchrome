@@ -146,9 +146,7 @@ function render(state: TailscaleState): void {
 // --- Initialization ---
 
 function init(): void {
-  // Render disconnected view immediately so the popup is never empty
-  const root = document.getElementById("root");
-  if (root) renderDisconnected(root);
+  // The HTML skeleton placeholder is shown until real state arrives.
 
   // Load per-device custom URL settings in parallel (doesn't block port connection)
   loadCustomUrls();
