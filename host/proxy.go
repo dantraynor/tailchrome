@@ -150,19 +150,24 @@ func (h *Host) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Bidirectional copy. After the first direction closes, close both
-	// connections so the second goroutine is unblocked and can exit.
+	// Bidirectional copy. When one direction reaches EOF, half-close the
+	// write side so the other direction can drain remaining bytes before
+	// the deferred client.Close() tears down the full connection.
 	done := make(chan struct{}, 2)
 	go func() {
 		io.Copy(upstream, client)
+		if cw, ok := upstream.(interface{ CloseWrite() error }); ok {
+			cw.CloseWrite()
+		}
 		done <- struct{}{}
 	}()
 	go func() {
 		io.Copy(client, upstream)
+		if cw, ok := client.(interface{ CloseWrite() error }); ok {
+			cw.CloseWrite()
+		}
 		done <- struct{}{}
 	}()
 	<-done
-	client.Close()
-	upstream.Close()
 	<-done
 }

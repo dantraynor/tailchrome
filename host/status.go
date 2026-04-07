@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -135,10 +136,15 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 // refreshFullStatus calls the local client Status API and builds a full
 // StatusUpdate from the enriched peer info plus cached IPN bus state.
 func (h *Host) refreshFullStatus() (*StatusUpdate, error) {
+	lc := h.lc // snapshot to avoid nil deref if handleInit tears down concurrently
+	if lc == nil {
+		return nil, fmt.Errorf("local client not initialized")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	st, err := h.lc.Status(ctx)
+	st, err := lc.Status(ctx)
 	if err != nil {
 		return nil, err
 	}

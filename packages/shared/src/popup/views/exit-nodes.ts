@@ -420,8 +420,8 @@ function createExitNodeRow(
       spinner.className = "spinner spinner-sm";
       row.appendChild(spinner);
       row.classList.add("exit-node-row--selected");
+      onSelect();
     }
-    onSelect();
   };
   row.addEventListener("click", handleSelect);
   row.addEventListener("keydown", (e) => {
