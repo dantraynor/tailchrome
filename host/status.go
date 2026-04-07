@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"strings"
 	"time"
 
 	"tailscale.com/ipn"
@@ -113,6 +114,10 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 		if n.Health != nil {
 			var msgs []string
 			for _, w := range n.Health.Warnings {
+				// tsnet doesn't manage system DNS; suppress irrelevant warnings
+				if strings.Contains(w.Text, "getting OS base config is not supported") {
+					continue
+				}
 				msgs = append(msgs, w.Text)
 			}
 			h.stateMu.Lock()
