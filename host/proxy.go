@@ -136,9 +136,8 @@ func (h *Host) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Write 200 OK after confirming hijack support, before actually hijacking.
-	w.WriteHeader(http.StatusOK)
-
+	// Hijack first, then write the 200 response directly to the raw connection
+	// so the response is not buffered by the HTTP response writer.
 	client, _, err := hijacker.Hijack()
 	if err != nil {
 		log.Printf("failed to hijack connection: %v", err)
@@ -146,7 +145,13 @@ func (h *Host) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer client.Close()
 
-	// Bidirectional copy.
+	if _, err := fmt.Fprint(client, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+		log.Printf("failed to write CONNECT response: %v", err)
+		return
+	}
+
+	// Bidirectional copy. After the first direction closes, close both
+	// connections so the second goroutine is unblocked and can exit.
 	done := make(chan struct{}, 2)
 	go func() {
 		io.Copy(upstream, client)
@@ -157,5 +162,7 @@ func (h *Host) handleConnect(w http.ResponseWriter, r *http.Request) {
 		done <- struct{}{}
 	}()
 	<-done
+	client.Close()
+	upstream.Close()
 	<-done
 }

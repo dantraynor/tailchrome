@@ -464,13 +464,13 @@ export function initBackground(
     // Send the URL as a text file to the first available peer
     const target = targets[0]!;
     const fileName = "shared-url.txt";
-    const encoded = btoa(url);
+    const encoded = btoa(unescape(encodeURIComponent(url)));
     nativeHost.send({
       cmd: "send-file",
       nodeID: target.id,
       fileName,
       fileData: encoded,
-      fileSize: url.length,
+      fileSize: new TextEncoder().encode(url).byteLength,
     });
   });
 

@@ -25,7 +25,7 @@ export class ChromeProxyManager {
     const subnets = collectSubnetCIDRs(state.peers);
 
     // Skip regeneration if proxy-relevant fields haven't changed
-    const proxyKey = `${port}:${magicDNSSuffix ?? ""}:${exitNodeActive}:${subnets.join(",")}`;
+    const proxyKey = `${port}:${magicDNSSuffix ?? ""}:${exitNodeActive}:${[...subnets].sort().join(",")}`;
     if (proxyKey === this.lastProxyKey) {
       return;
     }
