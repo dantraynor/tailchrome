@@ -2,18 +2,7 @@ import type { PeerInfo } from "../../types";
 import { escapeHTML, copyToClipboard, showToast } from "../utils";
 import { sendMessage } from "../popup";
 import { getCustomUrl, setCustomUrl, clearCustomUrl, resolveOpenUrl } from "../custom-urls";
-
-/** Map OS strings to emoji icons. */
-function osIcon(os: string): string {
-  const lower = os.toLowerCase();
-  if (lower.includes("macos") || lower.includes("darwin")) return "\uD83D\uDCBB"; // laptop
-  if (lower.includes("linux")) return "\uD83D\uDDA5\uFE0F"; // desktop
-  if (lower.includes("windows")) return "\uD83E\uDE9F"; // window
-  if (lower.includes("ios") || lower.includes("iphone") || lower.includes("ipad")) return "\uD83D\uDCF1"; // mobile
-  if (lower.includes("android")) return "\uD83D\uDCF1"; // mobile
-  if (lower.includes("freebsd") || lower.includes("openbsd")) return "\uD83D\uDDA5\uFE0F"; // desktop
-  return "\uD83D\uDCBB"; // default laptop
-}
+import { iconForOS } from "../icons";
 
 /**
  * Format an ISO date string as a relative time like "2m ago" or "3h ago".
@@ -101,7 +90,10 @@ export function createPeerItem(peer: PeerInfo): HTMLElement {
   // OS icon
   const icon = document.createElement("div");
   icon.className = "peer-icon";
-  icon.textContent = osIcon(peer.os);
+  const iconEl = document.createElement("span");
+  iconEl.className = "icon";
+  iconEl.appendChild(iconForOS(peer.os));
+  icon.appendChild(iconEl);
 
   // Info column
   const info = document.createElement("div");
@@ -124,8 +116,8 @@ export function createPeerItem(peer: PeerInfo): HTMLElement {
 
   if (peer.exitNode) {
     const exitLabel = document.createElement("span");
+    exitLabel.className = "peer-exit-label";
     exitLabel.textContent = " \u2022 exit node";
-    exitLabel.style.color = "var(--ts-blue)";
     meta.appendChild(exitLabel);
   }
 

@@ -8,6 +8,7 @@ import { sendMessage, enterSubView, leaveSubView, getLatestState } from "../popu
 import { createToggle } from "../components/toggle-switch";
 import { renderExitNodes } from "./exit-nodes";
 import { renderProfiles } from "./profiles";
+import { iconChevronRight } from "../icons";
 
 type SubViewRenderer = (root: HTMLElement, state: TailscaleState, onBack: () => void) => void;
 
@@ -124,7 +125,10 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   const chevron = document.createElement("span");
   chevron.className = "setting-value-chevron";
-  chevron.textContent = "\u203A";
+  const chevronIcon = document.createElement("span");
+  chevronIcon.className = "icon";
+  chevronIcon.appendChild(iconChevronRight());
+  chevron.appendChild(chevronIcon);
   exitValue.appendChild(chevron);
 
   exitRow.appendChild(exitValue);
@@ -195,7 +199,10 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
     const profileChevron = document.createElement("span");
     profileChevron.className = "setting-value-chevron";
-    profileChevron.textContent = "\u203A";
+    const profileChevronIcon = document.createElement("span");
+    profileChevronIcon.className = "icon";
+    profileChevronIcon.appendChild(iconChevronRight());
+    profileChevron.appendChild(profileChevronIcon);
     profileValue.appendChild(profileChevron);
 
     profileRow.appendChild(profileValue);
