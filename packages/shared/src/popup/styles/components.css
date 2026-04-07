@@ -196,6 +196,36 @@
 }
 
 /* ==============================
+   Peer Search
+   ============================== */
+
+.peer-search-container {
+  padding: var(--space-sm) var(--space-xl);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.peer-search {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.peer-search:focus {
+  border-color: var(--ts-blue);
+}
+
+.peer-search::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* ==============================
    Peer List
    ============================== */
 
@@ -375,6 +405,10 @@
 
 .toast.toast-error {
   background: var(--ts-red);
+}
+
+.toast.toast-persistent {
+  animation: toastIn var(--transition-normal) ease;
 }
 
 @keyframes toastIn {
