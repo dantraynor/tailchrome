@@ -141,13 +141,13 @@ function render(state: TailscaleState): void {
 
 // --- Initialization ---
 
-async function init(): Promise<void> {
+function init(): void {
   // Render disconnected view immediately so the popup is never empty
   const root = document.getElementById("root");
   if (root) renderDisconnected(root);
 
-  // Load per-device custom URL settings before rendering peer list
-  await loadCustomUrls();
+  // Load per-device custom URL settings in parallel (doesn't block port connection)
+  loadCustomUrls();
 
   // Connect to the background service worker
   port = chrome.runtime.connect({ name: "popup" });
