@@ -19,10 +19,37 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 	}
 	defer watcher.Close()
 
+	// debounce coalesces rapid IPN notifications into a single status refresh.
+	const debounceDuration = 150 * time.Millisecond
+	var debounceTimer *time.Timer
+
+	// sendDebounced schedules a status refresh after debounceDuration,
+	// resetting any pending timer so only the last event in a burst fires.
+	sendDebounced := func() {
+		if debounceTimer != nil {
+			debounceTimer.Reset(debounceDuration)
+			return
+		}
+		debounceTimer = time.AfterFunc(debounceDuration, func() {
+			status, err := h.refreshFullStatus()
+			if err != nil {
+				log.Printf("failed to refresh status after IPN bus change: %v", err)
+				return
+			}
+			h.send(Reply{
+				Cmd:    "status",
+				Status: status,
+			})
+		})
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			log.Printf("IPN bus watcher cancelled")
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
 			return
 		default:
 		}
@@ -30,6 +57,9 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 		n, err := watcher.Next()
 		if err != nil {
 			if ctx.Err() != nil {
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
 				return // cancelled
 			}
 			log.Printf("IPN bus watcher error: %v", err)
@@ -92,15 +122,7 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 		}
 
 		if changed {
-			status, err := h.refreshFullStatus()
-			if err != nil {
-				log.Printf("failed to refresh status after IPN bus change: %v", err)
-				continue
-			}
-			h.send(Reply{
-				Cmd:    "status",
-				Status: status,
-			})
+			sendDebounced()
 		}
 	}
 }

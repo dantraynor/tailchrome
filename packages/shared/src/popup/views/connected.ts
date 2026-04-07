@@ -402,16 +402,20 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
       }
     }
 
-    // Toggle states: Shields Up and MagicDNS
+    // Toggle states: Shields Up, Run as Exit Node, and MagicDNS
     const toggleInputs = quickSettings.querySelectorAll<HTMLInputElement>("input[type=checkbox]");
-    if (toggleInputs.length >= 2) {
+    if (toggleInputs.length >= 3) {
       const shieldsUp = state.prefs?.shieldsUp ?? false;
       if (toggleInputs[0]!.checked !== shieldsUp) {
         toggleInputs[0]!.checked = shieldsUp;
       }
+      const advertisingExit = state.prefs?.advertiseExitNode ?? false;
+      if (toggleInputs[1]!.checked !== advertisingExit) {
+        toggleInputs[1]!.checked = advertisingExit;
+      }
       const corpDNS = state.prefs?.corpDNS ?? true;
-      if (toggleInputs[1]!.checked !== corpDNS) {
-        toggleInputs[1]!.checked = corpDNS;
+      if (toggleInputs[2]!.checked !== corpDNS) {
+        toggleInputs[2]!.checked = corpDNS;
       }
     }
   }
