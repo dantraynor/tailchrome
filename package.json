@@ -1,5 +1,6 @@
 {
   "private": true,
+  "packageManager": "pnpm@10.33.0",
   "scripts": {
     "build": "pnpm build:chrome && pnpm build:firefox",
     "build:chrome": "pnpm --filter @tailchrome/extension build:chrome",
@@ -8,6 +9,7 @@
     "zip:chrome": "pnpm --filter @tailchrome/extension zip:chrome",
     "zip:firefox": "pnpm --filter @tailchrome/extension zip:firefox",
     "lint:firefox": "pnpm --filter @tailchrome/extension lint:firefox",
+    "review:firefox": "pnpm lint:firefox && pnpm zip:firefox && pnpm validate:firefox-publish",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "validate:ids": "node ./scripts/validate-extension-ids.mjs",
