@@ -260,7 +260,8 @@ func (h *Host) handleUp() {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	_, err := h.lc.EditPrefs(ctx, &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			WantRunning: true,
@@ -281,7 +282,8 @@ func (h *Host) handleDown() {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	_, err := h.lc.EditPrefs(ctx, &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			WantRunning: false,
@@ -413,7 +415,8 @@ func (h *Host) handleLogout() {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	if err := h.lc.Logout(ctx); err != nil {
 		h.sendError("logout", fmt.Sprintf("failed to logout: %v", err))
 		return

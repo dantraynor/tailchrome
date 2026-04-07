@@ -42,7 +42,11 @@ export async function clearCustomUrl(peerId: string): Promise<void> {
  * - Full URL: returned as-is, with `{host}` replaced by the actual host
  */
 export function resolveOpenUrl(host: string, customValue?: string): string {
-  if (!customValue) return `http://${host}/`;
-  if (/^\d+$/.test(customValue)) return `http://${host}:${customValue}/`;
-  return customValue.replace(/\{host\}/g, host);
+  let url: string;
+  if (!customValue) url = `http://${host}/`;
+  else if (/^\d+$/.test(customValue)) url = `http://${host}:${customValue}/`;
+  else url = customValue.replace(/\{host\}/g, host);
+  // Only allow http/https schemes
+  if (!/^https?:\/\//i.test(url)) url = `http://${host}/`;
+  return url;
 }
