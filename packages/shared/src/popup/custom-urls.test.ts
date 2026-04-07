@@ -50,12 +50,12 @@ describe("resolveOpenUrl", () => {
     );
   });
 
-  it("does not treat non-numeric string as port", () => {
-    expect(resolveOpenUrl("host", "abc")).toBe("abc");
+  it("rejects non-http custom URL and falls back to default", () => {
+    expect(resolveOpenUrl("host", "abc")).toBe("http://host/");
   });
 
-  it("does not treat mixed string as port", () => {
-    expect(resolveOpenUrl("host", "80abc")).toBe("80abc");
+  it("rejects mixed string custom URL and falls back to default", () => {
+    expect(resolveOpenUrl("host", "80abc")).toBe("http://host/");
   });
 });
 

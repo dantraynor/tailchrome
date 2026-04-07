@@ -1,5 +1,5 @@
 import type { PeerInfo } from "../../types";
-import { escapeHTML, copyToClipboard, showToast } from "../utils";
+import { copyToClipboard, showToast } from "../utils";
 import { sendMessage } from "../popup";
 import { getCustomUrl, setCustomUrl, clearCustomUrl, resolveOpenUrl } from "../custom-urls";
 import { iconForOS } from "../icons";
@@ -66,7 +66,7 @@ export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void
   const ipEl = container.querySelector(".peer-ip");
   if (ipEl) {
     const firstIP = peer.tailscaleIPs[0];
-    ipEl.textContent = firstIP ? escapeHTML(firstIP) : "";
+    ipEl.textContent = firstIP ?? "";
   }
 
   container.dataset.displayKey = peerDisplayKey(peer);
@@ -129,7 +129,7 @@ export function createPeerItem(peer: PeerInfo): HTMLElement {
   ip.className = "peer-ip";
   const firstIP = peer.tailscaleIPs[0];
   const shortDNS = peer.dnsName ? peer.dnsName.replace(/\.$/, "") : "";
-  ip.textContent = firstIP ? escapeHTML(firstIP) : "";
+  ip.textContent = firstIP ?? "";
 
   row.appendChild(icon);
   row.appendChild(info);
