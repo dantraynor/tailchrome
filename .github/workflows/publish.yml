@@ -15,6 +15,11 @@ on:
           - chrome
           - firefox
           - both
+      dry_run:
+        description: Run Firefox AMO submission in dry-run mode
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -25,14 +30,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: chrome-web-store
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: pnpm
+          package-manager-cache: false
+      - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm validate:ids
       - name: Download release assets
@@ -74,14 +77,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: firefox-amo
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: pnpm
+          package-manager-cache: false
+      - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm validate:ids
       - name: Download release assets
@@ -109,10 +110,16 @@ jobs:
           set -euo pipefail
           REPO_ROOT="$PWD"
           cd packages/extension
+          submit_args=(
+            --firefox-zip "$REPO_ROOT/dist/firefox.zip"
+            --firefox-sources-zip "$REPO_ROOT/dist/firefox-sources.zip"
+            --firefox-channel listed
+          )
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            submit_args+=(--dry-run)
+          fi
           pnpm wxt submit \
-            --firefox-zip "$REPO_ROOT/dist/firefox.zip" \
-            --firefox-sources-zip "$REPO_ROOT/dist/firefox-sources.zip" \
-            --firefox-channel listed \
+            "${submit_args[@]}" \
             2>&1 | tee "$REPO_ROOT/dist/firefox-submit.log"
       - name: Write workflow summary
         run: |
@@ -120,6 +127,7 @@ jobs:
             echo "## Firefox AMO Submission"
             echo
             echo "Release tag: \`${{ inputs.release_tag }}\`"
+            echo "Dry run: \`${{ inputs.dry_run }}\`"
             echo
             echo '```'
             cat dist/firefox-submit.log
