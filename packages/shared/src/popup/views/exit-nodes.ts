@@ -28,6 +28,7 @@ let exitNodeSearchQuery = "";
 
 // Persists expand/collapse state across sub-view re-renders.
 const expandedCountries = new Set<string>();
+let autoExpandDone = false;
 
 function isMullvadNode(peer: PeerInfo): boolean {
   return peer.tags.includes(MULLVAD_TAG);
@@ -226,8 +227,9 @@ function renderExitNodeList(
 
   // "Mullvad VPN" section
   if (mullvad.length > 0) {
-    // Auto-expand the country containing the active exit node on first render
-    if (expandedCountries.size === 0 && state.exitNode) {
+    // Auto-expand the country containing the active exit node on first render only
+    if (!autoExpandDone && state.exitNode) {
+      autoExpandDone = true;
       const activeNode = allExitNodes.find((n) => n.id === state.exitNode!.id);
       if (activeNode && isMullvadNode(activeNode) && activeNode.location) {
         expandedCountries.add(activeNode.location.countryCode);
@@ -326,7 +328,8 @@ function renderMullvadSection(
     cityList.style.display = isExpanded ? "block" : "none";
 
     for (const city of country.cities) {
-      const bestNode = city.nodes.find((n) => n.online) || city.nodes[0];
+      const bestNode = city.nodes.find((n) => n.online) ?? city.nodes[0];
+      if (!bestNode) continue;
       const cityHasSelection = city.nodes.some(
         (n) => state.exitNode != null && state.exitNode.id === n.id
       );
@@ -365,7 +368,6 @@ function renderMullvadSection(
   }
 
   parent.appendChild(section);
-}
 }
 
 function createExitNodeRow(
@@ -457,13 +459,16 @@ function groupExitNodes(nodes: PeerInfo[]): ExitNodeGrouping {
 function groupMullvadByCountry(nodes: PeerInfo[]): MullvadCountryGroup[] {
   const countryMap = new Map<string, Map<string, PeerInfo[]>>();
   const countryNames = new Map<string, string>();
+  const cityNames = new Map<string, string>();
 
   for (const node of nodes) {
-    const loc = node.location!;
+    const loc = node.location;
+    if (!loc) continue;
     const cc = loc.countryCode;
     const cityKey = loc.cityCode || loc.city;
 
     countryNames.set(cc, loc.country);
+    cityNames.set(cityKey, loc.city);
 
     if (!countryMap.has(cc)) countryMap.set(cc, new Map());
     const cityMap = countryMap.get(cc)!;
@@ -476,7 +481,7 @@ function groupMullvadByCountry(nodes: PeerInfo[]): MullvadCountryGroup[] {
     const cities: MullvadCityGroup[] = [];
     for (const [cityKey, cityNodes] of cityMap) {
       cities.push({
-        city: cityNodes[0].location!.city,
+        city: cityNames.get(cityKey) || cityKey,
         cityCode: cityKey,
         nodes: cityNodes,
       });
