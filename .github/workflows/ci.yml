@@ -7,6 +7,20 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      host: ${{ steps.filter.outputs.host }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            host:
+              - 'host/**'
+              - 'Makefile'
+
   extension-tests:
     runs-on: ubuntu-latest
     steps:
@@ -16,13 +30,7 @@ jobs:
           node-version: 22
           package-manager-cache: false
       - run: corepack enable
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: host/go.mod
-          cache-dependency-path: host/go.sum
       - run: pnpm install --frozen-lockfile
-      - run: go mod download
-        working-directory: host
       - run: pnpm validate:ids
       - run: pnpm typecheck
       - run: pnpm test
@@ -60,6 +68,8 @@ jobs:
           path: packages/extension/.output/firefox-mv3/
 
   host-build:
+    needs: changes
+    if: needs.changes.outputs.host == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -69,12 +79,8 @@ jobs:
           cache-dependency-path: host/go.sum
       - run: go mod download
         working-directory: host
-      - run: make host-all
+      - run: make host
       - uses: actions/upload-artifact@v6
         with:
-          name: host-binaries
-          path: |
-            dist/tailscale-browser-ext-darwin-amd64
-            dist/tailscale-browser-ext-darwin-arm64
-            dist/tailscale-browser-ext-linux-amd64
-            dist/tailscale-browser-ext-windows-amd64.exe
+          name: host-binary
+          path: dist/tailscale-browser-ext
