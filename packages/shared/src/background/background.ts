@@ -216,6 +216,7 @@ export function initBackground(
     }
     store.update({
       hostConnected: connected,
+      reconnecting: !connected && !store.getState().installError,
       // Clear install error on successful connection, reset state when disconnected
       ...(connected
         ? { installError: false }
