@@ -125,7 +125,6 @@ export function renderInstallFlow(
   const steps = document.createElement("div");
   steps.className = "install-steps";
 
-  // --- Step 1: Download ---
   const step1 = createStep("1");
   step1.label.textContent = "Download the helper app";
 
@@ -156,7 +155,6 @@ export function renderInstallFlow(
   step1.content.appendChild(downloadBtn);
   steps.appendChild(step1.root);
 
-  // --- Step 2: Platform-specific run instructions ---
   if (platform === "unknown") {
     const step2 = createStep("2");
     step2.label.textContent = "Run the downloaded file";

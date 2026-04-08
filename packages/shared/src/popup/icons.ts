@@ -61,8 +61,6 @@ function line(
   return el;
 }
 
-// --- Device icons ---
-
 /** Laptop icon (macOS, default) */
 export function iconLaptop(): SVGSVGElement {
   const s = svg();
@@ -96,8 +94,6 @@ export function iconMobile(): SVGSVGElement {
   s.appendChild(line(10, 18, 14, 18));
   return s;
 }
-
-// --- Status / action icons ---
 
 /** Package/box icon (install) */
 export function iconPackage(): SVGSVGElement {

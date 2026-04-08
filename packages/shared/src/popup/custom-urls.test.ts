@@ -7,8 +7,6 @@ import {
   resolveOpenUrl,
 } from "./custom-urls";
 
-// --- resolveOpenUrl (pure function) ---
-
 describe("resolveOpenUrl", () => {
   it("returns http://{host}/ when no custom value", () => {
     expect(resolveOpenUrl("my-server.ts.net")).toBe("http://my-server.ts.net/");
@@ -58,8 +56,6 @@ describe("resolveOpenUrl", () => {
     expect(resolveOpenUrl("host", "80abc")).toBe("http://host/");
   });
 });
-
-// --- Storage-backed functions ---
 
 describe("custom URL storage", () => {
   let storage: Record<string, unknown>;

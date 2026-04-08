@@ -2,8 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ProxyManager, TailscaleState, NativeReply } from "../types";
 import { initBackground } from "./background";
 
-// ---- Mock types for port simulation ----
-
 type MessageListener = (msg: unknown) => void;
 type DisconnectListener = (port: unknown) => void;
 
@@ -30,8 +28,6 @@ function createNativeMockPort(): MockPort {
     },
   };
 }
-
-// ---- Mock popup port ----
 
 interface MockPopupPort {
   name: string;

@@ -2,6 +2,7 @@ import {
   initBackground,
   type BackgroundHandle,
 } from "@tailchrome/shared/background/background";
+import { KEEPALIVE_INTERVAL_MS } from "@tailchrome/shared/constants";
 import { FIREFOX_NATIVE_HOST_ID } from "../constants";
 import { FirefoxProxyManager } from "./firefox-proxy-manager";
 
@@ -22,7 +23,7 @@ declare const browser: {
   };
 };
 
-const KEEPALIVE_PERIOD_MINUTES = 25_000 / 60_000;
+const KEEPALIVE_PERIOD_MINUTES = KEEPALIVE_INTERVAL_MS / 60_000;
 
 export function startFirefoxBackground(): void {
   const proxyManager = new FirefoxProxyManager();

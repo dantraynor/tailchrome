@@ -7,14 +7,8 @@ import { renderNeedsUpdate } from "./views/needs-update";
 import { showToast } from "./utils";
 import { loadCustomUrls } from "./custom-urls";
 
-// --- Port management ---
-
 let port: chrome.runtime.Port | null = null;
 
-/**
- * Send a message to the background service worker.
- * Exported for use by components and views.
- */
 /**
  * Call when entering a sub-view (exit nodes, profiles) to prevent
  * state updates from clobbering the overlay.
@@ -42,6 +36,7 @@ export function leaveSubView(): void {
   }
 }
 
+/** Posts to the background service worker; shows a toast if the port is gone. */
 export function sendMessage(msg: BackgroundMessage): void {
   if (port) {
     port.postMessage(msg);
@@ -50,8 +45,6 @@ export function sendMessage(msg: BackgroundMessage): void {
     showToast("Connection lost. Please reopen the popup.", "error");
   }
 }
-
-// --- View routing ---
 
 /** Tracks which view is currently rendered to avoid unnecessary re-renders. */
 let currentView: string | null = null;
@@ -142,8 +135,6 @@ function render(state: TailscaleState): void {
       break;
   }
 }
-
-// --- Initialization ---
 
 function init(): void {
   // The HTML skeleton placeholder is shown until real state arrives.
