@@ -13,10 +13,6 @@ import { DefaultTimerService, type TimerService } from "./timer-service";
 
 export type { ProxyManager };
 
-// ---------------------------------------------------------------------------
-// Return type so browser entry points can access the proxy manager
-// ---------------------------------------------------------------------------
-
 export interface BackgroundHandle {
   proxyManager: ProxyManager;
   /** Send a keepalive ping if the host is connected. */
@@ -31,10 +27,6 @@ export interface InitBackgroundOptions {
   /** Skip the built-in setInterval keepalive (e.g. when the caller uses browser.alarms instead). */
   skipKeepalive?: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// URL validation
-// ---------------------------------------------------------------------------
 
 const ALLOWED_LOGIN_ORIGINS = [
   "https://login.tailscale.com",
@@ -67,6 +59,9 @@ function isVersionMismatch(hostVersion: string | null): boolean {
   return hostParts[0] !== expectedParts[0] || hostParts[1] !== expectedParts[1];
 }
 
+const NATIVE_HOST_UNREACHABLE =
+  "Could not reach Tailscale service. Please check that the native host is installed.";
+
 export function initBackground(
   proxyManager: ProxyManager,
   nativeHostId: string,
@@ -82,19 +77,11 @@ export function initBackground(
   // Track whether we've attempted to restore exit node for this connection
   let exitNodeRestoreAttempted = false;
 
-  // ---------------------------------------------------------------------------
-  // Subscribe to state changes
-  // ---------------------------------------------------------------------------
-
   store.subscribe((state: TailscaleState) => {
     proxyManager.apply(state);
     badgeManager.update(state);
     broadcastToPopup(state);
   });
-
-  // ---------------------------------------------------------------------------
-  // Native host connection
-  // ---------------------------------------------------------------------------
 
   function handleNativeMessage(msg: NativeReply): void {
     // Process running: the native host tells us which port to proxy through
@@ -247,10 +234,6 @@ export function initBackground(
     console.error("[Background] Initial connection failed:", err);
   });
 
-  // ---------------------------------------------------------------------------
-  // Popup communication
-  // ---------------------------------------------------------------------------
-
   function broadcastToPopup(state: TailscaleState): void {
     const msg: PopupMessage = { type: "state", state };
     for (const port of popupPorts) {
@@ -308,10 +291,6 @@ export function initBackground(
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // Handle popup messages
-  // ---------------------------------------------------------------------------
-
   function handlePopupMessage(msg: BackgroundMessage): void {
     const state = store.getState();
 
@@ -319,14 +298,14 @@ export function initBackground(
       case "toggle": {
         if (state.backendState === "Running") {
           if (!nativeHost.send({ cmd: "down" })) {
-            sendToastToPopup("Could not reach Tailscale service. Please check that the native host is installed.", "error");
+            sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
           }
         } else if (
           state.backendState === "Stopped" ||
           state.backendState === "NoState"
         ) {
           if (!nativeHost.send({ cmd: "up" })) {
-            sendToastToPopup("Could not reach Tailscale service. Please check that the native host is installed.", "error");
+            sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
           }
         } else if (state.backendState === "Starting") {
           sendToastToPopup("Tailscale is starting up\u2026", "info");
@@ -424,10 +403,6 @@ export function initBackground(
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Keepalive: ping native host periodically to keep service worker alive
-  // ---------------------------------------------------------------------------
-
   if (!options?.skipKeepalive) {
     timerService.setInterval("keepalive", () => {
       if (store.getState().hostConnected) {
@@ -435,10 +410,6 @@ export function initBackground(
       }
     }, KEEPALIVE_INTERVAL_MS);
   }
-
-  // ---------------------------------------------------------------------------
-  // Context menu: "Send page URL to Tailscale device"
-  // ---------------------------------------------------------------------------
 
   chrome.runtime.onInstalled?.addListener(() => {
     chrome.contextMenus.create({

@@ -15,7 +15,6 @@ export function renderProfiles(
   const view = document.createElement("div");
   view.className = "view";
 
-  // --- Header ---
   const header = document.createElement("div");
   header.className = "exit-nodes-header";
 
@@ -36,7 +35,6 @@ export function renderProfiles(
 
   view.appendChild(header);
 
-  // --- Profile list ---
   const list = document.createElement("div");
   list.className = "profile-list";
 
@@ -50,7 +48,6 @@ export function renderProfiles(
 
   view.appendChild(list);
 
-  // --- Add profile button ---
   const addRow = document.createElement("div");
   addRow.className = "profile-add-row";
 

@@ -44,10 +44,8 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   const view = document.createElement("div");
   view.className = "view";
 
-  // --- Header ---
   renderHeader(view, true);
 
-  // --- Status Bar ---
   const statusBar = document.createElement("div");
   statusBar.className = "status-bar";
 
@@ -94,13 +92,11 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   view.appendChild(statusBar);
 
-  // --- Health Warnings ---
   lastHealthKey = state.health.join("\0");
   if (state.health.length > 0) {
     renderHealthWarnings(view, state.health);
   }
 
-  // --- Quick Settings ---
   const settings = document.createElement("div");
   settings.className = "quick-settings";
 
@@ -212,7 +208,6 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   view.appendChild(settings);
 
-  // --- Peer Search (only for larger peer lists) ---
   const filteredPeers = filterPeers(state.peers, peerSearchQuery);
   if (state.peers.length >= PEER_SEARCH_THRESHOLD) {
     const searchContainer = document.createElement("div");
@@ -237,13 +232,11 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
     view.appendChild(searchContainer);
   }
 
-  // --- Peer List ---
   const peerContainer = document.createElement("div");
   peerContainer.className = "peer-container";
   renderPeerList(peerContainer, filteredPeers);
   view.appendChild(peerContainer);
 
-  // --- Footer ---
   const footer = document.createElement("div");
   footer.className = "footer";
 
@@ -326,7 +319,6 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     return;
   }
 
-  // --- Status Bar ---
   const tailnetEl = view.querySelector(".status-bar-tailnet");
   if (tailnetEl) {
     const newTailnet = state.tailnet || "My Tailnet";
@@ -351,7 +343,6 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     }
   }
 
-  // --- Health Warnings ---
   const healthKey = state.health.join("\0");
   if (healthKey !== lastHealthKey) {
     lastHealthKey = healthKey;
@@ -373,7 +364,6 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     }
   }
 
-  // --- Quick Settings: Exit Node text ---
   const quickSettings = view.querySelector(".quick-settings");
   if (quickSettings) {
     const settingValues = quickSettings.querySelectorAll<HTMLElement>(".setting-value");
@@ -420,7 +410,6 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     }
   }
 
-  // --- Peer List (incremental, with search filter applied) ---
   const peerContainer = view.querySelector<HTMLElement>(".peer-container");
   if (peerContainer) {
     updatePeerList(peerContainer, filterPeers(state.peers, peerSearchQuery));

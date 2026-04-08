@@ -51,7 +51,6 @@ export function renderExitNodes(
   const view = document.createElement("div");
   view.className = "view";
 
-  // --- Header ---
   const header = document.createElement("div");
   header.className = "exit-nodes-header";
 
@@ -72,7 +71,6 @@ export function renderExitNodes(
 
   view.appendChild(header);
 
-  // --- Search ---
   const allExitNodes = state.peers.filter((p) => p.exitNodeOption);
   if (allExitNodes.length > 4) {
     const searchContainer = document.createElement("div");
@@ -95,13 +93,11 @@ export function renderExitNodes(
     view.appendChild(searchContainer);
   }
 
-  // --- Exit node list container ---
   const listContainer = document.createElement("div");
   listContainer.className = "exit-nodes-list";
   renderExitNodeList(listContainer, state, allExitNodes);
   view.appendChild(listContainer);
 
-  // --- Allow LAN access ---
   const lanRow = document.createElement("div");
   lanRow.className = "setting-row exit-nodes-lan";
 
