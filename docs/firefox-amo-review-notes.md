@@ -72,4 +72,4 @@ Provide the following reviewer-only materials at submission time:
 
 ## Source Rebuild
 
-AMO reviewers can rebuild the submitted Firefox package from `firefox-sources.zip` using the steps in [`SOURCE_CODE_REVIEW.md`](../SOURCE_CODE_REVIEW.md).
+AMO reviewers can rebuild the submitted Firefox package from `firefox-sources.zip` using the steps in [`SOURCE_CODE_REVIEW.md`](SOURCE_CODE_REVIEW.md).

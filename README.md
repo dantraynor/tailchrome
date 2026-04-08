@@ -100,7 +100,7 @@ The extension outputs land in `packages/extension/.output/`. The native host bin
 
 ## Contributing
 
-This project is still early. Bug reports and feature requests are welcome. Please open an issue first before submitting a PR so we can discuss the approach.
+This project is still early. Bug reports and feature requests are welcome. Please open an issue first before submitting a PR so we can discuss the approach. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for setup and guidelines.
 
 ## License
 

@@ -1,6 +1,6 @@
 # Firefox Source Review
 
-This repository ships the Firefox source ZIP from the workspace root so AMO reviewers can rebuild the extension exactly as released.
+This repository ships the Firefox source ZIP so AMO reviewers can rebuild the extension exactly as released.
 
 ## Reviewer Bootstrap
 
