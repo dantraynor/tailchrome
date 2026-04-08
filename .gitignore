@@ -27,3 +27,4 @@ Thumbs.db
 # Tooling
 .context/
 .playwright-mcp/
+.omc/
