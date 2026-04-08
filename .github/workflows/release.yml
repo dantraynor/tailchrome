@@ -212,7 +212,48 @@ jobs:
             echo
             echo "Release: $(gh release view "$RELEASE_TAG" --json url --jq '.url')"
             echo
+            echo "The macOS installer job uploads \`tailchrome-helper-macos.pkg\` separately."
+            echo
             echo '```'
             ls -1 release | sort
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release-macos-pkg:
+    needs: release
+    runs-on: macos-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: host/go.mod
+          cache-dependency-path: host/go.sum
+      - name: Build macOS installer package
+        env:
+          VERSION: ${{ env.RELEASE_TAG }}
+        run: ./packaging/macos/build-pkg.sh
+      - name: SHA256 of macOS package
+        run: (cd dist && shasum -a 256 tailchrome-helper-macos.pkg | tee tailchrome-helper-macos.pkg.sha256)
+      - name: Upload macOS assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" \
+            dist/tailchrome-helper-macos.pkg \
+            dist/tailchrome-helper-macos.pkg.sha256 \
+            --clobber
+      - name: macOS release summary
+        run: |
+          {
+            echo "## macOS installer"
+            echo
+            echo '```'
+            cat dist/tailchrome-helper-macos.pkg.sha256
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

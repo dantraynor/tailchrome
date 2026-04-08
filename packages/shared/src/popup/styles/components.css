@@ -1130,6 +1130,26 @@
 }
 
 /* ==============================
+   macOS .pkg CTA (needs-install)
+   ============================== */
+
+.install-pkg-cta {
+  width: 100%;
+  max-width: 280px;
+  margin: 0 auto var(--space-md);
+}
+
+.install-pkg-cta .btn {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.centered-view-text.install-pkg-hint {
+  margin: 0 auto var(--space-lg);
+  max-width: 280px;
+}
+
+/* ==============================
    Install Steps
    ============================== */
 

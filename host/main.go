@@ -19,12 +19,26 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	installFlag := flag.String("install", "", "install native messaging host manifest; value is C<extensionID> for Chrome or F<extensionID> for Firefox")
+	installNowFlag := flag.Bool("install-now", false, "install Chrome and Firefox native messaging manifests for the current user (non-interactive; used by the macOS Helper app)")
 	uninstallFlag := flag.Bool("uninstall", false, "uninstall native messaging host manifest")
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
 	if *versionFlag {
 		fmt.Println(version)
+		os.Exit(0)
+	}
+
+	if *installNowFlag {
+		if err := installChrome(chromeWebStoreExtensionID); err != nil {
+			log.Fatalf("Chrome install failed: %v", err)
+		}
+		fmt.Println("Chrome: installed successfully.")
+		if err := installFirefox(firefoxExtensionID); err != nil {
+			log.Fatalf("Firefox install failed: %v", err)
+		}
+		fmt.Println("Firefox: installed successfully.")
+		fmt.Println("\nYou can use the Tailchrome extension in your browser.")
 		os.Exit(0)
 	}
 

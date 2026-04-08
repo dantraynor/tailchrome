@@ -536,21 +536,21 @@ The popup is a vanilla TypeScript UI (no framework) rendered into the extension 
 **Chrome:**
 
 1. Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
-2. Click the extension icon -- follow prompts to install the native host
+2. **macOS:** Download **`tailchrome-helper-macos.pkg`** from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest), install it, then open **Tailchrome Helper** once from Applications. **Other platforms:** click the extension icon and follow the prompts to install the native host.
 3. Log in to your Tailscale account
 
 **Firefox:**
 
 1. Install from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest)
-2. Click the extension icon -- follow prompts to install the native host from GitHub Releases
+2. **macOS:** use the same **`tailchrome-helper-macos.pkg`** and **Tailchrome Helper** step as Chrome. **Other platforms:** click the extension icon and follow the prompts to install the native host from GitHub Releases
 3. Log in to your Tailscale account
 
 ### Native Host Installation
 
-The native host binary auto-installs when run in a terminal:
+The native host binary auto-installs when run interactively in a terminal, or non-interactively via **`tailscale-browser-ext -install-now`** (used by the macOS Helper app):
 
 - Detects installed browsers (Chrome and/or Firefox)
-- Copies itself to `~/.local/share/tailscale-browser-ext/` (Linux), `~/Library/Application Support/tailscale-browser-ext/` (macOS), or `%LOCALAPPDATA%\tailscale-browser-ext\` (Windows)
+- Copies itself to `~/.local/share/tailscale-browser-ext/` (Linux), `~/Library/Application Support/Tailscale/BrowserExt/` (macOS), or `%LOCALAPPDATA%\tailscale-browser-ext\` (Windows)
 - Writes native messaging manifest JSON files to browser-specific directories
 - Manual install: `./tailscale-browser-ext --install C<extensionID>` or `--install F<extensionID>`
 - Uninstall: `./tailscale-browser-ext --uninstall`
@@ -705,6 +705,7 @@ tailchrome/
 | Output              | Location                                         |
 | ------------------- | ------------------------------------------------ |
 | Chrome extension    | `packages/extension/.output/chrome-mv3/`         |
+| Chrome extension (dev, `make dev`) | `packages/extension/.output/chrome-mv3-dev/` |
 | Firefox extension   | `packages/extension/.output/firefox-mv3/`        |
 | Chrome ZIP          | `packages/extension/.output/chrome.zip`          |
 | Firefox ZIP         | `packages/extension/.output/firefox.zip`         |
@@ -943,7 +944,7 @@ Full listing text: [STORE_LISTING.md](STORE_LISTING.md)
 3. `pnpm install --frozen-lockfile`
 4. Build: `pnpm build:chrome`, `pnpm build:firefox`, `make host`
 5. Load extension in browser for testing:
-  - **Chrome:** `chrome://extensions` -> Developer Mode -> Load unpacked `packages/extension/.output/chrome-mv3/`
+  - **Chrome:** `chrome://extensions` -> Developer Mode -> Load unpacked `packages/extension/.output/chrome-mv3-dev/` (with `make dev`) or `packages/extension/.output/chrome-mv3/` (after `pnpm build:chrome`)
   - **Firefox:** `about:debugging#/runtime/this-firefox` -> Load temporary addon `packages/extension/.output/firefox-mv3/manifest.json`
 6. Install native host by running the built binary directly
 

@@ -1,0 +1,26 @@
+#!/bin/bash
+set -euo pipefail
+
+BIN="/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext"
+
+if [[ ! -f "$BIN" ]]; then
+  osascript <<'OSA' || true
+display dialog "Tailchrome Helper could not find the installed binary. Reinstall the Tailchrome Helper package from GitHub Releases." buttons {"OK"} default button 1 with icon stop with title "Tailchrome"
+OSA
+  exit 1
+fi
+
+chmod a+x "$BIN" 2>/dev/null || true
+
+if ! "$BIN" -install-now; then
+  osascript <<'OSA' || true
+display dialog "The helper could not finish setup. If macOS blocked the app, open System Settings → Privacy & Security and allow it, then try again." buttons {"OK"} default button 1 with title "Tailchrome"
+OSA
+  exit 1
+fi
+
+osascript <<'OSA' || true
+display notification "You can return to Chrome or Firefox and use Tailchrome." with title "Tailchrome Helper"
+OSA
+
+exit 0

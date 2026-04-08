@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS = -ldflags "-X main.version=$(VERSION)"
 
-.PHONY: all extension extension-chrome extension-firefox host host-all clean dev zip zip-chrome zip-firefox
+.PHONY: all extension extension-chrome extension-firefox host host-all macos-pkg clean dev zip zip-chrome zip-firefox
 
 all: extension host
 
@@ -21,6 +21,10 @@ host-all:
 	cd host && GOOS=darwin  GOARCH=arm64 CGO_ENABLED=0 go build $(LDFLAGS) -o ../dist/tailscale-browser-ext-darwin-arm64 .
 	cd host && GOOS=linux   GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o ../dist/tailscale-browser-ext-linux-amd64 .
 	cd host && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o ../dist/tailscale-browser-ext-windows-amd64.exe .
+
+# macOS only: universal .pkg installer (requires lipo, pkgbuild)
+macos-pkg:
+	./packaging/macos/build-pkg.sh
 
 zip: zip-chrome zip-firefox
 
