@@ -1,8 +1,12 @@
-# Pushes `main` to dantraynor/tailchromeprivate after each push to `main` on this repo.
+# Pushes `main` to a private GitHub repo after each push to `main` on this repo.
 #
-# Required repo secret (Settings → Secrets and variables → Actions):
-#   MIRROR_PUSH_TOKEN — classic PAT with `repo` scope, or a fine-grained PAT with
-#   Contents: Read and write on `dantraynor/tailchromeprivate` only.
+# Required (when mirror is enabled):
+#   Secret MIRROR_PUSH_TOKEN — classic PAT with `repo` scope, or a fine-grained PAT with
+#   Contents: Read and write on the destination repository only.
+#
+# Optional repository variables (Settings → Secrets and variables → Actions → Variables):
+#   MIRROR_REPOSITORY — destination as owner/name (default: dantraynor/tailchromeprivate).
+#   MIRROR_SKIP — set to `true` to skip this workflow (e.g. until the private repo exists or the PAT is fixed).
 
 name: Mirror to private
 
@@ -17,7 +21,7 @@ concurrency:
 jobs:
   push:
     runs-on: ubuntu-latest
-    if: github.repository == 'dantraynor/tailchrome'
+    if: github.repository == 'dantraynor/tailchrome' && vars.MIRROR_SKIP != 'true'
     permissions:
       contents: read
     steps:
@@ -25,14 +29,27 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Push main to tailchromeprivate
+      - name: Push main to private mirror
         env:
           TOKEN: ${{ secrets.MIRROR_PUSH_TOKEN }}
+          MIRROR_REPOSITORY: ${{ vars.MIRROR_REPOSITORY }}
         run: |
           set -euo pipefail
+          DEST="${MIRROR_REPOSITORY:-dantraynor/tailchromeprivate}"
           if [ -z "${TOKEN}" ]; then
-            echo "::error::Add the MIRROR_PUSH_TOKEN repository secret (PAT with push access to dantraynor/tailchromeprivate)."
+            echo "::error::Add the MIRROR_PUSH_TOKEN repository secret (PAT with push access to ${DEST}), or set repository variable MIRROR_SKIP=true to skip this job."
             exit 1
           fi
-          git remote add mirror "https://x-access-token:${TOKEN}@github.com/dantraynor/tailchromeprivate.git"
+          API_URL="https://api.github.com/repos/${DEST}"
+          HTTP_CODE="$(curl -sS -o /tmp/gh-repo.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "${API_URL}")"
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "::error::Cannot access mirror repo https://github.com/${DEST} (HTTP ${HTTP_CODE}). Create the repo, set repository variable MIRROR_REPOSITORY if it uses a different owner/name, or grant this PAT access (fine-grained tokens must list the destination repo). You can set MIRROR_SKIP=true to skip mirroring until this is fixed."
+            cat /tmp/gh-repo.json 2>/dev/null || true
+            exit 1
+          fi
+          git remote add mirror "https://x-access-token:${TOKEN}@github.com/${DEST}.git"
           git push mirror main
