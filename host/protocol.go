@@ -10,13 +10,17 @@ const maxMessageSize = 1024 * 1024
 type Request struct {
 	Cmd    string          `json:"cmd"`
 	InitID string          `json:"initID,omitempty"` // browser profile UUID, used with "init"
-	NodeID string          `json:"nodeID,omitempty"` // used with "set-exit-node", "send-file"
+	NodeID string          `json:"nodeID,omitempty"` // used with "set-exit-node", "send-file", "ping-peer"
 	Prefs  json.RawMessage `json:"prefs,omitempty"`  // partial prefs JSON, used with "set-prefs"
+	Note   string          `json:"note,omitempty"`   // optional note for "bug-report"
 
 	// For send-file
-	FileName string `json:"fileName,omitempty"`
-	FileData string `json:"fileData,omitempty"` // base64-encoded file content
-	FileSize int64  `json:"fileSize,omitempty"`
+	FileName     string `json:"fileName,omitempty"`
+	FileData     string `json:"fileData,omitempty"` // base64-encoded file content
+	FileSize     int64  `json:"fileSize,omitempty"`
+	TransferID   string `json:"transferID,omitempty"`
+	ChunkIndex   int    `json:"chunkIndex,omitempty"`
+	ChunkCount   int    `json:"chunkCount,omitempty"`
 
 	// For profile management
 	ProfileID string `json:"profileID,omitempty"`
@@ -32,6 +36,7 @@ type Reply struct {
 	Profiles           *ProfilesReply         `json:"profiles,omitempty"`
 	ExitNodeSuggestion *ExitNodeSuggestion    `json:"exitNodeSuggestion,omitempty"`
 	FileSendProgress   *FileSendProgressReply `json:"fileSendProgress,omitempty"`
+	Diagnostic         *DiagnosticReply       `json:"diagnostic,omitempty"`
 	Error              *ErrorReply            `json:"error,omitempty"`
 }
 
@@ -79,8 +84,9 @@ type PrefsView struct {
 	ShieldsUp              bool   `json:"shieldsUp"`
 	Hostname               string `json:"hostname,omitempty"`
 	RunSSH                 bool   `json:"runSSH"`
-	RunWebClient           bool   `json:"runWebClient"`
-	AdvertiseExitNode      bool   `json:"advertiseExitNode"`
+	RunWebClient           bool     `json:"runWebClient"`
+	AdvertiseExitNode      bool     `json:"advertiseExitNode"`
+	AdvertiseRoutes        []string `json:"advertiseRoutes,omitempty"`
 }
 
 // PeerInfo contains information about a Tailscale peer node.
@@ -101,6 +107,7 @@ type PeerInfo struct {
 	TxBytes            int64          `json:"txBytes"`
 	LastSeen           string         `json:"lastSeen,omitempty"`
 	LastHandshake      string         `json:"lastHandshake,omitempty"`
+	KeyExpiry          string         `json:"keyExpiry,omitempty"`
 	Location           *LocationInfo  `json:"location,omitempty"`
 	TaildropTarget     bool           `json:"taildropTarget"`
 	SSHHost            bool           `json:"sshHost"`
@@ -152,4 +159,11 @@ type FileSendProgressReply struct {
 type ErrorReply struct {
 	Cmd     string `json:"cmd"`
 	Message string `json:"message"`
+}
+
+// DiagnosticReply carries human-readable diagnostic output for commands
+// such as ping-peer, bug-report, or netcheck.
+type DiagnosticReply struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
 }

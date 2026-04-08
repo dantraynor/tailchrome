@@ -186,6 +186,11 @@ export function initBackground(
       }
     }
 
+    if (msg.diagnostic) {
+      const body = msg.diagnostic.body.replace(/\n/g, " · ");
+      sendToastToPopup(`${msg.diagnostic.title}: ${body}`, "info", true);
+    }
+
     // Error from native host
     if (msg.error) {
       if (msg.error.message === "install_error") {
@@ -386,12 +391,39 @@ export function initBackground(
           fileName: msg.name,
           fileData: msg.dataBase64,
           fileSize: msg.size,
+          ...(msg.transferID !== undefined
+            ? {
+                transferID: msg.transferID,
+                chunkIndex: msg.chunkIndex,
+                chunkCount: msg.chunkCount,
+              }
+            : {}),
         });
         break;
       }
 
       case "suggest-exit-node": {
         nativeHost.send({ cmd: "suggest-exit-node" });
+        break;
+      }
+
+      case "ping-peer": {
+        nativeHost.send({ cmd: "ping-peer", nodeID: msg.nodeID });
+        break;
+      }
+
+      case "bug-report": {
+        nativeHost.send({ cmd: "bug-report", note: msg.note });
+        break;
+      }
+
+      case "netcheck": {
+        nativeHost.send({ cmd: "netcheck" });
+        break;
+      }
+
+      case "set-advertise-routes": {
+        nativeHost.send({ cmd: "set-prefs", prefs: { advertiseRoutes: msg.routes } });
         break;
       }
 

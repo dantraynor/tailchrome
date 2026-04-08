@@ -3,7 +3,7 @@ import { ADMIN_URL } from "../../constants";
 import { renderHeader } from "../components/header";
 import { renderPeerList, updatePeerList, filterPeers } from "../components/peer-list";
 import { renderHealthWarnings } from "../components/health-warnings";
-import { createCopyButton } from "../utils";
+import { createCopyButton, formatKeyExpiryLocal } from "../utils";
 import { sendMessage, enterSubView, leaveSubView, getLatestState } from "../popup";
 import { createToggle } from "../components/toggle-switch";
 import { renderExitNodes } from "./exit-nodes";
@@ -88,6 +88,13 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
     hostname.textContent = state.selfNode.hostname;
     hostnameRow.appendChild(hostname);
     statusBar.appendChild(hostnameRow);
+
+    if (state.selfNode.keyExpiry) {
+      const keyRow = document.createElement("div");
+      keyRow.className = "status-bar-row status-bar-keyexpiry";
+      keyRow.textContent = `Node key expires: ${formatKeyExpiryLocal(state.selfNode.keyExpiry)}`;
+      statusBar.appendChild(keyRow);
+    }
   }
 
   view.appendChild(statusBar);
@@ -144,6 +151,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   const shieldsToggle = createToggle(shieldsUp, (checked) => {
     sendMessage({ type: "set-pref", key: "shieldsUp", value: checked });
   });
+  shieldsToggle.querySelector("input")?.classList.add("quick-settings-pref");
   shieldsRow.appendChild(shieldsToggle);
   settings.appendChild(shieldsRow);
 
@@ -160,6 +168,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   const exitAdToggle = createToggle(advertisingExit, (checked) => {
     sendMessage({ type: "set-pref", key: "advertiseExitNode", value: checked });
   });
+  exitAdToggle.querySelector("input")?.classList.add("quick-settings-pref");
   exitAdRow.appendChild(exitAdToggle);
   settings.appendChild(exitAdRow);
 
@@ -176,8 +185,49 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   const dnsToggle = createToggle(corpDNSEnabled, (checked) => {
     sendMessage({ type: "set-pref", key: "corpDNS", value: checked });
   });
+  dnsToggle.querySelector("input")?.classList.add("quick-settings-pref");
   dnsRow.appendChild(dnsToggle);
   settings.appendChild(dnsRow);
+
+  const sshRow = document.createElement("div");
+  sshRow.className = "setting-row";
+  const sshLabel = document.createElement("span");
+  sshLabel.className = "setting-label";
+  sshLabel.textContent = "Tailscale SSH server";
+  sshRow.appendChild(sshLabel);
+  const runSSH = state.prefs?.runSSH ?? false;
+  const sshToggle = createToggle(runSSH, (checked) => {
+    sendMessage({ type: "set-pref", key: "runSSH", value: checked });
+  });
+  sshToggle.querySelector("input")?.classList.add("quick-settings-pref");
+  sshRow.appendChild(sshToggle);
+  settings.appendChild(sshRow);
+
+  const routesRow = document.createElement("div");
+  routesRow.className = "setting-row setting-row--stacked";
+  const routesLabel = document.createElement("span");
+  routesLabel.className = "setting-label";
+  routesLabel.textContent = "Advertise subnets (CIDR)";
+  routesRow.appendChild(routesLabel);
+  const routesTa = document.createElement("textarea");
+  routesTa.className = "advertise-routes-input";
+  routesTa.rows = 2;
+  routesTa.placeholder = "e.g. 10.0.0.0/24, 192.168.0.0/16";
+  routesTa.value = (state.prefs?.advertiseRoutes ?? []).join(", ");
+  routesRow.appendChild(routesTa);
+  const routesSave = document.createElement("button");
+  routesSave.type = "button";
+  routesSave.className = "btn btn-secondary advertise-routes-save";
+  routesSave.textContent = "Save routes";
+  routesSave.addEventListener("click", () => {
+    const parts = routesTa.value
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    sendMessage({ type: "set-advertise-routes", routes: parts });
+  });
+  routesRow.appendChild(routesSave);
+  settings.appendChild(routesRow);
 
   // Profile switcher row (only show when multiple profiles exist)
   if (state.profiles.length > 0) {
@@ -239,6 +289,36 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   const footer = document.createElement("div");
   footer.className = "footer";
+
+  if (state.hostVersion) {
+    const hostVer = document.createElement("div");
+    hostVer.className = "footer-host-version";
+    hostVer.textContent = `Native helper ${state.hostVersion}`;
+    footer.appendChild(hostVer);
+  }
+
+  const diagRow = document.createElement("div");
+  diagRow.className = "footer-diagnostics";
+  const bugLink = document.createElement("a");
+  bugLink.className = "footer-link";
+  bugLink.href = "#";
+  bugLink.textContent = "Bug report";
+  bugLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    sendMessage({ type: "bug-report" });
+  });
+  const ncLink = document.createElement("a");
+  ncLink.className = "footer-link";
+  ncLink.href = "#";
+  ncLink.textContent = "Netcheck info";
+  ncLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    sendMessage({ type: "netcheck" });
+  });
+  diagRow.appendChild(bugLink);
+  diagRow.appendChild(document.createTextNode(" · "));
+  diagRow.appendChild(ncLink);
+  footer.appendChild(diagRow);
 
   const adminLink = document.createElement("a");
   adminLink.className = "footer-link";
@@ -343,6 +423,28 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     }
   }
 
+  const statusBarEl = view.querySelector<HTMLElement>(".status-bar");
+  const keyExpiry = state.selfNode?.keyExpiry;
+  let keyExpEl = view.querySelector<HTMLElement>(".status-bar-keyexpiry");
+  if (keyExpiry) {
+    const nextText = `Node key expires: ${formatKeyExpiryLocal(keyExpiry)}`;
+    if (!keyExpEl && statusBarEl) {
+      keyExpEl = document.createElement("div");
+      keyExpEl.className = "status-bar-row status-bar-keyexpiry";
+      statusBarEl.appendChild(keyExpEl);
+    }
+    if (keyExpEl && keyExpEl.textContent !== nextText) {
+      keyExpEl.textContent = nextText;
+    }
+  } else if (keyExpEl) {
+    keyExpEl.remove();
+  }
+
+  const hostFoot = view.querySelector(".footer-host-version");
+  if (hostFoot && state.hostVersion) {
+    hostFoot.textContent = `Native helper ${state.hostVersion}`;
+  }
+
   const healthKey = state.health.join("\0");
   if (healthKey !== lastHealthKey) {
     lastHealthKey = healthKey;
@@ -392,20 +494,33 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
       }
     }
 
-    // Toggle states: Shields Up, Run as Exit Node, and MagicDNS
-    const toggleInputs = quickSettings.querySelectorAll<HTMLInputElement>("input[type=checkbox]");
-    if (toggleInputs.length >= 3) {
+    const prefInputs = quickSettings.querySelectorAll<HTMLInputElement>(
+      "input.quick-settings-pref",
+    );
+    if (prefInputs.length >= 4) {
       const shieldsUp = state.prefs?.shieldsUp ?? false;
-      if (toggleInputs[0]!.checked !== shieldsUp) {
-        toggleInputs[0]!.checked = shieldsUp;
+      if (prefInputs[0]!.checked !== shieldsUp) {
+        prefInputs[0]!.checked = shieldsUp;
       }
       const advertisingExit = state.prefs?.advertiseExitNode ?? false;
-      if (toggleInputs[1]!.checked !== advertisingExit) {
-        toggleInputs[1]!.checked = advertisingExit;
+      if (prefInputs[1]!.checked !== advertisingExit) {
+        prefInputs[1]!.checked = advertisingExit;
       }
       const corpDNS = state.prefs?.corpDNS ?? true;
-      if (toggleInputs[2]!.checked !== corpDNS) {
-        toggleInputs[2]!.checked = corpDNS;
+      if (prefInputs[2]!.checked !== corpDNS) {
+        prefInputs[2]!.checked = corpDNS;
+      }
+      const runSSH = state.prefs?.runSSH ?? false;
+      if (prefInputs[3]!.checked !== runSSH) {
+        prefInputs[3]!.checked = runSSH;
+      }
+    }
+
+    const routesTa = view.querySelector<HTMLTextAreaElement>(".advertise-routes-input");
+    if (routesTa && document.activeElement !== routesTa) {
+      const next = (state.prefs?.advertiseRoutes ?? []).join(", ");
+      if (routesTa.value !== next) {
+        routesTa.value = next;
       }
     }
   }

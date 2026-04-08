@@ -1,5 +1,5 @@
 import type { PeerInfo } from "../../types";
-import { copyToClipboard, showToast } from "../utils";
+import { copyToClipboard, formatBytes, showToast } from "../utils";
 import { sendMessage } from "../popup";
 import { getCustomUrl, setCustomUrl, clearCustomUrl, resolveOpenUrl } from "../custom-urls";
 import { iconForOS } from "../icons";
@@ -41,7 +41,7 @@ export function formatRelativeTime(isoDate: string | null): string {
  * Used to detect whether a peer item needs updating.
  */
 export function peerDisplayKey(peer: PeerInfo): string {
-  return `${peer.hostname}|${peer.online}|${peer.tailscaleIPs[0] ?? ""}|${peer.lastSeen ?? ""}|${peer.exitNode}|${peer.dnsName}`;
+  return `${peer.hostname}|${peer.online}|${peer.tailscaleIPs[0] ?? ""}|${peer.lastSeen ?? ""}|${peer.exitNode}|${peer.dnsName}|${peer.rxBytes}|${peer.txBytes}|${peer.lastHandshake ?? ""}|${(peer.tags ?? []).join(",")}|${peer.userLoginName}|${peer.userName}`;
 }
 
 /**
@@ -69,7 +69,30 @@ export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void
     ipEl.textContent = firstIP ?? "";
   }
 
+  const det = container.querySelector(".peer-details");
+  if (det) {
+    det.textContent = buildPeerDetailsText(peer);
+  }
+
   container.dataset.displayKey = peerDisplayKey(peer);
+}
+
+function buildPeerDetailsText(peer: PeerInfo): string {
+  const parts: string[] = [
+    `\u2193 ${formatBytes(peer.rxBytes)} \u00b7 \u2191 ${formatBytes(peer.txBytes)}`,
+  ];
+  if (peer.lastHandshake) {
+    parts.push(`Handshake ${formatRelativeTime(peer.lastHandshake)}`);
+  }
+  if (peer.tags?.length) {
+    parts.push(peer.tags.join(" "));
+  }
+  if (peer.userLoginName) {
+    parts.push(peer.userLoginName);
+  } else if (peer.userName) {
+    parts.push(peer.userName);
+  }
+  return parts.join(" \u00b7 ");
 }
 
 /**
@@ -139,6 +162,11 @@ export function createPeerItem(peer: PeerInfo): HTMLElement {
   const actions = document.createElement("div");
   actions.className = "peer-actions";
 
+  const details = document.createElement("div");
+  details.className = "peer-details";
+  details.textContent = buildPeerDetailsText(peer);
+  actions.appendChild(details);
+
   if (firstIP) {
     actions.appendChild(createActionButton("Copy IP", () => {
       copyToClipboard(firstIP);
@@ -166,6 +194,13 @@ export function createPeerItem(peer: PeerInfo): HTMLElement {
       });
       actions.appendChild(openBtn);
     }
+  }
+
+  if (peer.online && firstIP) {
+    actions.appendChild(createActionButton("Ping", () => {
+      sendMessage({ type: "ping-peer", nodeID: peer.id });
+      showToast(`Pinging ${peer.hostname}\u2026`, "info");
+    }));
   }
 
   if (peer.sshHost && peer.online) {
@@ -273,6 +308,21 @@ function createActionButton(label: string, onClick: () => void): HTMLElement {
   return btn;
 }
 
+const FILE_CHUNK_BYTES = 700_000;
+const MAX_SEND_FILE_SIZE = 50 * 1024 * 1024; // must match host maxAssembledFileSize
+
+function uint8ToBase64(u8: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < u8.length; i += chunk) {
+    binary += String.fromCharCode.apply(
+      null,
+      u8.subarray(i, i + chunk) as unknown as number[],
+    );
+  }
+  return btoa(binary);
+}
+
 function openFilePicker(peer: PeerInfo): void {
   const input = document.createElement("input");
   input.type = "file";
@@ -292,30 +342,66 @@ function openFilePicker(peer: PeerInfo): void {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      // Strip the data URL prefix to get raw base64
-      const commaIndex = result.indexOf(",");
-      const base64 = commaIndex >= 0 ? result.slice(commaIndex + 1) : result;
+    if (file.size > MAX_SEND_FILE_SIZE) {
+      showToast(
+        `File too large (${Math.round(file.size / 1024 / 1024)} MB). Maximum is ${MAX_SEND_FILE_SIZE / 1024 / 1024} MB.`,
+        "error",
+      );
+      cleanup();
+      return;
+    }
+
+    if (file.size <= FILE_CHUNK_BYTES) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        const commaIndex = result.indexOf(",");
+        const base64 = commaIndex >= 0 ? result.slice(commaIndex + 1) : result;
+        sendMessage({
+          type: "send-file",
+          targetNodeID: peer.id,
+          name: file.name,
+          size: file.size,
+          dataBase64: base64,
+        });
+        showToast(`Sending "${file.name}" to ${peer.hostname}...`);
+      };
+      reader.onerror = () => {
+        showToast("Failed to read file", "error");
+      };
+      reader.readAsDataURL(file);
+    } else {
+      void sendFileChunked(peer, file);
+    }
+    cleanup();
+  });
+
+  input.addEventListener("cancel", cleanup);
+
+  input.click();
+}
+
+async function sendFileChunked(peer: PeerInfo, file: File): Promise<void> {
+  const transferID = crypto.randomUUID();
+  const chunkCount = Math.ceil(file.size / FILE_CHUNK_BYTES);
+  showToast(`Sending "${file.name}" in ${chunkCount} parts...`, "info");
+  try {
+    for (let i = 0; i < chunkCount; i++) {
+      const slice = file.slice(i * FILE_CHUNK_BYTES, (i + 1) * FILE_CHUNK_BYTES);
+      const buf = await slice.arrayBuffer();
+      const base64 = uint8ToBase64(new Uint8Array(buf));
       sendMessage({
         type: "send-file",
         targetNodeID: peer.id,
         name: file.name,
         size: file.size,
         dataBase64: base64,
+        transferID,
+        chunkIndex: i,
+        chunkCount,
       });
-      showToast(`Sending "${file.name}" to ${peer.hostname}...`);
-    };
-    reader.onerror = () => {
-      showToast("Failed to read file", "error");
-    };
-    reader.readAsDataURL(file);
-    cleanup();
-  });
-
-  // Clean up if the user cancels the file picker
-  input.addEventListener("cancel", cleanup);
-
-  input.click();
+    }
+  } catch {
+    showToast("Failed to read file", "error");
+  }
 }

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"tailscale.com/ipn/ipnstate"
 )
 
@@ -65,6 +67,9 @@ func peerStatusToPeerInfo(ps *ipnstate.PeerStatus, st *ipnstate.Status) PeerInfo
 	}
 	if !ps.LastHandshake.IsZero() {
 		pi.LastHandshake = ps.LastHandshake.UTC().Format("2006-01-02T15:04:05Z")
+	}
+	if ps.KeyExpiry != nil {
+		pi.KeyExpiry = ps.KeyExpiry.UTC().Format(time.RFC3339)
 	}
 
 	// Location info.

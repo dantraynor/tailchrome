@@ -7,13 +7,16 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
+	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
 )
@@ -42,6 +45,9 @@ type Host struct {
 	lastBrowseToURL string
 	lastPrefs       *PrefsView
 	lastHealth      []string
+
+	pendingMu        sync.Mutex
+	pendingTransfers map[string]*fileTransferAccumulator
 }
 
 // newHost creates a new Host that reads from r and writes to w.
@@ -142,6 +148,12 @@ func (h *Host) handleRequest(req Request) {
 		h.handleGetStatus()
 	case "ping":
 		h.handlePing()
+	case "ping-peer":
+		h.handlePingPeer(req)
+	case "bug-report":
+		h.handleBugReport(req)
+	case "netcheck":
+		h.handleNetcheck()
 	case "set-exit-node":
 		h.handleSetExitNode(req.NodeID)
 	case "set-prefs":
@@ -324,6 +336,115 @@ func (h *Host) handlePing() {
 	})
 }
 
+func (h *Host) handlePingPeer(req Request) {
+	if err := h.requireInit("ping-peer"); err != nil {
+		return
+	}
+	if req.NodeID == "" {
+		h.sendError("ping-peer", "nodeID is required")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	st, err := h.lc.Status(ctx)
+	if err != nil {
+		h.sendError("ping-peer", fmt.Sprintf("failed to get status: %v", err))
+		return
+	}
+	var ps *ipnstate.PeerStatus
+	if st.Self != nil && string(st.Self.ID) == req.NodeID {
+		ps = st.Self
+	} else {
+		for _, p := range st.Peer {
+			if string(p.ID) == req.NodeID {
+				ps = p
+				break
+			}
+		}
+	}
+	if ps == nil {
+		h.sendError("ping-peer", fmt.Sprintf("no peer with id %q", req.NodeID))
+		return
+	}
+	if len(ps.TailscaleIPs) == 0 {
+		h.sendError("ping-peer", "peer has no Tailscale IPs")
+		return
+	}
+	ip := ps.TailscaleIPs[0]
+	res, err := h.lc.Ping(ctx, ip, tailcfg.PingDisco)
+	if err != nil {
+		h.send(Reply{
+			Cmd: "ping-peer",
+			Diagnostic: &DiagnosticReply{
+				Title: "Ping failed",
+				Body:  err.Error(),
+			},
+		})
+		return
+	}
+	var b strings.Builder
+	if res.Err != "" {
+		fmt.Fprintf(&b, "Error: %s\n", res.Err)
+	}
+	fmt.Fprintf(&b, "IP: %s\n", res.IP)
+	if res.NodeName != "" {
+		fmt.Fprintf(&b, "Node: %s\n", res.NodeName)
+	}
+	if res.LatencySeconds > 0 {
+		fmt.Fprintf(&b, "Latency: %v\n", time.Duration(res.LatencySeconds*float64(time.Second)))
+	}
+	if res.Endpoint != "" {
+		fmt.Fprintf(&b, "Endpoint: %s\n", res.Endpoint)
+	}
+	if res.DERPRegionCode != "" {
+		fmt.Fprintf(&b, "DERP: %s\n", res.DERPRegionCode)
+	}
+	title := "Ping"
+	if res.Err != "" {
+		title = "Ping (with errors)"
+	}
+	h.send(Reply{
+		Cmd: "ping-peer",
+		Diagnostic: &DiagnosticReply{
+			Title: title,
+			Body:  strings.TrimSpace(b.String()),
+		},
+	})
+}
+
+func (h *Host) handleBugReport(req Request) {
+	if err := h.requireInit("bug-report"); err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	marker, err := h.lc.BugReport(ctx, req.Note)
+	if err != nil {
+		h.sendError("bug-report", fmt.Sprintf("bug-report failed: %v", err))
+		return
+	}
+	h.send(Reply{
+		Cmd: "bug-report",
+		Diagnostic: &DiagnosticReply{
+			Title: "Bug report",
+			Body:  marker,
+		},
+	})
+}
+
+func (h *Host) handleNetcheck() {
+	if err := h.requireInit("netcheck"); err != nil {
+		return
+	}
+	h.send(Reply{
+		Cmd: "netcheck",
+		Diagnostic: &DiagnosticReply{
+			Title: "Netcheck",
+			Body:  "Netcheck is not available in the browser helper; use the Tailscale CLI on a full install.",
+		},
+	})
+}
+
 // handleSetPrefs applies partial preference changes.
 func (h *Host) handleSetPrefs(req Request) {
 	if err := h.requireInit("set-prefs"); err != nil {
@@ -337,15 +458,16 @@ func (h *Host) handleSetPrefs(req Request) {
 
 	// Decode the partial prefs from the extension.
 	var partial struct {
-		ExitNodeID             *string `json:"exitNodeID,omitempty"`
-		ExitNodeAllowLANAccess *bool   `json:"exitNodeAllowLANAccess,omitempty"`
-		CorpDNS                *bool   `json:"corpDNS,omitempty"`
-		RouteAll               *bool   `json:"routeAll,omitempty"`
-		ShieldsUp              *bool   `json:"shieldsUp,omitempty"`
-		WantRunning            *bool   `json:"wantRunning,omitempty"`
-		RunSSH                 *bool   `json:"runSSH,omitempty"`
-		Hostname               *string `json:"hostname,omitempty"`
-		AdvertiseExitNode      *bool   `json:"advertiseExitNode,omitempty"`
+		ExitNodeID             *string   `json:"exitNodeID,omitempty"`
+		ExitNodeAllowLANAccess *bool     `json:"exitNodeAllowLANAccess,omitempty"`
+		CorpDNS                *bool     `json:"corpDNS,omitempty"`
+		RouteAll               *bool     `json:"routeAll,omitempty"`
+		ShieldsUp              *bool     `json:"shieldsUp,omitempty"`
+		WantRunning            *bool     `json:"wantRunning,omitempty"`
+		RunSSH                 *bool     `json:"runSSH,omitempty"`
+		Hostname               *string   `json:"hostname,omitempty"`
+		AdvertiseExitNode      *bool     `json:"advertiseExitNode,omitempty"`
+		AdvertiseRoutes        *[]string `json:"advertiseRoutes,omitempty"`
 	}
 	if err := json.Unmarshal(req.Prefs, &partial); err != nil {
 		h.sendError("set-prefs", fmt.Sprintf("invalid prefs JSON: %v", err))
@@ -388,14 +510,30 @@ func (h *Host) handleSetPrefs(req Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if partial.AdvertiseExitNode != nil {
-		// Read current prefs to preserve any existing subnet routes.
+	if partial.AdvertiseRoutes != nil || partial.AdvertiseExitNode != nil {
 		currentPrefs, err := h.lc.GetPrefs(ctx)
 		if err != nil {
 			h.sendError("set-prefs", fmt.Sprintf("failed to get current prefs: %v", err))
 			return
 		}
-		currentPrefs.SetAdvertiseExitNode(*partial.AdvertiseExitNode)
+		exitWas := currentPrefs.AdvertisesExitNode()
+		if partial.AdvertiseRoutes != nil {
+			prefixes := make([]netip.Prefix, 0, len(*partial.AdvertiseRoutes))
+			for _, s := range *partial.AdvertiseRoutes {
+				pfx, err := netip.ParsePrefix(s)
+				if err != nil {
+					h.sendError("set-prefs", fmt.Sprintf("invalid advertise route CIDR %q: %v", s, err))
+					return
+				}
+				prefixes = append(prefixes, pfx)
+			}
+			currentPrefs.AdvertiseRoutes = prefixes
+		}
+		if partial.AdvertiseExitNode != nil {
+			currentPrefs.SetAdvertiseExitNode(*partial.AdvertiseExitNode)
+		} else if partial.AdvertiseRoutes != nil && exitWas {
+			currentPrefs.SetAdvertiseExitNode(true)
+		}
 		mp.AdvertiseRoutesSet = true
 		mp.Prefs.AdvertiseRoutes = currentPrefs.AdvertiseRoutes
 	}
