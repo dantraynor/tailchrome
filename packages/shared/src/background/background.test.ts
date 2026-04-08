@@ -126,7 +126,34 @@ describe("initBackground", () => {
 
       // proxyManager.apply should have been called with state containing new port
       expect(proxyManager.apply).toHaveBeenCalledWith(
-        expect.objectContaining({ proxyPort: 1055, proxyEnabled: true })
+        expect.objectContaining({
+          proxyPort: 1055,
+          proxyEnabled: true,
+          supportsNetcheck: false,
+          supportsPingPeer: false,
+        })
+      );
+    });
+
+    it("sets supportsNetcheck when procRunning advertises it", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, supportsNetcheck: true },
+      });
+
+      expect(proxyManager.apply).toHaveBeenCalledWith(
+        expect.objectContaining({ supportsNetcheck: true })
+      );
+    });
+
+    it("sets supportsPingPeer when procRunning advertises it", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, supportsPingPeer: true },
+      });
+
+      expect(proxyManager.apply).toHaveBeenCalledWith(
+        expect.objectContaining({ supportsPingPeer: true })
       );
     });
 

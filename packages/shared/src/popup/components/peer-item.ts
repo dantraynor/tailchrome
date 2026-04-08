@@ -98,10 +98,11 @@ function buildPeerDetailsText(peer: PeerInfo): string {
 /**
  * Creates a single peer item row element with expandable actions.
  */
-export function createPeerItem(peer: PeerInfo): HTMLElement {
+export function createPeerItem(peer: PeerInfo, supportsPingPeer: boolean): HTMLElement {
   const container = document.createElement("div");
   container.className = "peer-item-container";
   container.dataset.peerId = peer.id;
+  container.dataset.hostPingCap = supportsPingPeer ? "1" : "0";
   container.dataset.displayKey = peerDisplayKey(peer);
 
   const row = document.createElement("div");
@@ -196,7 +197,7 @@ export function createPeerItem(peer: PeerInfo): HTMLElement {
     }
   }
 
-  if (peer.online && firstIP) {
+  if (supportsPingPeer && peer.online && firstIP) {
     actions.appendChild(createActionButton("Ping", () => {
       sendMessage({ type: "ping-peer", nodeID: peer.id });
       showToast(`Pinging ${peer.hostname}\u2026`, "info");

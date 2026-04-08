@@ -67,12 +67,17 @@ function renderPeerSection(
   label: string,
   peers: PeerInfo[],
   cachedElements: Map<string, HTMLElement>,
+  supportsPingPeer: boolean,
 ): void {
+  const pingCap = supportsPingPeer ? "1" : "0";
   container.appendChild(createSectionHeader(label, peers.length));
   const list = document.createElement("div");
   list.className = "peer-list";
   for (const peer of peers) {
-    const cached = cachedElements.get(peer.id);
+    let cached = cachedElements.get(peer.id);
+    if (cached && cached.dataset.hostPingCap !== pingCap) {
+      cached = undefined;
+    }
     if (cached) {
       const oldKey = cached.dataset.displayKey;
       const newKey = peerDisplayKey(peer);
@@ -81,7 +86,7 @@ function renderPeerSection(
       }
       list.appendChild(cached);
     } else {
-      list.appendChild(createPeerItem(peer));
+      list.appendChild(createPeerItem(peer, supportsPingPeer));
     }
   }
   container.appendChild(list);
@@ -91,7 +96,11 @@ function renderPeerSection(
  * Renders the peer list, grouped by online/offline status.
  * Online peers appear first, followed by offline peers.
  */
-export function renderPeerList(container: HTMLElement, peers: PeerInfo[]): void {
+export function renderPeerList(
+  container: HTMLElement,
+  peers: PeerInfo[],
+  supportsPingPeer: boolean,
+): void {
   if (!container.dataset.kbnav) {
     addListKeyboardNav(container, ".peer-item");
     container.dataset.kbnav = "1";
@@ -112,7 +121,7 @@ export function renderPeerList(container: HTMLElement, peers: PeerInfo[]): void 
     const list = document.createElement("div");
     list.className = "peer-list";
     for (const peer of online) {
-      list.appendChild(createPeerItem(peer));
+      list.appendChild(createPeerItem(peer, supportsPingPeer));
     }
     container.appendChild(list);
   }
@@ -123,7 +132,7 @@ export function renderPeerList(container: HTMLElement, peers: PeerInfo[]): void 
     const list = document.createElement("div");
     list.className = "peer-list";
     for (const peer of offline) {
-      list.appendChild(createPeerItem(peer));
+      list.appendChild(createPeerItem(peer, supportsPingPeer));
     }
     container.appendChild(list);
   }
@@ -133,7 +142,11 @@ export function renderPeerList(container: HTMLElement, peers: PeerInfo[]): void 
  * Incrementally updates the peer list, reusing existing DOM elements
  * to preserve expanded/collapsed state and avoid animation replays.
  */
-export function updatePeerList(container: HTMLElement, peers: PeerInfo[]): void {
+export function updatePeerList(
+  container: HTMLElement,
+  peers: PeerInfo[],
+  supportsPingPeer: boolean,
+): void {
   // Collect existing peer item elements by ID
   const cachedElements = new Map<string, HTMLElement>();
   for (const el of container.querySelectorAll<HTMLElement>(".peer-item-container[data-peer-id]")) {
@@ -151,9 +164,9 @@ export function updatePeerList(container: HTMLElement, peers: PeerInfo[]): void 
   const offline = peers.filter((p) => !p.online);
 
   if (online.length > 0) {
-    renderPeerSection(container, "Online", online, cachedElements);
+    renderPeerSection(container, "Online", online, cachedElements, supportsPingPeer);
   }
   if (offline.length > 0) {
-    renderPeerSection(container, "Offline", offline, cachedElements);
+    renderPeerSection(container, "Offline", offline, cachedElements, supportsPingPeer);
   }
 }

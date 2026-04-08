@@ -103,9 +103,11 @@ func main() {
 		h.send(Reply{
 			Cmd: "procRunning",
 			ProcRunning: &ProcRunningReply{
-				PID:     os.Getpid(),
-				Version: version,
-				Error:   errString(err),
+				PID:              os.Getpid(),
+				Version:          version,
+				Error:            errString(err),
+				SupportsNetcheck: true,
+				SupportsPingPeer: true,
 			},
 		})
 		log.Fatalf("failed to start proxy: %v", err)
@@ -114,9 +116,11 @@ func main() {
 	h.send(Reply{
 		Cmd: "procRunning",
 		ProcRunning: &ProcRunningReply{
-			Port:    port,
-			PID:     os.Getpid(),
-			Version: version,
+			Port:             port,
+			PID:              os.Getpid(),
+			Version:          version,
+			SupportsNetcheck: true,
+			SupportsPingPeer: true,
 		},
 	})
 

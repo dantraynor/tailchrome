@@ -274,7 +274,11 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
       if (peerEl) {
         const latest = getLatestState();
         if (latest) {
-          updatePeerList(peerEl, filterPeers(latest.peers, peerSearchQuery));
+          updatePeerList(
+            peerEl,
+            filterPeers(latest.peers, peerSearchQuery),
+            latest.supportsPingPeer,
+          );
         }
       }
     });
@@ -284,7 +288,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   const peerContainer = document.createElement("div");
   peerContainer.className = "peer-container";
-  renderPeerList(peerContainer, filteredPeers);
+  renderPeerList(peerContainer, filteredPeers, state.supportsPingPeer);
   view.appendChild(peerContainer);
 
   const footer = document.createElement("div");
@@ -299,25 +303,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   const diagRow = document.createElement("div");
   diagRow.className = "footer-diagnostics";
-  const bugLink = document.createElement("a");
-  bugLink.className = "footer-link";
-  bugLink.href = "#";
-  bugLink.textContent = "Bug report";
-  bugLink.addEventListener("click", (e) => {
-    e.preventDefault();
-    sendMessage({ type: "bug-report" });
-  });
-  const ncLink = document.createElement("a");
-  ncLink.className = "footer-link";
-  ncLink.href = "#";
-  ncLink.textContent = "Netcheck info";
-  ncLink.addEventListener("click", (e) => {
-    e.preventDefault();
-    sendMessage({ type: "netcheck" });
-  });
-  diagRow.appendChild(bugLink);
-  diagRow.appendChild(document.createTextNode(" · "));
-  diagRow.appendChild(ncLink);
+  fillFooterDiagnostics(diagRow, state);
   footer.appendChild(diagRow);
 
   const adminLink = document.createElement("a");
@@ -365,6 +351,31 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
 // Track health key to detect changes during in-place updates
 let lastHealthKey = "";
+
+function fillFooterDiagnostics(diagRow: HTMLElement, state: TailscaleState): void {
+  diagRow.replaceChildren();
+  const bugLink = document.createElement("a");
+  bugLink.className = "footer-link";
+  bugLink.href = "#";
+  bugLink.textContent = "Bug report";
+  bugLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    sendMessage({ type: "bug-report" });
+  });
+  diagRow.appendChild(bugLink);
+  if (state.supportsNetcheck) {
+    diagRow.appendChild(document.createTextNode(" · "));
+    const ncLink = document.createElement("a");
+    ncLink.className = "footer-link footer-link-netcheck";
+    ncLink.href = "#";
+    ncLink.textContent = "Netcheck info";
+    ncLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      sendMessage({ type: "netcheck" });
+    });
+    diagRow.appendChild(ncLink);
+  }
+}
 
 /**
  * Helper: compute the exit node display text from state.
@@ -443,6 +454,14 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
   const hostFoot = view.querySelector(".footer-host-version");
   if (hostFoot && state.hostVersion) {
     hostFoot.textContent = `Native helper ${state.hostVersion}`;
+  }
+
+  const diagRowEl = view.querySelector<HTMLElement>(".footer-diagnostics");
+  if (diagRowEl) {
+    const hadNc = diagRowEl.querySelector(".footer-link-netcheck") !== null;
+    if (state.supportsNetcheck !== hadNc) {
+      fillFooterDiagnostics(diagRowEl, state);
+    }
   }
 
   const healthKey = state.health.join("\0");
@@ -527,6 +546,10 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
 
   const peerContainer = view.querySelector<HTMLElement>(".peer-container");
   if (peerContainer) {
-    updatePeerList(peerContainer, filterPeers(state.peers, peerSearchQuery));
+    updatePeerList(
+      peerContainer,
+      filterPeers(state.peers, peerSearchQuery),
+      state.supportsPingPeer,
+    );
   }
 }
