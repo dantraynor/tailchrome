@@ -1,0 +1,38 @@
+# Pushes `main` to dantraynor/tailchromeprivate after each push to `main` on this repo.
+#
+# Required repo secret (Settings → Secrets and variables → Actions):
+#   MIRROR_PUSH_TOKEN — classic PAT with `repo` scope, or a fine-grained PAT with
+#   Contents: Read and write on `dantraynor/tailchromeprivate` only.
+
+name: Mirror to private
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: mirror-to-private
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    if: github.repository == 'dantraynor/tailchrome'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Push main to tailchromeprivate
+        env:
+          TOKEN: ${{ secrets.MIRROR_PUSH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN}" ]; then
+            echo "::error::Add the MIRROR_PUSH_TOKEN repository secret (PAT with push access to dantraynor/tailchromeprivate)."
+            exit 1
+          fi
+          git remote add mirror "https://x-access-token:${TOKEN}@github.com/dantraynor/tailchromeprivate.git"
+          git push mirror main

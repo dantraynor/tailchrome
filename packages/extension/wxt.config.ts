@@ -68,7 +68,7 @@ export default defineConfig({
       "pnpm-lock.yaml",
       "pnpm-workspace.yaml",
       "tsconfig.base.json",
-      "SOURCE_CODE_REVIEW.md",
+      "docs/SOURCE_CODE_REVIEW.md",
       "config/extension-ids.json",
       "packages/extension/**",
       "packages/shared/**",
