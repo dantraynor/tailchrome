@@ -2,6 +2,7 @@ import type { PeerInfo, TailscaleState } from "../types";
 
 export function baseState(overrides: Partial<TailscaleState> = {}): TailscaleState {
   return {
+    stateVersion: 0,
     hostConnected: true,
     initialized: true,
     proxyPort: 1055,
@@ -20,6 +21,9 @@ export function baseState(overrides: Partial<TailscaleState> = {}): TailscaleSta
     exitNodeSuggestion: null,
     error: null,
     installError: false,
+    hostVersion: null,
+    hostVersionMismatch: false,
+    reconnecting: false,
     ...overrides,
   };
 }

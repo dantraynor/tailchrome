@@ -3,7 +3,7 @@
 Access your Tailscale network directly from your browser. No system VPN required.
 <img width="1400" height="560" alt="promo-marquee" src="https://github.com/user-attachments/assets/88f6953e-014c-4c35-aa44-d612786f6d17" />
 
-https://tesseras.org/tailchrome/ | [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
+https://tesseras.org/tailchrome/ | [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) | [Privacy Policy](docs/privacy-policy.md)
 
 Tailchrome runs a full Tailscale node per browser profile, without touching system networking. Tailnet traffic is routed through a local SOCKS5/HTTP proxy, so it works alongside (or without) the Tailscale system app.
 
@@ -40,9 +40,17 @@ They communicate over the browser's native messaging protocol.
 
 ### Firefox
 
-1. Install Tailchrome from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest) (Firefox addon coming to AMO soon)
-2. Click the extension icon and follow the prompts to install the native host
+1. Install Tailchrome from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest) while the first AMO listing is being bootstrapped
+2. Click the extension icon and follow the prompts to install the separate native host helper from GitHub Releases
 3. Log in to your Tailscale account
+
+## Data Handling
+
+Tailchrome stores a per-browser-profile ID, your last selected exit node, and any custom peer URLs in browser local storage. On Firefox it also stores the current proxy restore state in session storage so tailnet routing survives background suspension.
+
+When Tailchrome is enabled, the extension connects to the local helper over native messaging and routes tailnet-bound traffic through the local Tailscale proxy. That transmission is required for login, MagicDNS, subnet routing, exit nodes, and Taildrop to work from the browser. Tailchrome does not include analytics or advertising trackers.
+
+See [docs/privacy-policy.md](docs/privacy-policy.md) for the full policy text used for Firefox store review.
 
 ## Development
 
@@ -68,6 +76,7 @@ pnpm build:firefox    # Firefox extension build
 pnpm zip:chrome       # chrome.zip
 pnpm zip:firefox      # firefox.zip + firefox-sources.zip
 pnpm lint:firefox     # AMO-style validation via web-ext lint
+pnpm review:firefox   # Firefox build + lint + zip + publish gate
 make host             # native host for the current platform
 make host-all         # release host binaries for all supported targets
 make dev              # Chrome watch mode via WXT
@@ -85,7 +94,7 @@ The extension outputs land in `packages/extension/.output/`. The native host bin
 
 ## Release Pipeline
 
-- Pull requests run extension typecheck/tests, Chrome build, Firefox build, Firefox lint, and native-host builds in GitHub Actions.
+- Pull requests run extension typecheck/tests, Chrome build, the full Firefox review gate, and native-host builds in GitHub Actions.
 - Tagged releases (`v*`) build `chrome.zip`, `firefox.zip`, `firefox-sources.zip`, host binaries, and checksums, then attach them to the GitHub Release.
 - Store publication is driven from GitHub Actions with manual environment approvals before Chrome Web Store and AMO submission.
 

@@ -5,25 +5,33 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      host: ${{ steps.filter.outputs.host }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            host:
+              - 'host/**'
+              - 'Makefile'
+
   extension-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: pnpm
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: host/go.mod
+          package-manager-cache: false
+      - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - run: go mod download
-        working-directory: host
       - run: pnpm validate:ids
       - run: pnpm typecheck
       - run: pnpm test
@@ -31,69 +39,49 @@ jobs:
   build-chrome:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: pnpm
+          package-manager-cache: false
+      - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:chrome
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: chrome-build
           path: packages/extension/.output/chrome-mv3/
 
-  build-firefox:
+  review-firefox:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: pnpm
+          package-manager-cache: false
+      - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build:firefox
-      - uses: actions/upload-artifact@v4
+      - run: pnpm review:firefox
+      - uses: actions/upload-artifact@v6
         with:
           name: firefox-build
           path: packages/extension/.output/firefox-mv3/
 
-  lint-firefox:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build:firefox
-      - run: pnpm lint:firefox
-
   host-build:
+    needs: changes
+    if: needs.changes.outputs.host == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: host/go.mod
+          cache-dependency-path: host/go.sum
       - run: go mod download
         working-directory: host
-      - run: make host-all
-      - uses: actions/upload-artifact@v4
+      - run: make host
+      - uses: actions/upload-artifact@v6
         with:
-          name: host-binaries
-          path: |
-            dist/tailscale-browser-ext-darwin-amd64
-            dist/tailscale-browser-ext-darwin-arm64
-            dist/tailscale-browser-ext-linux-amd64
-            dist/tailscale-browser-ext-windows-amd64.exe
+          name: host-binary
+          path: dist/tailscale-browser-ext

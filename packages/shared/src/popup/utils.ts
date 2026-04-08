@@ -26,10 +26,23 @@ export async function copyToClipboard(text: string): Promise<void> {
   }
 }
 
+interface ToastOptions {
+  level?: "info" | "error";
+  /** If true, the toast stays visible until replaced by another toast. */
+  persistent?: boolean;
+}
+
 /**
- * Shows a transient toast notification at the bottom of the popup.
+ * Shows a toast notification at the bottom of the popup.
+ * By default, auto-dismisses after 2.5s. Pass persistent: true to keep it visible.
  */
-export function showToast(message: string, level: "info" | "error" = "info"): void {
+export function showToast(message: string, levelOrOptions: "info" | "error" | ToastOptions = "info"): void {
+  const opts: ToastOptions = typeof levelOrOptions === "string"
+    ? { level: levelOrOptions }
+    : levelOrOptions;
+  const level = opts.level ?? "info";
+  const persistent = opts.persistent ?? false;
+
   // Remove any existing toast
   const existing = document.querySelector(".toast");
   if (existing) {
@@ -37,14 +50,18 @@ export function showToast(message: string, level: "info" | "error" = "info"): vo
   }
 
   const toast = document.createElement("div");
-  toast.className = "toast" + (level === "error" ? " toast-error" : "");
+  toast.className = "toast"
+    + (level === "error" ? " toast-error" : "")
+    + (persistent ? " toast-persistent" : "");
   toast.textContent = message;
   document.body.appendChild(toast);
 
-  // Remove after animation completes
-  setTimeout(() => {
-    toast.remove();
-  }, 2500);
+  if (!persistent) {
+    // Remove after animation completes
+    setTimeout(() => {
+      toast.remove();
+    }, 2500);
+  }
 }
 
 /**
@@ -97,6 +114,28 @@ export function createCopyButton(textToCopy: string): HTMLElement {
   });
 
   return btn;
+}
+
+/**
+ * Adds arrow-key navigation to a container of focusable items.
+ * ArrowDown/ArrowUp moves focus between items matching the given selector.
+ */
+export function addListKeyboardNav(container: HTMLElement, itemSelector: string): void {
+  container.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const items = Array.from(container.querySelectorAll<HTMLElement>(itemSelector));
+    if (items.length === 0) return;
+    const current = document.activeElement as HTMLElement | null;
+    const idx = current ? items.indexOf(current) : -1;
+    let next: number;
+    if (e.key === "ArrowDown") {
+      next = idx < items.length - 1 ? idx + 1 : 0;
+    } else {
+      next = idx > 0 ? idx - 1 : items.length - 1;
+    }
+    e.preventDefault();
+    items[next]!.focus();
+  });
 }
 
 /**

@@ -15,6 +15,11 @@ on:
           - chrome
           - firefox
           - both
+      dry_run:
+        description: Run Firefox AMO submission in dry-run mode
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -25,14 +30,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: chrome-web-store
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: pnpm
+          package-manager-cache: false
+      - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm validate:ids
       - name: Download release assets
@@ -52,13 +55,11 @@ jobs:
           CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
         run: |
           set -euo pipefail
-          pnpm --filter @tailchrome/extension submit -- \
-            --chrome-zip "$PWD/dist/chrome.zip" \
-            --chrome-extension-id "$CHROME_EXTENSION_ID" \
-            --chrome-client-id "$CHROME_CLIENT_ID" \
-            --chrome-client-secret "$CHROME_CLIENT_SECRET" \
-            --chrome-refresh-token "$CHROME_REFRESH_TOKEN" \
-            2>&1 | tee dist/chrome-submit.log
+          REPO_ROOT="$PWD"
+          cd packages/extension
+          pnpm wxt submit \
+            --chrome-zip "$REPO_ROOT/dist/chrome.zip" \
+            2>&1 | tee "$REPO_ROOT/dist/chrome-submit.log"
       - name: Write workflow summary
         run: |
           {
@@ -76,14 +77,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: firefox-amo
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: pnpm
+          package-manager-cache: false
+      - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm validate:ids
       - name: Download release assets
@@ -109,20 +108,26 @@ jobs:
           FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
         run: |
           set -euo pipefail
-          pnpm --filter @tailchrome/extension submit -- \
-            --firefox-zip "$PWD/dist/firefox.zip" \
-            --firefox-sources-zip "$PWD/dist/firefox-sources.zip" \
-            --firefox-extension-id "$FIREFOX_EXTENSION_ID" \
-            --firefox-jwt-issuer "$FIREFOX_JWT_ISSUER" \
-            --firefox-jwt-secret "$FIREFOX_JWT_SECRET" \
-            --firefox-channel listed \
-            2>&1 | tee dist/firefox-submit.log
+          REPO_ROOT="$PWD"
+          cd packages/extension
+          submit_args=(
+            --firefox-zip "$REPO_ROOT/dist/firefox.zip"
+            --firefox-sources-zip "$REPO_ROOT/dist/firefox-sources.zip"
+            --firefox-channel listed
+          )
+          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+            submit_args+=(--dry-run)
+          fi
+          pnpm wxt submit \
+            "${submit_args[@]}" \
+            2>&1 | tee "$REPO_ROOT/dist/firefox-submit.log"
       - name: Write workflow summary
         run: |
           {
             echo "## Firefox AMO Submission"
             echo
             echo "Release tag: \`${{ inputs.release_tag }}\`"
+            echo "Dry run: \`${{ inputs.dry_run }}\`"
             echo
             echo '```'
             cat dist/firefox-submit.log

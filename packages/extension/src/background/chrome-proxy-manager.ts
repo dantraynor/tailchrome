@@ -9,6 +9,7 @@ import {
 
 export class ChromeProxyManager {
   private currentlyEnabled = false;
+  private lastProxyKey = "";
 
   apply(state: TailscaleState): void {
     if (!shouldProxyState(state)) {
@@ -22,6 +23,13 @@ export class ChromeProxyManager {
     const magicDNSSuffix = state.magicDNSSuffix;
     const exitNodeActive = state.exitNode !== null;
     const subnets = collectSubnetCIDRs(state.peers);
+
+    // Skip regeneration if proxy-relevant fields haven't changed
+    const proxyKey = `${port}:${magicDNSSuffix ?? ""}:${exitNodeActive}:${[...subnets].sort().join(",")}`;
+    if (proxyKey === this.lastProxyKey) {
+      return;
+    }
+    this.lastProxyKey = proxyKey;
 
     const pacScript = this.generatePACScript(
       port,
@@ -69,6 +77,7 @@ export class ChromeProxyManager {
       },
     );
     this.currentlyEnabled = false;
+    this.lastProxyKey = "";
   }
 
   private generatePACScript(

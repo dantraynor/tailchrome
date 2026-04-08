@@ -1,8 +1,9 @@
 import type { TailscaleState, PopupMessage, BackgroundMessage } from "../types";
-import { renderConnected } from "./views/connected";
+import { renderConnected, updateConnected } from "./views/connected";
 import { renderDisconnected } from "./views/disconnected";
 import { renderNeedsLogin } from "./views/needs-login";
 import { renderNeedsInstall } from "./views/needs-install";
+import { renderNeedsUpdate } from "./views/needs-update";
 import { showToast } from "./utils";
 import { loadCustomUrls } from "./custom-urls";
 
@@ -22,7 +23,7 @@ export function enterSubView(updater?: (state: TailscaleState) => void): void {
   subViewActive = true;
   deferredState = null;
   subViewUpdater = updater ?? null;
-  subViewSnapshot = null;
+  subViewVersion = -1;
 }
 
 /**
@@ -31,12 +32,12 @@ export function enterSubView(updater?: (state: TailscaleState) => void): void {
 export function leaveSubView(): void {
   subViewActive = false;
   subViewUpdater = null;
-  subViewSnapshot = null;
+  subViewVersion = -1;
   const state = deferredState ?? lastKnownState;
   deferredState = null;
   if (state) {
     currentView = null;
-    lastStateSnapshot = null;
+    lastStateVersion = -1;
     render(state);
   }
 }
@@ -46,6 +47,7 @@ export function sendMessage(msg: BackgroundMessage): void {
     port.postMessage(msg);
   } else {
     console.warn("[popup] Cannot send message, port not connected:", msg);
+    showToast("Connection lost. Please reopen the popup.", "error");
   }
 }
 
@@ -53,15 +55,15 @@ export function sendMessage(msg: BackgroundMessage): void {
 
 /** Tracks which view is currently rendered to avoid unnecessary re-renders. */
 let currentView: string | null = null;
-/** Tracks a serialized snapshot of the last rendered state for the same view. */
-let lastStateSnapshot: string | null = null;
+/** Tracks the stateVersion of the last rendered state to cheaply skip redundant renders. */
+let lastStateVersion = -1;
 /** When a sub-view (exit nodes, profiles) is active, defer main re-renders until it closes. */
 let subViewActive = false;
 let deferredState: TailscaleState | null = null;
 /** Optional callback to live-update the active sub-view when new state arrives. */
 let subViewUpdater: ((state: TailscaleState) => void) | null = null;
-/** Snapshot of the last state sent to the sub-view updater, to skip redundant re-renders. */
-let subViewSnapshot: string | null = null;
+/** stateVersion of the last state sent to the sub-view updater. */
+let subViewVersion = -1;
 /** Last state passed to render(), so we can always re-render on sub-view exit. */
 let lastKnownState: TailscaleState | null = null;
 
@@ -78,6 +80,7 @@ export function getLatestState(): TailscaleState | null {
  */
 export function viewForState(state: TailscaleState): string {
   if (state.installError) return "needs-install";
+  if (state.hostVersionMismatch) return "needs-update";
   if (state.backendState === "NeedsLogin") return "needs-login";
   if (state.backendState === "Running") return "connected";
   return "disconnected";
@@ -95,30 +98,37 @@ function render(state: TailscaleState): void {
   // If a sub-view is active, live-update it or defer main re-render
   if (subViewActive) {
     deferredState = state;
-    if (subViewUpdater) {
-      const snap = JSON.stringify(state);
-      if (snap !== subViewSnapshot) {
-        subViewSnapshot = snap;
-        subViewUpdater(state);
-      }
+    if (subViewUpdater && state.stateVersion !== subViewVersion) {
+      subViewVersion = state.stateVersion;
+      subViewUpdater(state);
     }
     return;
   }
 
   const view = viewForState(state);
-  const snapshot = JSON.stringify(state);
 
-  // Skip re-render if same view and same state
-  if (view === currentView && snapshot === lastStateSnapshot) {
+  // Skip re-render if same view and same state version
+  if (view === currentView && state.stateVersion === lastStateVersion) {
     return;
   }
 
+  const isSameView = view === currentView;
   currentView = view;
-  lastStateSnapshot = snapshot;
+  lastStateVersion = state.stateVersion;
 
+  // For the connected view, use in-place patching when possible
+  if (view === "connected" && isSameView) {
+    updateConnected(root, state);
+    return;
+  }
+
+  // Full render for view transitions or simple views
   switch (view) {
     case "needs-install":
       renderNeedsInstall(root);
+      break;
+    case "needs-update":
+      renderNeedsUpdate(root, state.hostVersion);
       break;
     case "needs-login":
       renderNeedsLogin(root, state);
@@ -128,20 +138,18 @@ function render(state: TailscaleState): void {
       break;
     case "disconnected":
     default:
-      renderDisconnected(root);
+      renderDisconnected(root, state);
       break;
   }
 }
 
 // --- Initialization ---
 
-async function init(): Promise<void> {
-  // Render disconnected view immediately so the popup is never empty
-  const root = document.getElementById("root");
-  if (root) renderDisconnected(root);
+function init(): void {
+  // The HTML skeleton placeholder is shown until real state arrives.
 
-  // Load per-device custom URL settings before rendering peer list
-  await loadCustomUrls();
+  // Load per-device custom URL settings in parallel (doesn't block port connection)
+  loadCustomUrls();
 
   // Connect to the background service worker
   port = chrome.runtime.connect({ name: "popup" });
@@ -153,7 +161,7 @@ async function init(): Promise<void> {
         render(msg.state);
         break;
       case "toast":
-        showToast(msg.message, msg.level);
+        showToast(msg.message, { level: msg.level, persistent: msg.persistent });
         break;
     }
   });

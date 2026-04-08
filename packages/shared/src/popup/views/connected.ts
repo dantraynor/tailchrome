@@ -1,15 +1,21 @@
 import type { TailscaleState } from "../../types";
 import { ADMIN_URL } from "../../constants";
 import { renderHeader } from "../components/header";
-import { renderPeerList } from "../components/peer-list";
+import { renderPeerList, updatePeerList, filterPeers } from "../components/peer-list";
 import { renderHealthWarnings } from "../components/health-warnings";
 import { createCopyButton } from "../utils";
 import { sendMessage, enterSubView, leaveSubView, getLatestState } from "../popup";
 import { createToggle } from "../components/toggle-switch";
 import { renderExitNodes } from "./exit-nodes";
 import { renderProfiles } from "./profiles";
+import { iconChevronRight } from "../icons";
 
 type SubViewRenderer = (root: HTMLElement, state: TailscaleState, onBack: () => void) => void;
+
+/** Persists the peer search query across state updates within the connected view. */
+let peerSearchQuery = "";
+
+const PEER_SEARCH_THRESHOLD = 6;
 
 function openSubView(root: HTMLElement, renderFn: SubViewRenderer): void {
   const currentState = getLatestState();
@@ -89,6 +95,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   view.appendChild(statusBar);
 
   // --- Health Warnings ---
+  lastHealthKey = state.health.join("\0");
   if (state.health.length > 0) {
     renderHealthWarnings(view, state.health);
   }
@@ -118,7 +125,10 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   const chevron = document.createElement("span");
   chevron.className = "setting-value-chevron";
-  chevron.textContent = "\u203A";
+  const chevronIcon = document.createElement("span");
+  chevronIcon.className = "icon";
+  chevronIcon.appendChild(iconChevronRight());
+  chevron.appendChild(chevronIcon);
   exitValue.appendChild(chevron);
 
   exitRow.appendChild(exitValue);
@@ -140,6 +150,22 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   });
   shieldsRow.appendChild(shieldsToggle);
   settings.appendChild(shieldsRow);
+
+  // Run as Exit Node toggle
+  const exitAdRow = document.createElement("div");
+  exitAdRow.className = "setting-row";
+
+  const exitAdLabel = document.createElement("span");
+  exitAdLabel.className = "setting-label";
+  exitAdLabel.textContent = "Run as Exit Node";
+  exitAdRow.appendChild(exitAdLabel);
+
+  const advertisingExit = state.prefs?.advertiseExitNode ?? false;
+  const exitAdToggle = createToggle(advertisingExit, (checked) => {
+    sendMessage({ type: "set-pref", key: "advertiseExitNode", value: checked });
+  });
+  exitAdRow.appendChild(exitAdToggle);
+  settings.appendChild(exitAdRow);
 
   // MagicDNS toggle
   const dnsRow = document.createElement("div");
@@ -173,7 +199,10 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
     const profileChevron = document.createElement("span");
     profileChevron.className = "setting-value-chevron";
-    profileChevron.textContent = "\u203A";
+    const profileChevronIcon = document.createElement("span");
+    profileChevronIcon.className = "icon";
+    profileChevronIcon.appendChild(iconChevronRight());
+    profileChevron.appendChild(profileChevronIcon);
     profileValue.appendChild(profileChevron);
 
     profileRow.appendChild(profileValue);
@@ -183,9 +212,35 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   view.appendChild(settings);
 
+  // --- Peer Search (only for larger peer lists) ---
+  const filteredPeers = filterPeers(state.peers, peerSearchQuery);
+  if (state.peers.length >= PEER_SEARCH_THRESHOLD) {
+    const searchContainer = document.createElement("div");
+    searchContainer.className = "peer-search-container";
+
+    const searchInput = document.createElement("input");
+    searchInput.type = "text";
+    searchInput.className = "peer-search";
+    searchInput.placeholder = "Search devices\u2026";
+    searchInput.value = peerSearchQuery;
+    searchInput.addEventListener("input", () => {
+      peerSearchQuery = searchInput.value;
+      const peerEl = view.querySelector<HTMLElement>(".peer-container");
+      if (peerEl) {
+        const latest = getLatestState();
+        if (latest) {
+          updatePeerList(peerEl, filterPeers(latest.peers, peerSearchQuery));
+        }
+      }
+    });
+    searchContainer.appendChild(searchInput);
+    view.appendChild(searchContainer);
+  }
+
   // --- Peer List ---
   const peerContainer = document.createElement("div");
-  renderPeerList(peerContainer, state.peers, { magicDNS: state.prefs?.corpDNS ?? true });
+  peerContainer.className = "peer-container";
+  renderPeerList(peerContainer, filteredPeers);
   view.appendChild(peerContainer);
 
   // --- Footer ---
@@ -233,4 +288,141 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   view.appendChild(footer);
 
   root.appendChild(view);
+}
+
+// Track health key to detect changes during in-place updates
+let lastHealthKey = "";
+
+/**
+ * Helper: compute the exit node display text from state.
+ */
+function exitNodeDisplayText(state: TailscaleState): string {
+  if (state.exitNode) {
+    return state.exitNode.location
+      ? `${state.exitNode.location.city}, ${state.exitNode.location.countryCode}`
+      : state.exitNode.hostname;
+  }
+  return "None";
+}
+
+/**
+ * Updates the connected view in place, patching only changed elements.
+ * Preserves peer expansion state and avoids full DOM teardown.
+ */
+export function updateConnected(root: HTMLElement, state: TailscaleState): void {
+  const view = root.querySelector(".view");
+  if (!view) {
+    // Fallback: full render if DOM structure is unexpected
+    renderConnected(root, state);
+    return;
+  }
+
+  // If peer count crossed the search threshold, fall back to full render
+  // so the search container is correctly added or removed.
+  const hasSearchBox = view.querySelector(".peer-search-container") !== null;
+  const shouldHaveSearchBox = state.peers.length >= PEER_SEARCH_THRESHOLD;
+  if (hasSearchBox !== shouldHaveSearchBox) {
+    renderConnected(root, state);
+    return;
+  }
+
+  // --- Status Bar ---
+  const tailnetEl = view.querySelector(".status-bar-tailnet");
+  if (tailnetEl) {
+    const newTailnet = state.tailnet || "My Tailnet";
+    if (tailnetEl.textContent !== newTailnet) {
+      tailnetEl.textContent = newTailnet;
+    }
+  }
+
+  const ipEl = view.querySelector(".status-bar-ip");
+  if (ipEl) {
+    const newIP = state.selfNode?.tailscaleIPs[0] ?? "";
+    if (ipEl.textContent !== newIP) {
+      ipEl.textContent = newIP;
+    }
+  }
+
+  const hostnameEl = view.querySelector(".status-bar-hostname");
+  if (hostnameEl) {
+    const newHostname = state.selfNode?.hostname ?? "";
+    if (hostnameEl.textContent !== newHostname) {
+      hostnameEl.textContent = newHostname;
+    }
+  }
+
+  // --- Health Warnings ---
+  const healthKey = state.health.join("\0");
+  if (healthKey !== lastHealthKey) {
+    lastHealthKey = healthKey;
+    const existingHealth = view.querySelector(".health-warnings");
+    if (existingHealth) existingHealth.remove();
+
+    if (state.health.length > 0) {
+      // Insert after status bar
+      const statusBar = view.querySelector(".status-bar");
+      const quickSettings = view.querySelector(".quick-settings");
+      if (statusBar && quickSettings) {
+        const tempContainer = document.createElement("div");
+        renderHealthWarnings(tempContainer, state.health);
+        const newHealth = tempContainer.firstElementChild;
+        if (newHealth) {
+          view.insertBefore(newHealth, quickSettings);
+        }
+      }
+    }
+  }
+
+  // --- Quick Settings: Exit Node text ---
+  const quickSettings = view.querySelector(".quick-settings");
+  if (quickSettings) {
+    const settingValues = quickSettings.querySelectorAll<HTMLElement>(".setting-value");
+    // First .setting-value is exit node
+    if (settingValues.length > 0) {
+      const exitValueEl = settingValues[0]!;
+      const newText = exitNodeDisplayText(state);
+      // Update the text node (first child) while preserving the chevron span
+      const textNode = exitValueEl.firstChild;
+      if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+        if (textNode.textContent !== newText) {
+          textNode.textContent = newText;
+        }
+      }
+    }
+
+    // Profile value (last .setting-value if profiles exist)
+    if (state.profiles.length > 0 && settingValues.length > 1) {
+      const profileValueEl = settingValues[settingValues.length - 1]!;
+      const newProfileName = state.currentProfile?.name ?? "Default";
+      const profileTextNode = profileValueEl.firstChild;
+      if (profileTextNode && profileTextNode.nodeType === Node.TEXT_NODE) {
+        if (profileTextNode.textContent !== newProfileName) {
+          profileTextNode.textContent = newProfileName;
+        }
+      }
+    }
+
+    // Toggle states: Shields Up, Run as Exit Node, and MagicDNS
+    const toggleInputs = quickSettings.querySelectorAll<HTMLInputElement>("input[type=checkbox]");
+    if (toggleInputs.length >= 3) {
+      const shieldsUp = state.prefs?.shieldsUp ?? false;
+      if (toggleInputs[0]!.checked !== shieldsUp) {
+        toggleInputs[0]!.checked = shieldsUp;
+      }
+      const advertisingExit = state.prefs?.advertiseExitNode ?? false;
+      if (toggleInputs[1]!.checked !== advertisingExit) {
+        toggleInputs[1]!.checked = advertisingExit;
+      }
+      const corpDNS = state.prefs?.corpDNS ?? true;
+      if (toggleInputs[2]!.checked !== corpDNS) {
+        toggleInputs[2]!.checked = corpDNS;
+      }
+    }
+  }
+
+  // --- Peer List (incremental, with search filter applied) ---
+  const peerContainer = view.querySelector<HTMLElement>(".peer-container");
+  if (peerContainer) {
+    updatePeerList(peerContainer, filterPeers(state.peers, peerSearchQuery));
+  }
 }

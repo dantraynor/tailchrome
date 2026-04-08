@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"tailscale.com/ipn"
@@ -19,10 +21,37 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 	}
 	defer watcher.Close()
 
+	// debounce coalesces rapid IPN notifications into a single status refresh.
+	const debounceDuration = 150 * time.Millisecond
+	var debounceTimer *time.Timer
+
+	// sendDebounced schedules a status refresh after debounceDuration,
+	// resetting any pending timer so only the last event in a burst fires.
+	sendDebounced := func() {
+		if debounceTimer != nil {
+			debounceTimer.Reset(debounceDuration)
+			return
+		}
+		debounceTimer = time.AfterFunc(debounceDuration, func() {
+			status, err := h.refreshFullStatus()
+			if err != nil {
+				log.Printf("failed to refresh status after IPN bus change: %v", err)
+				return
+			}
+			h.send(Reply{
+				Cmd:    "status",
+				Status: status,
+			})
+		})
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			log.Printf("IPN bus watcher cancelled")
+			if debounceTimer != nil {
+				debounceTimer.Stop()
+			}
 			return
 		default:
 		}
@@ -30,6 +59,9 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 		n, err := watcher.Next()
 		if err != nil {
 			if ctx.Err() != nil {
+				if debounceTimer != nil {
+					debounceTimer.Stop()
+				}
 				return // cancelled
 			}
 			log.Printf("IPN bus watcher error: %v", err)
@@ -57,6 +89,7 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 				Hostname:               p.Hostname(),
 				RunSSH:                 p.RunSSH(),
 				RunWebClient:           p.RunWebClient(),
+				AdvertiseExitNode:      p.AdvertisesExitNode(),
 			}
 			if p.ExitNodeID() != "" {
 				id := string(p.ExitNodeID())
@@ -82,6 +115,10 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 		if n.Health != nil {
 			var msgs []string
 			for _, w := range n.Health.Warnings {
+				// tsnet doesn't manage system DNS; suppress irrelevant warnings
+				if strings.Contains(w.Text, "getting OS base config is not supported") {
+					continue
+				}
 				msgs = append(msgs, w.Text)
 			}
 			h.stateMu.Lock()
@@ -91,15 +128,7 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 		}
 
 		if changed {
-			status, err := h.refreshFullStatus()
-			if err != nil {
-				log.Printf("failed to refresh status after IPN bus change: %v", err)
-				continue
-			}
-			h.send(Reply{
-				Cmd:    "status",
-				Status: status,
-			})
+			sendDebounced()
 		}
 	}
 }
@@ -107,10 +136,15 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 // refreshFullStatus calls the local client Status API and builds a full
 // StatusUpdate from the enriched peer info plus cached IPN bus state.
 func (h *Host) refreshFullStatus() (*StatusUpdate, error) {
+	lc := h.lc // snapshot to avoid nil deref if handleInit tears down concurrently
+	if lc == nil {
+		return nil, fmt.Errorf("local client not initialized")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	st, err := h.lc.Status(ctx)
+	st, err := lc.Status(ctx)
 	if err != nil {
 		return nil, err
 	}

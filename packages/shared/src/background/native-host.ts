@@ -64,15 +64,17 @@ export class NativeHostConnection {
     this.onStateChange(false);
   }
 
-  send(msg: NativeRequest): void {
+  send(msg: NativeRequest): boolean {
     if (!this.port) {
       console.warn("[NativeHost] Cannot send, not connected:", msg.cmd);
-      return;
+      return false;
     }
     try {
       this.port.postMessage(msg);
+      return true;
     } catch (err) {
       console.error("[NativeHost] Send error:", err);
+      return false;
     }
   }
 

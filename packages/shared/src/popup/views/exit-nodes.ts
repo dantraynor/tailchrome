@@ -1,9 +1,37 @@
 import type { TailscaleState, PeerInfo } from "../../types";
+import { addListKeyboardNav } from "../utils";
 import { sendMessage } from "../popup";
+import { iconArrowLeft } from "../icons";
 
-interface ExitNodeGroup {
-  label: string;
+const MULLVAD_TAG = "tag:mullvad-exit-node";
+
+interface MullvadCityGroup {
+  city: string;
+  cityCode: string;
   nodes: PeerInfo[];
+}
+
+interface MullvadCountryGroup {
+  country: string;
+  countryCode: string;
+  cities: MullvadCityGroup[];
+}
+
+interface ExitNodeGrouping {
+  own: PeerInfo[];
+  mullvad: MullvadCountryGroup[];
+  shared: PeerInfo[];
+}
+
+/** Persists search query within a single exit node sub-view session. */
+let exitNodeSearchQuery = "";
+
+// Persists expand/collapse state across sub-view re-renders.
+const expandedCountries = new Set<string>();
+let autoExpandDone = false;
+
+function isMullvadNode(peer: PeerInfo): boolean {
+  return peer.tags.includes(MULLVAD_TAG);
 }
 
 /**
@@ -15,6 +43,10 @@ export function renderExitNodes(
   state: TailscaleState,
   onBack: () => void
 ): void {
+  // Only reset the search query on initial open (not on state-driven re-renders)
+  if (!root.querySelector(".exit-nodes-header")) {
+    exitNodeSearchQuery = "";
+  }
   root.textContent = "";
   const view = document.createElement("div");
   view.className = "view";
@@ -25,7 +57,11 @@ export function renderExitNodes(
 
   const backBtn = document.createElement("button");
   backBtn.className = "btn btn-ghost";
-  backBtn.textContent = "\u2190 Back";
+  const backIcon = document.createElement("span");
+  backIcon.className = "icon icon-sm";
+  backIcon.appendChild(iconArrowLeft());
+  backBtn.appendChild(backIcon);
+  backBtn.appendChild(document.createTextNode(" Back"));
   backBtn.addEventListener("click", onBack);
   header.appendChild(backBtn);
 
@@ -36,85 +72,34 @@ export function renderExitNodes(
 
   view.appendChild(header);
 
-  // --- Suggested exit node ---
-  if (state.exitNodeSuggestion) {
-    const suggestSection = document.createElement("div");
-    suggestSection.className = "exit-nodes-section exit-nodes-section--suggested";
+  // --- Search ---
+  const allExitNodes = state.peers.filter((p) => p.exitNodeOption);
+  if (allExitNodes.length > 4) {
+    const searchContainer = document.createElement("div");
+    searchContainer.className = "peer-search-container";
 
-    const suggestHeader = document.createElement("div");
-    suggestHeader.className = "section-header";
-    suggestHeader.textContent = "Suggested";
-    suggestSection.appendChild(suggestHeader);
-
-    const suggestion = state.exitNodeSuggestion;
-    const suggestLabel = suggestion.location
-      ? `${suggestion.location.city}, ${suggestion.location.country}`
-      : suggestion.hostname;
-    const isSelected =
-      state.exitNode != null && state.exitNode.id === state.exitNodeSuggestion.id;
-    const suggestRow = createExitNodeRow(suggestLabel, null, isSelected, () =>
-      sendMessage({ type: "set-exit-node", nodeID: state.exitNodeSuggestion!.id })
-    );
-    suggestSection.appendChild(suggestRow);
-    view.appendChild(suggestSection);
+    const searchInput = document.createElement("input");
+    searchInput.type = "text";
+    searchInput.className = "peer-search";
+    searchInput.placeholder = "Search exit nodes\u2026";
+    searchInput.value = exitNodeSearchQuery;
+    searchInput.addEventListener("input", () => {
+      exitNodeSearchQuery = searchInput.value;
+      // Re-render the node list below the search
+      const listContainer = view.querySelector<HTMLElement>(".exit-nodes-list");
+      if (listContainer) {
+        renderExitNodeList(listContainer, state, allExitNodes);
+      }
+    });
+    searchContainer.appendChild(searchInput);
+    view.appendChild(searchContainer);
   }
 
-  // --- "None" option ---
-  const noneRow = createExitNodeRow(
-    "None (direct connection)",
-    null,
-    state.exitNode == null,
-    () => sendMessage({ type: "clear-exit-node" })
-  );
-  view.appendChild(noneRow);
-
-  // --- Group exit nodes ---
-  const exitNodes = state.peers.filter((p) => p.exitNodeOption);
-  const groups = groupExitNodes(exitNodes);
-
-  if (groups.length === 0 && !state.exitNodeSuggestion) {
-    const emptyState = document.createElement("div");
-    emptyState.className = "empty-state";
-
-    const emptyTitle = document.createElement("div");
-    emptyTitle.className = "empty-state-title";
-    emptyTitle.textContent = "No exit nodes available";
-    emptyState.appendChild(emptyTitle);
-
-    const emptyText = document.createElement("div");
-    emptyText.className = "empty-state-text";
-    emptyText.textContent = "To use an exit node, enable it on a device in your tailnet via the admin console or run \"tailscale set --advertise-exit-node\" on the device.";
-    emptyState.appendChild(emptyText);
-
-    view.appendChild(emptyState);
-  }
-
-  for (const group of groups) {
-    const section = document.createElement("div");
-    section.className = "exit-nodes-section";
-
-    const sectionHeader = document.createElement("div");
-    sectionHeader.className = "section-header";
-    sectionHeader.textContent = group.label;
-    section.appendChild(sectionHeader);
-
-    for (const node of group.nodes) {
-      const label = node.location
-        ? `${node.location.city}, ${node.location.country}`
-        : node.hostname;
-      const isSelected =
-        state.exitNode != null && state.exitNode.id === node.id;
-      const row = createExitNodeRow(
-        label,
-        node,
-        isSelected,
-        () => sendMessage({ type: "set-exit-node", nodeID: node.id })
-      );
-      section.appendChild(row);
-    }
-
-    view.appendChild(section);
-  }
+  // --- Exit node list container ---
+  const listContainer = document.createElement("div");
+  listContainer.className = "exit-nodes-list";
+  renderExitNodeList(listContainer, state, allExitNodes);
+  view.appendChild(listContainer);
 
   // --- Allow LAN access ---
   const lanRow = document.createElement("div");
@@ -142,6 +127,247 @@ export function renderExitNodes(
   view.appendChild(lanRow);
 
   root.appendChild(view);
+}
+
+function filterExitNodes(nodes: PeerInfo[], query: string): PeerInfo[] {
+  if (!query) return nodes;
+  const lower = query.toLowerCase();
+  return nodes.filter((n) =>
+    n.hostname.toLowerCase().includes(lower) ||
+    (n.location?.city && n.location.city.toLowerCase().includes(lower)) ||
+    (n.location?.country && n.location.country.toLowerCase().includes(lower)) ||
+    (n.location?.countryCode && n.location.countryCode.toLowerCase().includes(lower))
+  );
+}
+
+function renderExitNodeList(
+  container: HTMLElement,
+  state: TailscaleState,
+  allExitNodes: PeerInfo[],
+): void {
+  if (!container.dataset.kbnav) {
+    addListKeyboardNav(container, ".exit-node-row");
+    container.dataset.kbnav = "1";
+  }
+  container.textContent = "";
+
+  const filtered = filterExitNodes(allExitNodes, exitNodeSearchQuery);
+
+  // Suggested exit node (hidden when searching)
+  if (!exitNodeSearchQuery && state.exitNodeSuggestion) {
+    const suggestSection = document.createElement("div");
+    suggestSection.className = "exit-nodes-section exit-nodes-section--suggested";
+
+    const suggestHeader = document.createElement("div");
+    suggestHeader.className = "section-header";
+    suggestHeader.textContent = "Suggested";
+    suggestSection.appendChild(suggestHeader);
+
+    const suggestion = state.exitNodeSuggestion;
+    const suggestLabel = suggestion.location
+      ? `${suggestion.location.city}, ${suggestion.location.country}`
+      : suggestion.hostname;
+    const isSelected =
+      state.exitNode != null && state.exitNode.id === state.exitNodeSuggestion.id;
+    const suggestRow = createExitNodeRow(suggestLabel, null, isSelected, () =>
+      sendMessage({ type: "set-exit-node", nodeID: state.exitNodeSuggestion!.id })
+    );
+    suggestSection.appendChild(suggestRow);
+    container.appendChild(suggestSection);
+  }
+
+  // "None" option (hidden when searching)
+  if (!exitNodeSearchQuery) {
+    const noneRow = createExitNodeRow(
+      "None (direct connection)",
+      null,
+      state.exitNode == null,
+      () => sendMessage({ type: "clear-exit-node" })
+    );
+    container.appendChild(noneRow);
+  }
+
+  // Group exit nodes into own/mullvad/shared
+  const { own, mullvad, shared } = groupExitNodes(filtered);
+  const hasAnyNodes = own.length > 0 || mullvad.length > 0 || shared.length > 0;
+
+  if (!hasAnyNodes && exitNodeSearchQuery) {
+    const noResults = document.createElement("div");
+    noResults.className = "empty-state";
+    const noResultsTitle = document.createElement("div");
+    noResultsTitle.className = "empty-state-title";
+    noResultsTitle.textContent = "No matching exit nodes";
+    noResults.appendChild(noResultsTitle);
+    container.appendChild(noResults);
+    return;
+  }
+
+  if (!hasAnyNodes && !state.exitNodeSuggestion) {
+    const emptyState = document.createElement("div");
+    emptyState.className = "empty-state";
+
+    const emptyTitle = document.createElement("div");
+    emptyTitle.className = "empty-state-title";
+    emptyTitle.textContent = "No exit nodes available";
+    emptyState.appendChild(emptyTitle);
+
+    const emptyText = document.createElement("div");
+    emptyText.className = "empty-state-text";
+    emptyText.textContent = "To use an exit node, enable it on a device in your tailnet via the admin console or run \"tailscale set --advertise-exit-node\" on the device.";
+    emptyState.appendChild(emptyText);
+
+    container.appendChild(emptyState);
+    return;
+  }
+
+  // "My Devices" section
+  if (own.length > 0) {
+    renderFlatSection(container, "My Devices", own, state);
+  }
+
+  // "Mullvad VPN" section
+  if (mullvad.length > 0) {
+    // Auto-expand the country containing the active exit node on first render only
+    if (!autoExpandDone && state.exitNode) {
+      autoExpandDone = true;
+      const activeNode = allExitNodes.find((n) => n.id === state.exitNode!.id);
+      if (activeNode && isMullvadNode(activeNode) && activeNode.location) {
+        expandedCountries.add(activeNode.location.countryCode);
+      }
+    }
+    renderMullvadSection(container, mullvad, state);
+  }
+
+  // "Shared" section
+  if (shared.length > 0) {
+    renderFlatSection(container, "Shared", shared, state);
+  }
+}
+
+function renderFlatSection(
+  parent: HTMLElement,
+  label: string,
+  nodes: PeerInfo[],
+  state: TailscaleState
+): void {
+  const section = document.createElement("div");
+  section.className = "exit-nodes-section";
+
+  const sectionHeader = document.createElement("div");
+  sectionHeader.className = "section-header";
+  sectionHeader.textContent = label;
+  section.appendChild(sectionHeader);
+
+  for (const node of nodes) {
+    const nodeLabel = node.location
+      ? `${node.location.city}, ${node.location.country}`
+      : node.hostname;
+    const isSelected = state.exitNode != null && state.exitNode.id === node.id;
+    const row = createExitNodeRow(nodeLabel, node, isSelected, () =>
+      sendMessage({ type: "set-exit-node", nodeID: node.id })
+    );
+    section.appendChild(row);
+  }
+
+  parent.appendChild(section);
+}
+
+function renderMullvadSection(
+  parent: HTMLElement,
+  groups: MullvadCountryGroup[],
+  state: TailscaleState
+): void {
+  const section = document.createElement("div");
+  section.className = "exit-nodes-section exit-nodes-section--mullvad";
+
+  const sectionHeader = document.createElement("div");
+  sectionHeader.className = "section-header";
+  sectionHeader.textContent = "Mullvad VPN";
+  section.appendChild(sectionHeader);
+
+  for (const country of groups) {
+    const isExpanded = expandedCountries.has(country.countryCode);
+
+    const countryContainer = document.createElement("div");
+    countryContainer.className = "mullvad-country";
+
+    // Country header row
+    const countryRow = document.createElement("div");
+    countryRow.className = "mullvad-country-row";
+    countryRow.setAttribute("role", "button");
+    countryRow.setAttribute("aria-expanded", String(isExpanded));
+    countryRow.setAttribute("tabindex", "0");
+
+    const flag = document.createElement("span");
+    flag.className = "mullvad-country-flag";
+    flag.textContent = countryCodeToEmoji(country.countryCode);
+
+    const name = document.createElement("span");
+    name.className = "mullvad-country-name";
+    name.textContent = country.country;
+
+    const count = document.createElement("span");
+    count.className = "mullvad-country-count";
+    const totalCities = country.cities.length;
+    count.textContent = `${totalCities}`;
+
+    const chevron = document.createElement("span");
+    chevron.className =
+      "mullvad-country-chevron" +
+      (isExpanded ? " mullvad-country-chevron--expanded" : "");
+    chevron.textContent = "\u203A";
+
+    countryRow.appendChild(flag);
+    countryRow.appendChild(name);
+    countryRow.appendChild(count);
+    countryRow.appendChild(chevron);
+
+    // City list (shown when expanded)
+    const cityList = document.createElement("div");
+    cityList.className = "mullvad-city-list";
+    cityList.style.display = isExpanded ? "block" : "none";
+
+    for (const city of country.cities) {
+      const bestNode = city.nodes.find((n) => n.online) ?? city.nodes[0];
+      if (!bestNode) continue;
+      const cityHasSelection = city.nodes.some(
+        (n) => state.exitNode != null && state.exitNode.id === n.id
+      );
+
+      const row = createExitNodeRow(city.city, bestNode, cityHasSelection, () =>
+        sendMessage({ type: "set-exit-node", nodeID: bestNode.id })
+      );
+      row.classList.add("mullvad-city-row");
+      cityList.appendChild(row);
+    }
+
+    // Toggle expand/collapse
+    const toggle = () => {
+      const nowExpanded = expandedCountries.has(country.countryCode);
+      if (nowExpanded) {
+        expandedCountries.delete(country.countryCode);
+      } else {
+        expandedCountries.add(country.countryCode);
+      }
+      cityList.style.display = nowExpanded ? "none" : "block";
+      chevron.classList.toggle("mullvad-country-chevron--expanded");
+      countryRow.setAttribute("aria-expanded", String(!nowExpanded));
+    };
+
+    countryRow.addEventListener("click", toggle);
+    countryRow.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggle();
+      }
+    });
+
+    countryContainer.appendChild(countryRow);
+    countryContainer.appendChild(cityList);
+    section.appendChild(countryContainer);
+  }
+
+  parent.appendChild(section);
 }
 
 function createExitNodeRow(
@@ -181,43 +407,96 @@ function createExitNodeRow(
   row.appendChild(info);
 
   if (node?.location?.countryCode) {
-    const flag = document.createElement("span");
-    flag.className = "exit-node-flag";
-    flag.textContent = countryCodeToEmoji(node.location.countryCode);
-    row.appendChild(flag);
+    const flagEl = document.createElement("span");
+    flagEl.className = "exit-node-flag";
+    flagEl.textContent = countryCodeToEmoji(node.location.countryCode);
+    row.appendChild(flagEl);
   }
 
-  row.addEventListener("click", onSelect);
+  const handleSelect = () => {
+    if (!isSelected) {
+      // Show loading spinner for immediate feedback
+      const spinner = document.createElement("div");
+      spinner.className = "spinner spinner-sm";
+      row.appendChild(spinner);
+      row.classList.add("exit-node-row--selected");
+      onSelect();
+    }
+  };
+  row.addEventListener("click", handleSelect);
   row.addEventListener("keydown", (e) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      onSelect();
+      handleSelect();
     }
   });
   return row;
 }
 
-function groupExitNodes(nodes: PeerInfo[]): ExitNodeGroup[] {
-  const groups: ExitNodeGroup[] = [];
+function groupExitNodes(nodes: PeerInfo[]): ExitNodeGrouping {
   const own: PeerInfo[] = [];
+  const mullvadRaw: PeerInfo[] = [];
   const shared: PeerInfo[] = [];
 
   for (const node of nodes) {
-    if (node.tags.length > 0) {
+    if (isMullvadNode(node)) {
+      if (node.location) {
+        mullvadRaw.push(node);
+      } else {
+        // Mullvad node without location — show in shared as fallback
+        shared.push(node);
+      }
+    } else if (node.tags.length > 0) {
       shared.push(node);
     } else {
       own.push(node);
     }
   }
 
-  if (own.length > 0) {
-    groups.push({ label: "My Devices", nodes: own });
-  }
-  if (shared.length > 0) {
-    groups.push({ label: "Shared", nodes: shared });
+  return { own, mullvad: groupMullvadByCountry(mullvadRaw), shared };
+}
+
+function groupMullvadByCountry(nodes: PeerInfo[]): MullvadCountryGroup[] {
+  const countryMap = new Map<string, Map<string, PeerInfo[]>>();
+  const countryNames = new Map<string, string>();
+  const cityNames = new Map<string, string>();
+
+  for (const node of nodes) {
+    const loc = node.location;
+    if (!loc) continue;
+    const cc = loc.countryCode;
+    const cityKey = loc.cityCode || loc.city;
+
+    countryNames.set(cc, loc.country);
+    cityNames.set(cityKey, loc.city);
+
+    if (!countryMap.has(cc)) countryMap.set(cc, new Map());
+    const cityMap = countryMap.get(cc)!;
+    if (!cityMap.has(cityKey)) cityMap.set(cityKey, []);
+    cityMap.get(cityKey)!.push(node);
   }
 
-  return groups;
+  const result: MullvadCountryGroup[] = [];
+  for (const [cc, cityMap] of countryMap) {
+    const cities: MullvadCityGroup[] = [];
+    for (const [cityKey, cityNodes] of cityMap) {
+      cities.push({
+        city: cityNames.get(cityKey) || cityKey,
+        cityCode: cityKey,
+        nodes: cityNodes,
+      });
+    }
+    cities.sort((a, b) => a.city.localeCompare(b.city));
+
+    result.push({
+      country: countryNames.get(cc) || cc,
+      countryCode: cc,
+      cities,
+    });
+  }
+
+  result.sort((a, b) => a.country.localeCompare(b.country));
+  return result;
 }
 
 function countryCodeToEmoji(code: string): string {

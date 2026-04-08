@@ -35,7 +35,7 @@ export class BadgeManager {
     if (badgeKey === this.lastBadgeKey) return;
     this.lastBadgeKey = badgeKey;
 
-    if (state.installError) {
+    if (state.installError || state.hostVersionMismatch) {
       this.setIcon(WARNING_ICONS);
       this.setBadge("!", BADGE_COLOR_ORANGE);
       return;
@@ -79,7 +79,7 @@ export class BadgeManager {
 
   private computeBadgeKey(state: TailscaleState): string {
     return [
-      state.installError ? "install" : "",
+      state.installError ? "install" : state.hostVersionMismatch ? "mismatch" : "",
       state.hostConnected ? "conn" : "disc",
       state.backendState,
       state.exitNode !== null ? "exit" : "noexit",

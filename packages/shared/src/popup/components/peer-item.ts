@@ -1,19 +1,8 @@
 import type { PeerInfo } from "../../types";
-import { escapeHTML, copyToClipboard, showToast } from "../utils";
+import { copyToClipboard, showToast } from "../utils";
 import { sendMessage } from "../popup";
 import { getCustomUrl, setCustomUrl, clearCustomUrl, resolveOpenUrl } from "../custom-urls";
-
-/** Map OS strings to emoji icons. */
-function osIcon(os: string): string {
-  const lower = os.toLowerCase();
-  if (lower.includes("macos") || lower.includes("darwin")) return "\uD83D\uDCBB"; // laptop
-  if (lower.includes("linux")) return "\uD83D\uDDA5\uFE0F"; // desktop
-  if (lower.includes("windows")) return "\uD83E\uDE9F"; // window
-  if (lower.includes("ios") || lower.includes("iphone") || lower.includes("ipad")) return "\uD83D\uDCF1"; // mobile
-  if (lower.includes("android")) return "\uD83D\uDCF1"; // mobile
-  if (lower.includes("freebsd") || lower.includes("openbsd")) return "\uD83D\uDDA5\uFE0F"; // desktop
-  return "\uD83D\uDCBB"; // default laptop
-}
+import { iconForOS } from "../icons";
 
 /**
  * Format an ISO date string as a relative time like "2m ago" or "3h ago".
@@ -47,17 +36,50 @@ export function formatRelativeTime(isoDate: string | null): string {
   return "long ago";
 }
 
-export interface PeerItemOptions {
-  /** When true, MagicDNS is enabled and DNS names can be used to reach peers. */
-  magicDNS?: boolean;
+/**
+ * Returns a string key representing the displayed fields of a peer.
+ * Used to detect whether a peer item needs updating.
+ */
+export function peerDisplayKey(peer: PeerInfo): string {
+  return `${peer.hostname}|${peer.online}|${peer.tailscaleIPs[0] ?? ""}|${peer.lastSeen ?? ""}|${peer.exitNode}|${peer.dnsName}`;
+}
+
+/**
+ * Updates the visible text content of an existing peer item container in place.
+ * Preserves expansion state and event listeners.
+ */
+export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void {
+  const nameEl = container.querySelector(".peer-name");
+  if (nameEl) nameEl.textContent = peer.hostname;
+
+  const metaEl = container.querySelector(".peer-meta");
+  if (metaEl) {
+    const dot = metaEl.querySelector(".status-dot");
+    if (dot) dot.className = "status-dot " + (peer.online ? "online" : "offline");
+    // Update the text node after the dot
+    const textSpan = metaEl.querySelectorAll("span");
+    if (textSpan.length >= 2) {
+      textSpan[1]!.textContent = peer.online ? "online" : formatRelativeTime(peer.lastSeen);
+    }
+  }
+
+  const ipEl = container.querySelector(".peer-ip");
+  if (ipEl) {
+    const firstIP = peer.tailscaleIPs[0];
+    ipEl.textContent = firstIP ?? "";
+  }
+
+  container.dataset.displayKey = peerDisplayKey(peer);
 }
 
 /**
  * Creates a single peer item row element with expandable actions.
  */
-export function createPeerItem(peer: PeerInfo, options: PeerItemOptions = {}): HTMLElement {
+export function createPeerItem(peer: PeerInfo): HTMLElement {
   const container = document.createElement("div");
   container.className = "peer-item-container";
+  container.dataset.peerId = peer.id;
+  container.dataset.displayKey = peerDisplayKey(peer);
 
   const row = document.createElement("div");
   row.className = "peer-item";
@@ -68,7 +90,10 @@ export function createPeerItem(peer: PeerInfo, options: PeerItemOptions = {}): H
   // OS icon
   const icon = document.createElement("div");
   icon.className = "peer-icon";
-  icon.textContent = osIcon(peer.os);
+  const iconEl = document.createElement("span");
+  iconEl.className = "icon";
+  iconEl.appendChild(iconForOS(peer.os));
+  icon.appendChild(iconEl);
 
   // Info column
   const info = document.createElement("div");
@@ -91,8 +116,8 @@ export function createPeerItem(peer: PeerInfo, options: PeerItemOptions = {}): H
 
   if (peer.exitNode) {
     const exitLabel = document.createElement("span");
+    exitLabel.className = "peer-exit-label";
     exitLabel.textContent = " \u2022 exit node";
-    exitLabel.style.color = "var(--ts-blue)";
     meta.appendChild(exitLabel);
   }
 
@@ -104,7 +129,7 @@ export function createPeerItem(peer: PeerInfo, options: PeerItemOptions = {}): H
   ip.className = "peer-ip";
   const firstIP = peer.tailscaleIPs[0];
   const shortDNS = peer.dnsName ? peer.dnsName.replace(/\.$/, "") : "";
-  ip.textContent = firstIP ? escapeHTML(firstIP) : "";
+  ip.textContent = firstIP ?? "";
 
   row.appendChild(icon);
   row.appendChild(info);
@@ -134,7 +159,7 @@ export function createPeerItem(peer: PeerInfo, options: PeerItemOptions = {}): H
   let openBtn: HTMLElement | null = null;
 
   if (peer.online) {
-    openTarget = (options.magicDNS && shortDNS) || firstIP || undefined;
+    openTarget = shortDNS || firstIP || undefined;
     if (openTarget) {
       openBtn = createActionButton(openButtonLabel(getCustomUrl(peer.id)), () => {
         chrome.tabs.create({ url: resolveOpenUrl(openTarget!, getCustomUrl(peer.id)) });

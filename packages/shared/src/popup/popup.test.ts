@@ -46,4 +46,16 @@ describe("viewForState", () => {
       "disconnected"
     );
   });
+
+  it("returns 'disconnected' for NeedsMachineAuth backendState", () => {
+    expect(viewForState(baseState({ backendState: "NeedsMachineAuth" }))).toBe(
+      "disconnected"
+    );
+  });
+
+  it("returns 'disconnected' for InUseOtherUser backendState", () => {
+    expect(viewForState(baseState({ backendState: "InUseOtherUser" }))).toBe(
+      "disconnected"
+    );
+  });
 });

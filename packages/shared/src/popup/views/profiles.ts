@@ -1,5 +1,6 @@
 import type { TailscaleState, ProfileInfo } from "../../types";
 import { sendMessage } from "../popup";
+import { iconArrowLeft, iconX } from "../icons";
 
 /**
  * Renders the profile switcher overlay.
@@ -20,7 +21,11 @@ export function renderProfiles(
 
   const backBtn = document.createElement("button");
   backBtn.className = "btn btn-ghost";
-  backBtn.textContent = "\u2190 Back";
+  const backIcon = document.createElement("span");
+  backIcon.className = "icon icon-sm";
+  backIcon.appendChild(iconArrowLeft());
+  backBtn.appendChild(backIcon);
+  backBtn.appendChild(document.createTextNode(" Back"));
   backBtn.addEventListener("click", onBack);
   header.appendChild(backBtn);
 
@@ -96,8 +101,11 @@ function createProfileRow(
   if (!isCurrent && canDelete) {
     const deleteBtn = document.createElement("button");
     deleteBtn.className = "profile-delete-btn";
-    deleteBtn.textContent = "\u00D7";
     deleteBtn.title = "Delete profile";
+    const delIcon = document.createElement("span");
+    delIcon.className = "icon icon-sm";
+    delIcon.appendChild(iconX());
+    deleteBtn.appendChild(delIcon);
     deleteBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       if (confirm(`Delete profile "${profile.name || profile.id}"?`)) {
@@ -109,9 +117,14 @@ function createProfileRow(
 
   if (!isCurrent) {
     row.addEventListener("click", () => {
+      // Show loading spinner for immediate feedback
+      const spinner = document.createElement("div");
+      spinner.className = "spinner spinner-sm";
+      row.appendChild(spinner);
+      row.classList.add("profile-row--current");
       sendMessage({ type: "switch-profile", profileID: profile.id });
     });
-    row.style.cursor = "pointer";
+    row.classList.add("profile-row--clickable");
   }
 
   return row;

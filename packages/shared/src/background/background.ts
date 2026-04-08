@@ -5,7 +5,7 @@ import type {
   PopupMessage,
   ProxyManager,
 } from "../types";
-import { KEEPALIVE_INTERVAL_MS, ADMIN_URL, TAILSCALE_SERVICE_IP } from "../constants";
+import { KEEPALIVE_INTERVAL_MS, ADMIN_URL, TAILSCALE_SERVICE_IP, EXPECTED_HOST_VERSION } from "../constants";
 import { StateStore } from "./state-store";
 import { NativeHostConnection } from "./native-host";
 import { BadgeManager } from "./badge-manager";
@@ -52,6 +52,21 @@ function isValidLoginURL(url: string): boolean {
   }
 }
 
+/**
+ * Returns true if the host version's major.minor doesn't match the expected version.
+ * Patch differences are tolerated. Missing or unparseable versions are treated as a mismatch.
+ */
+function isVersionMismatch(hostVersion: string | null): boolean {
+  if (!hostVersion) return true;
+  // Strip leading "v" if present
+  const host = hostVersion.replace(/^v/, "");
+  const expected = EXPECTED_HOST_VERSION.replace(/^v/, "");
+  const hostParts = host.split(".");
+  const expectedParts = expected.split(".");
+  if (hostParts.length < 2 || expectedParts.length < 2) return true;
+  return hostParts[0] !== expectedParts[0] || hostParts[1] !== expectedParts[1];
+}
+
 export function initBackground(
   proxyManager: ProxyManager,
   nativeHostId: string,
@@ -84,16 +99,21 @@ export function initBackground(
   function handleNativeMessage(msg: NativeReply): void {
     // Process running: the native host tells us which port to proxy through
     if (msg.procRunning) {
+      const hostVersion = msg.procRunning.version ?? null;
+      const hostVersionMismatch = isVersionMismatch(hostVersion);
+
       if (msg.procRunning.error) {
         console.error(
           "[Background] procRunning error:",
           msg.procRunning.error
         );
-        store.update({ error: msg.procRunning.error });
+        store.update({ error: msg.procRunning.error, hostVersion, hostVersionMismatch });
       } else {
         store.update({
           proxyPort: msg.procRunning.port,
           proxyEnabled: true,
+          hostVersion,
+          hostVersionMismatch,
         });
       }
     }
@@ -156,37 +176,26 @@ export function initBackground(
     // Exit node suggestion — store in state and show toast, do NOT auto-apply
     if (msg.exitNodeSuggestion) {
       store.update({ exitNodeSuggestion: msg.exitNodeSuggestion });
-      for (const port of popupPorts) {
-        try {
-          const popupMsg: PopupMessage = {
-            type: "toast",
-            message: `Suggested exit node: ${msg.exitNodeSuggestion.hostname}`,
-            level: "info",
-          };
-          port.postMessage(popupMsg);
-        } catch {
-          // Port may have disconnected
-        }
-      }
+      sendToastToPopup(
+        `Suggested exit node: ${msg.exitNodeSuggestion.hostname}`,
+        "info",
+      );
     }
 
     // File send progress
     if (msg.fileSendProgress) {
-      for (const port of popupPorts) {
-        try {
-          const popupMsg: PopupMessage = {
-            type: "toast",
-            message: msg.fileSendProgress.done
-              ? msg.fileSendProgress.error
-                ? `File send failed: ${msg.fileSendProgress.error}`
-                : `File "${msg.fileSendProgress.name}" sent successfully`
-              : `Sending "${msg.fileSendProgress.name}": ${msg.fileSendProgress.percent}%`,
-            level: msg.fileSendProgress.error ? "error" : "info",
-          };
-          port.postMessage(popupMsg);
-        } catch {
-          // Port may have disconnected
-        }
+      if (msg.fileSendProgress.done) {
+        const message = msg.fileSendProgress.error
+          ? `File send failed: ${msg.fileSendProgress.error}`
+          : `File "${msg.fileSendProgress.name}" sent successfully`;
+        sendToastToPopup(message, msg.fileSendProgress.error ? "error" : "info");
+      } else {
+        // In-progress: use persistent toast so it stays visible
+        sendToastToPopup(
+          `Sending "${msg.fileSendProgress.name}": ${msg.fileSendProgress.percent}%`,
+          "info",
+          true,
+        );
       }
     }
 
@@ -200,19 +209,7 @@ export function initBackground(
           msg.error.message
         );
         store.update({ error: msg.error.message });
-        // Forward error to popup
-        for (const port of popupPorts) {
-          try {
-            const popupMsg: PopupMessage = {
-              type: "toast",
-              message: msg.error.message,
-              level: "error",
-            };
-            port.postMessage(popupMsg);
-          } catch {
-            // Port may have disconnected
-          }
-        }
+        sendToastToPopup(msg.error.message, "error");
       }
     }
   }
@@ -223,6 +220,7 @@ export function initBackground(
     }
     store.update({
       hostConnected: connected,
+      reconnecting: !connected && !store.getState().installError,
       // Clear install error on successful connection, reset state when disconnected
       ...(connected
         ? { installError: false }
@@ -231,6 +229,8 @@ export function initBackground(
             proxyPort: null,
             proxyEnabled: false,
             backendState: "NoState" as const,
+            hostVersion: null,
+            hostVersionMismatch: false,
           }),
     });
   }
@@ -262,16 +262,28 @@ export function initBackground(
     }
   }
 
+  function sendToastToPopup(message: string, level: "info" | "error", persistent = false): void {
+    for (const port of popupPorts) {
+      try {
+        const popupMsg: PopupMessage = { type: "toast", message, level, persistent };
+        port.postMessage(popupMsg);
+      } catch {
+        // Port may have disconnected
+      }
+    }
+  }
+
   chrome.runtime.onConnect.addListener((port: chrome.runtime.Port) => {
     if (port.name !== "popup") return;
 
     popupPorts.add(port);
 
-    // If we're in install error state, retry the native host connection
-    // in case the user just installed the helper
-    if (store.getState().installError) {
+    // If we're in install error or version mismatch state, retry the native
+    // host connection in case the user just installed or updated the helper
+    const currentState = store.getState();
+    if (currentState.installError || currentState.hostVersionMismatch) {
       nativeHost.connect().catch(() => {
-        // Still in install error state, popup will show needs-install
+        // Still in error state, popup will show needs-install or needs-update
       });
     }
 
@@ -306,12 +318,24 @@ export function initBackground(
     switch (msg.type) {
       case "toggle": {
         if (state.backendState === "Running") {
-          nativeHost.send({ cmd: "down" });
+          if (!nativeHost.send({ cmd: "down" })) {
+            sendToastToPopup("Could not reach Tailscale service. Please check that the native host is installed.", "error");
+          }
         } else if (
           state.backendState === "Stopped" ||
           state.backendState === "NoState"
         ) {
-          nativeHost.send({ cmd: "up" });
+          if (!nativeHost.send({ cmd: "up" })) {
+            sendToastToPopup("Could not reach Tailscale service. Please check that the native host is installed.", "error");
+          }
+        } else if (state.backendState === "Starting") {
+          sendToastToPopup("Tailscale is starting up\u2026", "info");
+        } else if (state.backendState === "NeedsLogin") {
+          sendToastToPopup("Please log in to Tailscale first.", "info");
+        } else if (state.backendState === "NeedsMachineAuth") {
+          sendToastToPopup("This machine needs admin approval to join the tailnet.", "error");
+        } else if (state.backendState === "InUseOtherUser") {
+          sendToastToPopup("Tailscale is in use by another user on this machine.", "error");
         }
         break;
       }
@@ -440,13 +464,13 @@ export function initBackground(
     // Send the URL as a text file to the first available peer
     const target = targets[0]!;
     const fileName = "shared-url.txt";
-    const encoded = btoa(url);
+    const encoded = btoa(unescape(encodeURIComponent(url)));
     nativeHost.send({
       cmd: "send-file",
       nodeID: target.id,
       fileName,
       fileData: encoded,
-      fileSize: url.length,
+      fileSize: new TextEncoder().encode(url).byteLength,
     });
   });
 

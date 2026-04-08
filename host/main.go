@@ -89,8 +89,9 @@ func main() {
 		h.send(Reply{
 			Cmd: "procRunning",
 			ProcRunning: &ProcRunningReply{
-				PID:   os.Getpid(),
-				Error: errString(err),
+				PID:     os.Getpid(),
+				Version: version,
+				Error:   errString(err),
 			},
 		})
 		log.Fatalf("failed to start proxy: %v", err)
@@ -99,8 +100,9 @@ func main() {
 	h.send(Reply{
 		Cmd: "procRunning",
 		ProcRunning: &ProcRunningReply{
-			Port: port,
-			PID:  os.Getpid(),
+			Port:    port,
+			PID:     os.Getpid(),
+			Version: version,
 		},
 	})
 

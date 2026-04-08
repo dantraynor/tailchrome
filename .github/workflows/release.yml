@@ -20,20 +20,19 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: pnpm
-      - uses: actions/setup-go@v5
+          package-manager-cache: false
+      - run: corepack enable
+      - uses: actions/setup-go@v6
         with:
           go-version-file: host/go.mod
+          cache-dependency-path: host/go.sum
       - run: pnpm install --frozen-lockfile
       - run: go mod download
         working-directory: host
@@ -65,9 +64,10 @@ jobs:
           cp packages/extension/.output/chrome.zip dist/chrome.zip
           cp packages/extension/.output/firefox.zip dist/firefox.zip
           cp packages/extension/.output/firefox-sources.zip dist/firefox-sources.zip
-          find dist -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -print0 \
-            | sort -z \
-            | xargs -0 sha256sum > dist/SHA256SUMS.txt
+          cd dist
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -printf '%f\n' \
+            | sort \
+            | xargs sha256sum > SHA256SUMS.txt
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
