@@ -36,7 +36,7 @@ They communicate over the browser's native messaging protocol.
 ### Chrome
 
 1. [Install Tailchrome](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) from the Chrome Web Store
-2. Click the extension icon and follow the prompts to install the native host
+2. **macOS:** Install the helper from the [latest GitHub Release](https://github.com/dantraynor/tailchrome/releases/latest) — download **`tailchrome-helper-macos.pkg`**, open it, then launch **Tailchrome Helper** once from Applications (no Terminal). **Other platforms:** click the extension icon and follow the prompts (download the small native helper and run it).
 3. Log in to your Tailscale account
 
 ### Firefox
@@ -83,20 +83,20 @@ make host-all         # release host binaries for all supported targets
 make dev              # Chrome watch mode via WXT
 ```
 
-The extension outputs land in `packages/extension/.output/`. The native host binaries land in `dist/`.
+The extension outputs land in `packages/extension/.output/`. A production Chrome build goes to `chrome-mv3/`; `make dev` writes a development build to `chrome-mv3-dev/` (use that path while iterating). The native host binaries land in `dist/`.
 
 ### Install for Development
 
 1. Run `pnpm install --frozen-lockfile`
 2. Build the extension and native host with `pnpm build:chrome`, `pnpm build:firefox`, and `make host`
-3. **Chrome:** Go to `chrome://extensions`, enable Developer Mode, and load `packages/extension/.output/chrome-mv3/` as an unpacked extension
+3. **Chrome:** Go to `chrome://extensions`, enable Developer Mode, and **Load unpacked**. Point at `packages/extension/.output/chrome-mv3-dev/` while `make dev` is running, or `packages/extension/.output/chrome-mv3/` if you only ran `pnpm build:chrome`. Click the extension’s reload button after WXT rebuilds when using dev mode.
 4. **Firefox:** Go to `about:debugging#/runtime/this-firefox` and load `packages/extension/.output/firefox-mv3/manifest.json` as a temporary addon
 5. Install the native host by running the binary directly (it auto-installs for both browsers)
 
 ## Release Pipeline
 
 - Pull requests run extension typecheck/tests, Chrome build, the full Firefox review gate, and native-host builds in GitHub Actions.
-- Tagged releases (`v*`) build `chrome.zip`, `firefox.zip`, `firefox-sources.zip`, host binaries, and checksums, then attach them to the GitHub Release.
+- Tagged releases (`v*`) build `chrome.zip`, `firefox.zip`, `firefox-sources.zip`, host binaries, the **macOS** `tailchrome-helper-macos.pkg` (universal helper + Tailchrome Helper app), and checksums, then attach them to the GitHub Release.
 - Store publication is driven from GitHub Actions with manual environment approvals before Chrome Web Store and AMO submission.
 
 ## Contributing

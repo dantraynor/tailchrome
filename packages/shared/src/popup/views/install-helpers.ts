@@ -117,6 +117,29 @@ export function renderInstallFlow(
   }
 
   const platform = detectPlatform();
+
+  if (platform === "macos" && opts.mode === "install") {
+    const pkgUrl = `${RELEASE_BASE}/tailchrome-helper-macos.pkg`;
+    const cta = document.createElement("div");
+    cta.className = "install-pkg-cta";
+    const pkgLink = document.createElement("a");
+    pkgLink.className = "btn btn-primary btn-link";
+    pkgLink.href = pkgUrl;
+    pkgLink.rel = "noopener";
+    pkgLink.textContent = "Download macOS installer (.pkg)";
+    pkgLink.addEventListener("click", (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: pkgUrl });
+    });
+    cta.appendChild(pkgLink);
+    content.appendChild(cta);
+    const pkgHint = document.createElement("p");
+    pkgHint.className = "centered-view-text install-pkg-hint";
+    pkgHint.textContent =
+      "Open the downloaded package, then launch Tailchrome Helper from Applications once. Come back here when done.";
+    content.appendChild(pkgHint);
+  }
+
   const downloadURL = buildDownloadURL(platform);
   const filename = binaryFilename(platform);
   const runCmd = buildRunCommand(platform);
@@ -126,7 +149,10 @@ export function renderInstallFlow(
   steps.className = "install-steps";
 
   const step1 = createStep("1");
-  step1.label.textContent = "Download the helper app";
+  step1.label.textContent =
+    platform === "macos" && opts.mode === "install"
+      ? "Alternative: raw binary (advanced)"
+      : "Download the helper app";
 
   const downloadBtn = document.createElement("a");
   downloadBtn.className = "btn btn-primary btn-link";
@@ -226,7 +252,25 @@ export function renderInstallFlow(
         : "No sudo needed.";
     step2.content.appendChild(hint);
 
+    if (platform === "macos") {
+      const gatekeeper = document.createElement("div");
+      gatekeeper.className = "install-step-hint";
+      gatekeeper.textContent =
+        "If macOS says the helper can’t be checked for malware: Control-click the file in Finder → Open, confirm Open. Or System Settings → Privacy & Security → Open Anyway. Then run the Terminal command again if needed.";
+      step2.content.appendChild(gatekeeper);
+    }
+
     steps.appendChild(step2.root);
+
+    const step3 = createStep("3");
+    step3.label.textContent = "Finish";
+    const doneBody = document.createElement("div");
+    doneBody.className = "install-step-body";
+    doneBody.textContent =
+      "Click this extension’s toolbar icon again. We’ll connect to the helper automatically.";
+    step3.content.appendChild(step3.label);
+    step3.content.appendChild(doneBody);
+    steps.appendChild(step3.root);
   }
 
   content.appendChild(steps);
