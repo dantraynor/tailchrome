@@ -24,6 +24,8 @@ const DEFAULT_STATE: TailscaleState = {
   installError: false,
   hostVersion: null,
   hostVersionMismatch: false,
+  supportsNetcheck: false,
+  supportsPingPeer: false,
   reconnecting: false,
 };
 

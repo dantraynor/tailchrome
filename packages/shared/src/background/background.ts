@@ -94,13 +94,21 @@ export function initBackground(
           "[Background] procRunning error:",
           msg.procRunning.error
         );
-        store.update({ error: msg.procRunning.error, hostVersion, hostVersionMismatch });
+        store.update({
+          error: msg.procRunning.error,
+          hostVersion,
+          hostVersionMismatch,
+          supportsNetcheck: false,
+          supportsPingPeer: false,
+        });
       } else {
         store.update({
           proxyPort: msg.procRunning.port,
           proxyEnabled: true,
           hostVersion,
           hostVersionMismatch,
+          supportsNetcheck: msg.procRunning.supportsNetcheck === true,
+          supportsPingPeer: msg.procRunning.supportsPingPeer === true,
         });
       }
     }
@@ -223,6 +231,8 @@ export function initBackground(
             backendState: "NoState" as const,
             hostVersion: null,
             hostVersionMismatch: false,
+            supportsNetcheck: false,
+            supportsPingPeer: false,
           }),
     });
   }

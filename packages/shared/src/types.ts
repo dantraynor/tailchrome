@@ -39,7 +39,16 @@ export type NativeRequest =
   | { cmd: "netcheck" };
 
 export interface NativeReply {
-  procRunning?: { port: number; pid: number; version?: string; error?: string };
+  procRunning?: {
+    port: number;
+    pid: number;
+    version?: string;
+    error?: string;
+    /** When true, the native host handles the `netcheck` command (omitted on older helpers). */
+    supportsNetcheck?: boolean;
+    /** When true, the native host handles `ping-peer` (omitted on older helpers). */
+    supportsPingPeer?: boolean;
+  };
   init?: { error?: string };
   pong?: Record<string, never>;
   status?: StatusUpdate;
@@ -190,6 +199,10 @@ export interface TailscaleState {
   installError: boolean;
   hostVersion: string | null;
   hostVersionMismatch: boolean;
+  /** True when the connected native helper advertises `supportsNetcheck` in procRunning. */
+  supportsNetcheck: boolean;
+  /** True when the connected native helper advertises `supportsPingPeer` in procRunning. */
+  supportsPingPeer: boolean;
   /** True when the native host disconnected and reconnection is being attempted. */
   reconnecting: boolean;
 }
