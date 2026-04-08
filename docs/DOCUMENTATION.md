@@ -17,6 +17,7 @@
 1. [Overview](#overview)
 2. [Architecture](#architecture)
 3. [Feature Set](#feature-set)
+   - [Parity and backlog](#parity-and-backlog)
 4. [Native Messaging Protocol](#native-messaging-protocol)
 5. [Extension Internals](#extension-internals)
 6. [Native Host Internals](#native-host-internals)
@@ -144,6 +145,10 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 - **Toast notifications** -- in-popup toasts for operations (file send, errors, suggestions)
 - **Keyboard navigation** -- peer list supports arrow key navigation
 - **Platform-aware** -- detects macOS for platform-specific UI hints
+
+### Parity and backlog
+
+This document describes what Tailchrome implements today. The canonical place for **missing or partial features** versus the native Tailscale client, plus **architectural limits**, is [FEATURE_PARITY.md](FEATURE_PARITY.md). Maintain parity claims there; link from here if the parity doc moves or is renamed.
 
 ---
 
@@ -476,10 +481,9 @@ The popup is a vanilla TypeScript UI (no framework) rendered into the extension 
 +----------------------------------+
 | Quick Settings:                  |
 |   Exit node: [current / None]  >|
-|   Shields up           [toggle]  |
-|   Run as exit node     [toggle]  |
-|   Use Tailscale DNS    [toggle]  |
-|   Allow LAN access     [toggle]  |
+|   Shields Up           [toggle]  |
+|   Run as Exit Node     [toggle]  |
+|   MagicDNS             [toggle]  |
 |   Profile: [name]              > |
 +----------------------------------+
 | [Search peers...]                |
@@ -495,7 +499,7 @@ The popup is a vanilla TypeScript UI (no framework) rendered into the extension 
 +----------------------------------+
 ```
 
-Each peer item expands to show: Copy IP, Copy DNS, Open, SSH (if capable), Send File (if Taildrop target), and a custom URL editor.
+**Exit node sub-view:** Opening **Exit node** shows the full picker (search, suggested node, Mullvad grouping where applicable). **Allow LAN access** is a checkbox there—not in Quick Settings. Each peer item expands to show: Copy IP, Copy DNS, Open, SSH (if capable), Send File (if Taildrop target), and a custom URL editor. A **Profile** row is added when `state.profiles` is non-empty (click opens the profile switcher).
 
 ---
 
@@ -512,7 +516,7 @@ Each peer item expands to show: Copy IP, Copy DNS, Open, SSH (if capable), Send 
 | Native host ID    | `com.tailscale.browserext.chrome`                     | `com.tailscale.browserext.firefox`           |
 | Permissions       | `proxy`, `storage`, `nativeMessaging`, `contextMenus` | Same + `alarms`                              |
 | Min version       | --                                                    | Firefox 140+                                 |
-| Distribution      | Chrome Web Store                                      | GitHub Releases / AMO (pending)              |
+| Distribution      | Chrome Web Store                                      | GitHub Releases; [AMO](https://addons.mozilla.org/) listing not published yet (update this row when live) |
 | Extension ID      | `bhfeceecialgilpedkoflminjgcjljll` (CWS)              | `tailchrome@tesseras.org` (gecko)            |
 
 
@@ -922,6 +926,7 @@ Full policy: [docs/privacy-policy.md](privacy-policy.md)
 
 ### Firefox AMO
 
+- **Listing status:** Not published on Mozilla Add-ons yet; install the signed `.xpi` from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest) until then. When the add-on is listed on AMO, update this subsection and the **Distribution** row under [Browser Differences](#browser-differences).
 - **Categories:** Privacy & Security, Other
 - **Addon ID:** `tailchrome@tesseras.org`
 - **Minimum Firefox version:** 140.0

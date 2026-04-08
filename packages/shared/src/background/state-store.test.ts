@@ -174,6 +174,7 @@ describe("StateStore", () => {
             txBytes: 0,
             lastSeen: null,
             lastHandshake: null,
+            keyExpiry: null,
             location: null,
             taildropTarget: false,
             sshHost: false,

@@ -91,6 +91,13 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 				RunWebClient:           p.RunWebClient(),
 				AdvertiseExitNode:      p.AdvertisesExitNode(),
 			}
+			ar := p.AdvertiseRoutes()
+			if n := ar.Len(); n > 0 {
+				pv.AdvertiseRoutes = make([]string, 0, n)
+				for i := 0; i < n; i++ {
+					pv.AdvertiseRoutes = append(pv.AdvertiseRoutes, ar.At(i).String())
+				}
+			}
 			if p.ExitNodeID() != "" {
 				id := string(p.ExitNodeID())
 				pv.ExitNodeID = id

@@ -46,6 +46,7 @@ export function makePeer(overrides: Partial<PeerInfo> = {}): PeerInfo {
     txBytes: 0,
     lastSeen: null,
     lastHandshake: null,
+    keyExpiry: null,
     location: null,
     taildropTarget: false,
     sshHost: false,

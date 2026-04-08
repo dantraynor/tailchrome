@@ -22,9 +22,21 @@ export type NativeRequest =
   | { cmd: "switch-profile"; profileID: string }
   | { cmd: "new-profile" }
   | { cmd: "delete-profile"; profileID: string }
-  | { cmd: "send-file"; nodeID: string; fileName: string; fileData: string; fileSize: number }
+  | {
+      cmd: "send-file";
+      nodeID: string;
+      fileName: string;
+      fileData: string;
+      fileSize: number;
+      transferID?: string;
+      chunkIndex?: number;
+      chunkCount?: number;
+    }
   | { cmd: "suggest-exit-node" }
-  | { cmd: "logout" };
+  | { cmd: "logout" }
+  | { cmd: "ping-peer"; nodeID: string }
+  | { cmd: "bug-report"; note?: string }
+  | { cmd: "netcheck" };
 
 export interface NativeReply {
   procRunning?: { port: number; pid: number; version?: string; error?: string };
@@ -34,6 +46,7 @@ export interface NativeReply {
   profiles?: ProfilesResult;
   exitNodeSuggestion?: ExitNodeSuggestion;
   fileSendProgress?: FileSendProgress;
+  diagnostic?: { title: string; body: string };
   error?: { cmd: string; message: string };
 }
 
@@ -81,6 +94,8 @@ export interface PeerInfo {
   txBytes: number;
   lastSeen: string | null;
   lastHandshake: string | null;
+  /** Present for self and peers when the control plane reports key expiry. */
+  keyExpiry?: string | null;
   location: PeerLocation | null;
   taildropTarget: boolean;
   sshHost: boolean;
@@ -116,6 +131,9 @@ export interface TailscalePrefs {
   corpDNS: boolean;
   shieldsUp: boolean;
   advertiseExitNode: boolean;
+  /** When omitted, treat as false (older hosts). */
+  runSSH?: boolean;
+  advertiseRoutes?: string[];
 }
 
 export interface ProfileInfo {
@@ -181,6 +199,15 @@ export type PopupMessage =
   | { type: "state"; state: TailscaleState }
   | { type: "toast"; message: string; level: "info" | "error"; persistent?: boolean };
 
+type ScalarPrefKey = Exclude<keyof TailscalePrefs, "advertiseRoutes">;
+type SetPrefMessage = {
+  [K in ScalarPrefKey]-?: {
+    type: "set-pref";
+    key: K;
+    value: Exclude<TailscalePrefs[K], undefined>;
+  };
+}[ScalarPrefKey];
+
 // Messages from popup to background
 export type BackgroundMessage =
   | { type: "toggle" }
@@ -188,11 +215,24 @@ export type BackgroundMessage =
   | { type: "logout" }
   | { type: "set-exit-node"; nodeID: string }
   | { type: "clear-exit-node" }
-  | { type: "set-pref"; key: keyof TailscalePrefs; value: boolean | string }
+  | SetPrefMessage
+  | { type: "set-advertise-routes"; routes: string[] }
+  | { type: "ping-peer"; nodeID: string }
+  | { type: "bug-report"; note?: string }
+  | { type: "netcheck" }
   | { type: "switch-profile"; profileID: string }
   | { type: "new-profile" }
   | { type: "delete-profile"; profileID: string }
-  | { type: "send-file"; targetNodeID: string; name: string; size: number; dataBase64: string }
+  | {
+      type: "send-file";
+      targetNodeID: string;
+      name: string;
+      size: number;
+      dataBase64: string;
+      transferID?: string;
+      chunkIndex?: number;
+      chunkCount?: number;
+    }
   | { type: "suggest-exit-node" }
   | { type: "open-admin" }
   | { type: "open-web-client" };

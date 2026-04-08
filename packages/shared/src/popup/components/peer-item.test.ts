@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { formatRelativeTime } from "./peer-item";
+import { makePeer } from "../../__test__/fixtures";
+import { formatRelativeTime, peerDisplayKey } from "./peer-item";
 
 describe("formatRelativeTime", () => {
   beforeEach(() => {
@@ -73,5 +74,37 @@ describe("formatRelativeTime", () => {
 
   it("returns 'long ago' for > 12 months", () => {
     expect(formatRelativeTime("2024-01-01T00:00:00Z")).toBe("long ago");
+  });
+});
+
+describe("peerDisplayKey", () => {
+  it("changes when the rendered user identity changes", () => {
+    const a = makePeer({ userLoginName: "alice@example.com", userName: "Alice" });
+    const b = makePeer({ userLoginName: "bob@example.com", userName: "Bob" });
+
+    expect(peerDisplayKey(a)).not.toBe(peerDisplayKey(b));
+  });
+
+  it("changes when rx/tx bytes change", () => {
+    const a = makePeer({ rxBytes: 100, txBytes: 200 });
+    const b = makePeer({ rxBytes: 300, txBytes: 400 });
+    expect(peerDisplayKey(a)).not.toBe(peerDisplayKey(b));
+  });
+
+  it("changes when tags change", () => {
+    const a = makePeer({ tags: ["tag:server"] });
+    const b = makePeer({ tags: ["tag:server", "tag:prod"] });
+    expect(peerDisplayKey(a)).not.toBe(peerDisplayKey(b));
+  });
+
+  it("changes when lastHandshake changes", () => {
+    const a = makePeer({ lastHandshake: "2025-01-01T00:00:00Z" });
+    const b = makePeer({ lastHandshake: "2025-06-01T00:00:00Z" });
+    expect(peerDisplayKey(a)).not.toBe(peerDisplayKey(b));
+  });
+
+  it("is stable for identical peers", () => {
+    const p = makePeer();
+    expect(peerDisplayKey(p)).toBe(peerDisplayKey(p));
   });
 });
