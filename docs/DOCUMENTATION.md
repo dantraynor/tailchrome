@@ -241,7 +241,7 @@ The shared package contains all the platform-agnostic logic. The extension packa
 | `timer-service.ts` | 55    | Abstract `TimerService` interface; `DefaultTimerService` wraps native `setInterval`/`clearInterval`             |
 
 
-`**packages/shared/src/popup/**`
+`**packages/shared/src/popup/`**
 
 
 | File             | Lines | Purpose                                                                         |

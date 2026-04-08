@@ -1,15 +1,10 @@
 # Tailchrome
 
 Access your Tailscale network directly from your browser. No system VPN required.
-<img width="1400" height="560" alt="promo-marquee" src="https://github.com/user-attachments/assets/88f6953e-014c-4c35-aa44-d612786f6d17" />
 
-https://tesseras.org/tailchrome/ | [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) | [Privacy Policy](docs/privacy-policy.md)
+[https://tesseras.org/tailchrome/](https://tesseras.org/tailchrome/) | [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) | [Privacy Policy](docs/privacy-policy.md)
 
 Tailchrome runs a full Tailscale node per browser profile, without touching system networking. Tailnet traffic is routed through a local SOCKS5/HTTP proxy, so it works alongside (or without) the Tailscale system app.
-
-<p align="center">
-  <img src="store-assets/readme-popup.png" alt="Tailchrome popup" width="300">
-</p>
 
 ## Features
 
