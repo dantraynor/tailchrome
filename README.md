@@ -8,7 +8,7 @@ https://tesseras.org/tailchrome/ | [Chrome Web Store](https://chromewebstore.goo
 Tailchrome runs a full Tailscale node per browser profile, without touching system networking. Tailnet traffic is routed through a local SOCKS5/HTTP proxy, so it works alongside (or without) the Tailscale system app.
 
 <p align="center">
-  <img src="tailchrome-popup-full.png" alt="Tailchrome popup" width="300">
+  <img src="store-assets/readme-popup.png" alt="Tailchrome popup" width="300">
 </p>
 
 ## Features
