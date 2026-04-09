@@ -41,7 +41,7 @@ export function formatRelativeTime(isoDate: string | null): string {
  * Used to detect whether a peer item needs updating.
  */
 export function peerDisplayKey(peer: PeerInfo): string {
-  return `${peer.hostname}|${peer.online}|${peer.tailscaleIPs[0] ?? ""}|${peer.lastSeen ?? ""}|${peer.exitNode}|${peer.dnsName}|${peer.rxBytes}|${peer.txBytes}|${peer.lastHandshake ?? ""}|${(peer.tags ?? []).join(",")}|${peer.userLoginName}|${peer.userName}`;
+  return `${peer.hostname}|${peer.online}|${peer.tailscaleIPs[0] ?? ""}|${peer.lastSeen ?? ""}|${peer.exitNode}|${peer.dnsName}|${peer.rxBytes}|${peer.txBytes}|${peer.lastHandshake ?? ""}|${(peer.tags ?? []).join(",")}|${peer.userLoginName}|${peer.userName}|${peer.sshHost ?? ""}`;
 }
 
 /**
@@ -75,6 +75,8 @@ export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void
   }
 
   container.dataset.displayKey = peerDisplayKey(peer);
+  container.dataset.sshActionShown =
+    container.dataset.showPeerSsh === "1" && peer.sshHost && peer.online ? "1" : "0";
 }
 
 function buildPeerDetailsText(peer: PeerInfo): string {
@@ -98,11 +100,17 @@ function buildPeerDetailsText(peer: PeerInfo): string {
 /**
  * Creates a single peer item row element with expandable actions.
  */
-export function createPeerItem(peer: PeerInfo, supportsPingPeer: boolean): HTMLElement {
+export function createPeerItem(
+  peer: PeerInfo,
+  supportsPingPeer: boolean,
+  showPeerSSH: boolean,
+): HTMLElement {
   const container = document.createElement("div");
   container.className = "peer-item-container";
   container.dataset.peerId = peer.id;
   container.dataset.hostPingCap = supportsPingPeer ? "1" : "0";
+  container.dataset.showPeerSsh = showPeerSSH ? "1" : "0";
+  container.dataset.sshActionShown = showPeerSSH && peer.sshHost && peer.online ? "1" : "0";
   container.dataset.displayKey = peerDisplayKey(peer);
 
   const row = document.createElement("div");
@@ -204,7 +212,7 @@ export function createPeerItem(peer: PeerInfo, supportsPingPeer: boolean): HTMLE
     }));
   }
 
-  if (peer.sshHost && peer.online) {
+  if (showPeerSSH && peer.sshHost && peer.online) {
     actions.appendChild(createActionButton("SSH", () => {
       chrome.tabs.create({ url: `http://100.100.100.100/ssh/${peer.hostname}` });
     }));

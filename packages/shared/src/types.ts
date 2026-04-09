@@ -210,7 +210,16 @@ export interface TailscaleState {
 // Messages from background to popup
 export type PopupMessage =
   | { type: "state"; state: TailscaleState }
-  | { type: "toast"; message: string; level: "info" | "error"; persistent?: boolean };
+  | {
+      type: "toast";
+      message: string;
+      level: "info" | "error";
+      persistent?: boolean;
+      /** Auto-dismiss delay when not persistent (ms). */
+      dismissMs?: number;
+      /** Preserve newlines (e.g. diagnostics toast). */
+      multiline?: boolean;
+    };
 
 type ScalarPrefKey = Exclude<keyof TailscalePrefs, "advertiseRoutes">;
 type SetPrefMessage = {

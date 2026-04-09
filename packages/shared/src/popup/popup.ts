@@ -152,7 +152,12 @@ function init(): void {
         render(msg.state);
         break;
       case "toast":
-        showToast(msg.message, { level: msg.level, persistent: msg.persistent });
+        showToast(msg.message, {
+          level: msg.level,
+          persistent: msg.persistent,
+          dismissMs: msg.dismissMs,
+          multiline: msg.multiline,
+        });
         break;
     }
   });

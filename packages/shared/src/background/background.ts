@@ -10,6 +10,7 @@ import { StateStore } from "./state-store";
 import { NativeHostConnection } from "./native-host";
 import { BadgeManager } from "./badge-manager";
 import { DefaultTimerService, type TimerService } from "./timer-service";
+import { formatBugReportForToast } from "./format-bug-report-toast";
 
 export type { ProxyManager };
 
@@ -195,8 +196,15 @@ export function initBackground(
     }
 
     if (msg.diagnostic) {
-      const body = msg.diagnostic.body.replace(/\n/g, " · ");
-      sendToastToPopup(`${msg.diagnostic.title}: ${body}`, "info", true);
+      // Diagnostics upload includes a reference users may need to copy; keep until another toast.
+      if (msg.diagnostic.title === "Bug report") {
+        sendToastToPopup(formatBugReportForToast(msg.diagnostic.body), "info", true, undefined, true);
+      } else {
+        const body = msg.diagnostic.body.replace(/\n/g, " · ");
+        const text = `${msg.diagnostic.title}: ${body}`;
+        // Ping and other diagnostics: ephemeral, longer read time than default toasts.
+        sendToastToPopup(text, "info", false, 7000);
+      }
     }
 
     // Error from native host
@@ -260,10 +268,23 @@ export function initBackground(
     }
   }
 
-  function sendToastToPopup(message: string, level: "info" | "error", persistent = false): void {
+  function sendToastToPopup(
+    message: string,
+    level: "info" | "error",
+    persistent = false,
+    dismissMs?: number,
+    multiline = false,
+  ): void {
     for (const port of popupPorts) {
       try {
-        const popupMsg: PopupMessage = { type: "toast", message, level, persistent };
+        const popupMsg: PopupMessage = {
+          type: "toast",
+          message,
+          level,
+          persistent,
+          ...(dismissMs != null ? { dismissMs } : {}),
+          ...(multiline ? { multiline: true } : {}),
+        };
         port.postMessage(popupMsg);
       } catch {
         // Port may have disconnected

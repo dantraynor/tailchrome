@@ -106,7 +106,7 @@ func main() {
 				PID:              os.Getpid(),
 				Version:          version,
 				Error:            errString(err),
-				SupportsNetcheck: true,
+				SupportsNetcheck: false,
 				SupportsPingPeer: true,
 			},
 		})
@@ -119,7 +119,7 @@ func main() {
 			Port:             port,
 			PID:              os.Getpid(),
 			Version:          version,
-			SupportsNetcheck: true,
+			SupportsNetcheck: false,
 			SupportsPingPeer: true,
 		},
 	})

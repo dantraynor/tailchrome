@@ -409,17 +409,23 @@
   bottom: var(--space-lg);
   left: 50%;
   transform: translateX(-50%) translateY(0);
+  box-sizing: border-box;
+  max-width: calc(100% - 2 * var(--space-md));
   padding: var(--space-sm) var(--space-lg);
   background: var(--text-primary);
   color: var(--text-inverse);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   z-index: 1000;
-  animation: toastIn var(--transition-normal) ease, toastOut var(--transition-normal) ease 2s forwards;
+  animation: toastIn var(--transition-normal) ease,
+    toastOut var(--transition-normal) ease var(--toast-exit-delay, 2300ms) forwards;
   pointer-events: none;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
 
 .toast.toast-error {
@@ -428,6 +434,14 @@
 
 .toast.toast-persistent {
   animation: toastIn var(--transition-normal) ease;
+  pointer-events: auto;
+  user-select: text;
+}
+
+.toast.toast-multiline {
+  white-space: pre-line;
+  max-height: min(240px, 50vh);
+  overflow-y: auto;
 }
 
 @keyframes toastIn {
@@ -530,6 +544,17 @@
   min-height: 36px;
 }
 
+button.setting-row {
+  width: 100%;
+  margin: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
 .setting-label {
   font-size: var(--font-size-md);
   color: var(--text-primary);
@@ -584,6 +609,23 @@
   align-self: flex-start;
 }
 
+.advertise-routes-editor.hidden {
+  display: none;
+}
+
+.advanced-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding-left: var(--space-md);
+  margin-left: var(--space-xs);
+  border-left: 2px solid var(--border-light);
+}
+
+.advanced-settings-panel.hidden {
+  display: none;
+}
+
 /* ==============================
    Footer
    ============================== */
@@ -610,6 +652,31 @@
   width: 100%;
   text-align: center;
   font-size: var(--font-size-xs);
+}
+
+.footer-github-cta {
+  width: 100%;
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-light);
+  text-align: center;
+}
+
+.footer-github-cta-line {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  line-height: var(--line-height-relaxed);
+}
+
+.footer-github-cta-link {
+  color: var(--ts-blue);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+.footer-github-cta-link:hover {
+  text-decoration: underline;
 }
 
 .footer-link {
