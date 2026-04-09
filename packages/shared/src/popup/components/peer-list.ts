@@ -68,14 +68,19 @@ function renderPeerSection(
   peers: PeerInfo[],
   cachedElements: Map<string, HTMLElement>,
   supportsPingPeer: boolean,
+  showPeerSSH: boolean,
 ): void {
   const pingCap = supportsPingPeer ? "1" : "0";
+  const sshCap = showPeerSSH ? "1" : "0";
   container.appendChild(createSectionHeader(label, peers.length));
   const list = document.createElement("div");
   list.className = "peer-list";
   for (const peer of peers) {
     let cached = cachedElements.get(peer.id);
     if (cached && cached.dataset.hostPingCap !== pingCap) {
+      cached = undefined;
+    }
+    if (cached && cached.dataset.showPeerSsh !== sshCap) {
       cached = undefined;
     }
     if (cached) {
@@ -86,7 +91,7 @@ function renderPeerSection(
       }
       list.appendChild(cached);
     } else {
-      list.appendChild(createPeerItem(peer, supportsPingPeer));
+      list.appendChild(createPeerItem(peer, supportsPingPeer, showPeerSSH));
     }
   }
   container.appendChild(list);
@@ -100,6 +105,7 @@ export function renderPeerList(
   container: HTMLElement,
   peers: PeerInfo[],
   supportsPingPeer: boolean,
+  showPeerSSH: boolean,
 ): void {
   if (!container.dataset.kbnav) {
     addListKeyboardNav(container, ".peer-item");
@@ -121,7 +127,7 @@ export function renderPeerList(
     const list = document.createElement("div");
     list.className = "peer-list";
     for (const peer of online) {
-      list.appendChild(createPeerItem(peer, supportsPingPeer));
+      list.appendChild(createPeerItem(peer, supportsPingPeer, showPeerSSH));
     }
     container.appendChild(list);
   }
@@ -132,7 +138,7 @@ export function renderPeerList(
     const list = document.createElement("div");
     list.className = "peer-list";
     for (const peer of offline) {
-      list.appendChild(createPeerItem(peer, supportsPingPeer));
+      list.appendChild(createPeerItem(peer, supportsPingPeer, showPeerSSH));
     }
     container.appendChild(list);
   }
@@ -146,6 +152,7 @@ export function updatePeerList(
   container: HTMLElement,
   peers: PeerInfo[],
   supportsPingPeer: boolean,
+  showPeerSSH: boolean,
 ): void {
   // Collect existing peer item elements by ID
   const cachedElements = new Map<string, HTMLElement>();
@@ -164,9 +171,9 @@ export function updatePeerList(
   const offline = peers.filter((p) => !p.online);
 
   if (online.length > 0) {
-    renderPeerSection(container, "Online", online, cachedElements, supportsPingPeer);
+    renderPeerSection(container, "Online", online, cachedElements, supportsPingPeer, showPeerSSH);
   }
   if (offline.length > 0) {
-    renderPeerSection(container, "Offline", offline, cachedElements, supportsPingPeer);
+    renderPeerSection(container, "Offline", offline, cachedElements, supportsPingPeer, showPeerSSH);
   }
 }

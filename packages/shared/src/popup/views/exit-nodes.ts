@@ -2,8 +2,7 @@ import type { TailscaleState, PeerInfo } from "../../types";
 import { addListKeyboardNav } from "../utils";
 import { sendMessage } from "../popup";
 import { iconArrowLeft } from "../icons";
-
-const MULLVAD_TAG = "tag:mullvad-exit-node";
+import { isMullvadExitNodePeer } from "../peer-filters";
 
 interface MullvadCityGroup {
   city: string;
@@ -29,10 +28,6 @@ let exitNodeSearchQuery = "";
 // Persists expand/collapse state across sub-view re-renders.
 const expandedCountries = new Set<string>();
 let autoExpandDone = false;
-
-function isMullvadNode(peer: PeerInfo): boolean {
-  return peer.tags.includes(MULLVAD_TAG);
-}
 
 /**
  * Renders the exit node picker overlay.
@@ -227,7 +222,7 @@ function renderExitNodeList(
     if (!autoExpandDone && state.exitNode) {
       autoExpandDone = true;
       const activeNode = allExitNodes.find((n) => n.id === state.exitNode!.id);
-      if (activeNode && isMullvadNode(activeNode) && activeNode.location) {
+      if (activeNode && isMullvadExitNodePeer(activeNode) && activeNode.location) {
         expandedCountries.add(activeNode.location.countryCode);
       }
     }
@@ -435,7 +430,7 @@ function groupExitNodes(nodes: PeerInfo[]): ExitNodeGrouping {
   const shared: PeerInfo[] = [];
 
   for (const node of nodes) {
-    if (isMullvadNode(node)) {
+    if (isMullvadExitNodePeer(node)) {
       if (node.location) {
         mullvadRaw.push(node);
       } else {

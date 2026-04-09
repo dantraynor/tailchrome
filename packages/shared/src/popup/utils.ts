@@ -30,11 +30,15 @@ interface ToastOptions {
   level?: "info" | "error";
   /** If true, the toast stays visible until replaced by another toast. */
   persistent?: boolean;
+  /** When not persistent, remove after this many ms (default 2500). */
+  dismissMs?: number;
+  /** Preserve line breaks (bug report references, etc.). */
+  multiline?: boolean;
 }
 
 /**
  * Shows a toast notification at the bottom of the popup.
- * By default, auto-dismisses after 2.5s. Pass persistent: true to keep it visible.
+ * By default, auto-dismisses after 2.5s (override with `dismissMs`). Pass persistent: true to keep until replaced.
  */
 export function showToast(message: string, levelOrOptions: "info" | "error" | ToastOptions = "info"): void {
   const opts: ToastOptions = typeof levelOrOptions === "string"
@@ -42,6 +46,8 @@ export function showToast(message: string, levelOrOptions: "info" | "error" | To
     : levelOrOptions;
   const level = opts.level ?? "info";
   const persistent = opts.persistent ?? false;
+  const dismissMs = opts.dismissMs ?? 2500;
+  const multiline = opts.multiline ?? false;
 
   // Remove any existing toast
   const existing = document.querySelector(".toast");
@@ -52,15 +58,15 @@ export function showToast(message: string, levelOrOptions: "info" | "error" | To
   const toast = document.createElement("div");
   toast.className = "toast"
     + (level === "error" ? " toast-error" : "")
-    + (persistent ? " toast-persistent" : "");
+    + (persistent ? " toast-persistent" : "")
+    + (multiline ? " toast-multiline" : "");
   toast.textContent = message;
   document.body.appendChild(toast);
 
   if (!persistent) {
-    // Remove after animation completes
     setTimeout(() => {
       toast.remove();
-    }, 2500);
+    }, dismissMs);
   }
 }
 

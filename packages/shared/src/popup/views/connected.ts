@@ -2,6 +2,7 @@ import type { TailscaleState } from "../../types";
 import { ADMIN_URL } from "../../constants";
 import { renderHeader } from "../components/header";
 import { renderPeerList, updatePeerList, filterPeers } from "../components/peer-list";
+import { peersForDeviceList } from "../peer-filters";
 import { renderHealthWarnings } from "../components/health-warnings";
 import { createCopyButton, formatKeyExpiryLocal } from "../utils";
 import { sendMessage, enterSubView, leaveSubView, getLatestState } from "../popup";
@@ -14,6 +15,12 @@ type SubViewRenderer = (root: HTMLElement, state: TailscaleState, onBack: () => 
 
 /** Persists the peer search query across state updates within the connected view. */
 let peerSearchQuery = "";
+
+/** UI-only: whether the advertise-subnets editor (textarea + save) is visible. */
+let advertiseRoutesEditorOpen = false;
+
+/** UI-only: Advanced section (Run as Exit Node, local node page; peer SSH when expanded). */
+let advancedSectionOpen = false;
 
 const PEER_SEARCH_THRESHOLD = 6;
 
@@ -155,23 +162,6 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   shieldsRow.appendChild(shieldsToggle);
   settings.appendChild(shieldsRow);
 
-  // Run as Exit Node toggle
-  const exitAdRow = document.createElement("div");
-  exitAdRow.className = "setting-row";
-
-  const exitAdLabel = document.createElement("span");
-  exitAdLabel.className = "setting-label";
-  exitAdLabel.textContent = "Run as Exit Node";
-  exitAdRow.appendChild(exitAdLabel);
-
-  const advertisingExit = state.prefs?.advertiseExitNode ?? false;
-  const exitAdToggle = createToggle(advertisingExit, (checked) => {
-    sendMessage({ type: "set-pref", key: "advertiseExitNode", value: checked });
-  });
-  exitAdToggle.querySelector("input")?.classList.add("quick-settings-pref");
-  exitAdRow.appendChild(exitAdToggle);
-  settings.appendChild(exitAdRow);
-
   // MagicDNS toggle
   const dnsRow = document.createElement("div");
   dnsRow.className = "setting-row";
@@ -189,32 +179,105 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   dnsRow.appendChild(dnsToggle);
   settings.appendChild(dnsRow);
 
-  const sshRow = document.createElement("div");
-  sshRow.className = "setting-row";
-  const sshLabel = document.createElement("span");
-  sshLabel.className = "setting-label";
-  sshLabel.textContent = "Tailscale SSH server";
-  sshRow.appendChild(sshLabel);
-  const runSSH = state.prefs?.runSSH ?? false;
-  const sshToggle = createToggle(runSSH, (checked) => {
-    sendMessage({ type: "set-pref", key: "runSSH", value: checked });
-  });
-  sshToggle.querySelector("input")?.classList.add("quick-settings-pref");
-  sshRow.appendChild(sshToggle);
-  settings.appendChild(sshRow);
+  const advancedPanel = document.createElement("div");
+  advancedPanel.className = "advanced-settings-panel";
+  if (!advancedSectionOpen) {
+    advancedPanel.classList.add("hidden");
+  }
 
-  const routesRow = document.createElement("div");
-  routesRow.className = "setting-row setting-row--stacked";
+  const exitAdRow = document.createElement("div");
+  exitAdRow.className = "setting-row";
+
+  const exitAdLabel = document.createElement("span");
+  exitAdLabel.className = "setting-label";
+  exitAdLabel.textContent = "Run as Exit Node";
+  exitAdRow.appendChild(exitAdLabel);
+
+  const advertisingExit = state.prefs?.advertiseExitNode ?? false;
+  const exitAdToggle = createToggle(advertisingExit, (checked) => {
+    sendMessage({ type: "set-pref", key: "advertiseExitNode", value: checked });
+  });
+  exitAdToggle.querySelector("input")?.classList.add("quick-settings-pref");
+  exitAdRow.appendChild(exitAdToggle);
+  advancedPanel.appendChild(exitAdRow);
+
+  const localNodeRow = document.createElement("div");
+  localNodeRow.className = "setting-row setting-row--clickable";
+
+  const localNodeLabel = document.createElement("span");
+  localNodeLabel.className = "setting-label";
+  localNodeLabel.textContent = "Local node page";
+  localNodeRow.appendChild(localNodeLabel);
+
+  const localNodeValue = document.createElement("span");
+  localNodeValue.className = "setting-value";
+  localNodeValue.textContent = "Open";
+
+  const localChevron = document.createElement("span");
+  localChevron.className = "setting-value-chevron";
+  const localChevronIcon = document.createElement("span");
+  localChevronIcon.className = "icon";
+  localChevronIcon.appendChild(iconChevronRight());
+  localChevron.appendChild(localChevronIcon);
+  localNodeValue.appendChild(localChevron);
+
+  localNodeRow.appendChild(localNodeValue);
+  localNodeRow.addEventListener("click", (e) => {
+    e.preventDefault();
+    sendMessage({ type: "open-web-client" });
+  });
+  advancedPanel.appendChild(localNodeRow);
+
+  const advancedHeaderRow = document.createElement("div");
+  advancedHeaderRow.className = "setting-row";
+  const advancedLabel = document.createElement("span");
+  advancedLabel.className = "setting-label";
+  advancedLabel.textContent = "Advanced";
+  advancedHeaderRow.appendChild(advancedLabel);
+  const advancedExpandToggle = createToggle(advancedSectionOpen, (checked) => {
+    advancedSectionOpen = checked;
+    advancedPanel.classList.toggle("hidden", !checked);
+    const peerEl = view.querySelector<HTMLElement>(".peer-container");
+    if (peerEl) {
+      const latest = getLatestState();
+      if (latest) {
+        updatePeerList(
+          peerEl,
+          filterPeers(peersForDeviceList(latest.peers), peerSearchQuery),
+          latest.supportsPingPeer,
+          advancedSectionOpen,
+        );
+      }
+    }
+  });
+  advancedHeaderRow.appendChild(advancedExpandToggle);
+  settings.appendChild(advancedHeaderRow);
+  settings.appendChild(advancedPanel);
+
+  const routesHeaderRow = document.createElement("div");
+  routesHeaderRow.className = "setting-row";
   const routesLabel = document.createElement("span");
   routesLabel.className = "setting-label";
-  routesLabel.textContent = "Advertise subnets (CIDR)";
-  routesRow.appendChild(routesLabel);
+  routesLabel.textContent = "Advertise subnets";
+  routesHeaderRow.appendChild(routesLabel);
+  const routesExpandToggle = createToggle(advertiseRoutesEditorOpen, (checked) => {
+    advertiseRoutesEditorOpen = checked;
+    editorSection.classList.toggle("hidden", !checked);
+  });
+  routesHeaderRow.appendChild(routesExpandToggle);
+  settings.appendChild(routesHeaderRow);
+
+  const editorSection = document.createElement("div");
+  editorSection.className = "setting-row setting-row--stacked advertise-routes-editor";
+  if (!advertiseRoutesEditorOpen) {
+    editorSection.classList.add("hidden");
+  }
   const routesTa = document.createElement("textarea");
   routesTa.className = "advertise-routes-input";
   routesTa.rows = 2;
   routesTa.placeholder = "e.g. 10.0.0.0/24, 192.168.0.0/16";
   routesTa.value = (state.prefs?.advertiseRoutes ?? []).join(", ");
-  routesRow.appendChild(routesTa);
+  editorSection.appendChild(routesTa);
   const routesSave = document.createElement("button");
   routesSave.type = "button";
   routesSave.className = "btn btn-secondary advertise-routes-save";
@@ -226,8 +289,8 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
       .filter(Boolean);
     sendMessage({ type: "set-advertise-routes", routes: parts });
   });
-  routesRow.appendChild(routesSave);
-  settings.appendChild(routesRow);
+  editorSection.appendChild(routesSave);
+  settings.appendChild(editorSection);
 
   // Profile switcher row (only show when multiple profiles exist)
   if (state.profiles.length > 0) {
@@ -258,7 +321,10 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   view.appendChild(settings);
 
-  const filteredPeers = filterPeers(state.peers, peerSearchQuery);
+  const filteredPeers = filterPeers(
+    peersForDeviceList(state.peers),
+    peerSearchQuery,
+  );
   if (state.peers.length >= PEER_SEARCH_THRESHOLD) {
     const searchContainer = document.createElement("div");
     searchContainer.className = "peer-search-container";
@@ -276,8 +342,9 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
         if (latest) {
           updatePeerList(
             peerEl,
-            filterPeers(latest.peers, peerSearchQuery),
+            filterPeers(peersForDeviceList(latest.peers), peerSearchQuery),
             latest.supportsPingPeer,
+            advancedSectionOpen,
           );
         }
       }
@@ -288,7 +355,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   const peerContainer = document.createElement("div");
   peerContainer.className = "peer-container";
-  renderPeerList(peerContainer, filteredPeers, state.supportsPingPeer);
+  renderPeerList(peerContainer, filteredPeers, state.supportsPingPeer, advancedSectionOpen);
   view.appendChild(peerContainer);
 
   const footer = document.createElement("div");
@@ -327,22 +394,8 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   const sep1 = document.createElement("span");
   sep1.className = "footer-sep";
 
-  const sep2 = document.createElement("span");
-  sep2.className = "footer-sep";
-
-  const settingsLink = document.createElement("a");
-  settingsLink.className = "footer-link";
-  settingsLink.textContent = "Settings";
-  settingsLink.href = "#";
-  settingsLink.addEventListener("click", (e) => {
-    e.preventDefault();
-    sendMessage({ type: "open-web-client" });
-  });
-
   footer.appendChild(adminLink);
   footer.appendChild(sep1);
-  footer.appendChild(settingsLink);
-  footer.appendChild(sep2);
   footer.appendChild(logoutLink);
   view.appendChild(footer);
 
@@ -363,18 +416,6 @@ function fillFooterDiagnostics(diagRow: HTMLElement, state: TailscaleState): voi
     sendMessage({ type: "bug-report" });
   });
   diagRow.appendChild(bugLink);
-  if (state.supportsNetcheck) {
-    diagRow.appendChild(document.createTextNode(" · "));
-    const ncLink = document.createElement("a");
-    ncLink.className = "footer-link footer-link-netcheck";
-    ncLink.href = "#";
-    ncLink.textContent = "Netcheck info";
-    ncLink.addEventListener("click", (e) => {
-      e.preventDefault();
-      sendMessage({ type: "netcheck" });
-    });
-    diagRow.appendChild(ncLink);
-  }
 }
 
 /**
@@ -456,14 +497,6 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     hostFoot.textContent = `Native helper ${state.hostVersion}`;
   }
 
-  const diagRowEl = view.querySelector<HTMLElement>(".footer-diagnostics");
-  if (diagRowEl) {
-    const hadNc = diagRowEl.querySelector(".footer-link-netcheck") !== null;
-    if (state.supportsNetcheck !== hadNc) {
-      fillFooterDiagnostics(diagRowEl, state);
-    }
-  }
-
   const healthKey = state.health.join("\0");
   if (healthKey !== lastHealthKey) {
     lastHealthKey = healthKey;
@@ -516,22 +549,18 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     const prefInputs = quickSettings.querySelectorAll<HTMLInputElement>(
       "input.quick-settings-pref",
     );
-    if (prefInputs.length >= 4) {
+    if (prefInputs.length >= 3) {
       const shieldsUp = state.prefs?.shieldsUp ?? false;
       if (prefInputs[0]!.checked !== shieldsUp) {
         prefInputs[0]!.checked = shieldsUp;
       }
-      const advertisingExit = state.prefs?.advertiseExitNode ?? false;
-      if (prefInputs[1]!.checked !== advertisingExit) {
-        prefInputs[1]!.checked = advertisingExit;
-      }
       const corpDNS = state.prefs?.corpDNS ?? true;
-      if (prefInputs[2]!.checked !== corpDNS) {
-        prefInputs[2]!.checked = corpDNS;
+      if (prefInputs[1]!.checked !== corpDNS) {
+        prefInputs[1]!.checked = corpDNS;
       }
-      const runSSH = state.prefs?.runSSH ?? false;
-      if (prefInputs[3]!.checked !== runSSH) {
-        prefInputs[3]!.checked = runSSH;
+      const advertisingExit = state.prefs?.advertiseExitNode ?? false;
+      if (prefInputs[2]!.checked !== advertisingExit) {
+        prefInputs[2]!.checked = advertisingExit;
       }
     }
 
@@ -548,8 +577,9 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
   if (peerContainer) {
     updatePeerList(
       peerContainer,
-      filterPeers(state.peers, peerSearchQuery),
+      filterPeers(peersForDeviceList(state.peers), peerSearchQuery),
       state.supportsPingPeer,
+      advancedSectionOpen,
     );
   }
 }
