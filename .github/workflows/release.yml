@@ -167,6 +167,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+      # gh resolves repo via git remote; this job has no checkout (artifacts only).
+      GH_REPO: ${{ github.repository }}
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v4
