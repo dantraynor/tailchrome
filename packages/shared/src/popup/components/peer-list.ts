@@ -84,12 +84,20 @@ function renderPeerSection(
       cached = undefined;
     }
     if (cached) {
-      const oldKey = cached.dataset.displayKey;
+      const oldKey = cached.dataset.displayKey ?? "";
       const newKey = peerDisplayKey(peer);
-      if (oldKey !== newKey) {
+      const oldSshAction = cached.dataset.sshActionShown ?? "0";
+      const newSshAction =
+        showPeerSSH && peer.sshHost && peer.online ? "1" : "0";
+
+      if (oldKey === newKey && oldSshAction === newSshAction) {
+        list.appendChild(cached);
+      } else if (oldKey !== newKey && oldSshAction === newSshAction) {
         updatePeerItemText(cached, peer);
+        list.appendChild(cached);
+      } else {
+        list.appendChild(createPeerItem(peer, supportsPingPeer, showPeerSSH));
       }
-      list.appendChild(cached);
     } else {
       list.appendChild(createPeerItem(peer, supportsPingPeer, showPeerSSH));
     }

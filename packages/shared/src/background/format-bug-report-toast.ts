@@ -19,10 +19,8 @@ export function formatBugReportForToast(body: string): string {
   const raw = body.trim();
   if (!raw) {
     return (
-      "Bug report was submitted.\n\n"
-      + "For Tailchrome help, visit:\n"
-      + `${TAILCHROME_PROJECT_URL}\n\n`
-      + "No reference ID was returned here — describe what went wrong (and that you used the extension’s bug report)."
+      "Diagnostics uploaded. No reference came back.\n\n"
+      + `${TAILCHROME_PROJECT_URL}`
     );
   }
 
@@ -43,33 +41,21 @@ export function formatBugReportForToast(body: string): string {
 
   if (!cleanedBody || !/[A-Za-z0-9]/.test(cleanedBody)) {
     return (
-      "Bug report was submitted.\n\n"
-      + "For Tailchrome help, visit:\n"
-      + `${TAILCHROME_PROJECT_URL}\n\n`
-      + "The response did not include a readable reference — describe the issue in a GitHub issue if you can."
+      "Diagnostics uploaded. No reference line to copy.\n\n"
+      + `${TAILCHROME_PROJECT_URL}`
     );
   }
 
-  // Extract from banner-free text only — otherwise separator lines glue onto the hex id.
   const reference = extractBugReportReference(cleanedBody);
 
-  const howTo = [
-    "Your diagnostics were uploaded to Tailscale and are linked to the reference below.",
-    "",
-    "How to get help:",
-    `• ${TAILCHROME_PROJECT_URL}`,
-    "• Open an issue there for Tailchrome bugs; include the BUG-… line below when relevant.",
-    "• For Tailscale account or tailnet issues, use https://tailscale.com/contact/support and paste the same reference.",
-    "",
-    "Reference — copy this entire line:",
-  ].join("\n");
+  const tail = `\n\n${TAILCHROME_PROJECT_URL}`;
 
   if (reference) {
-    return `${howTo}\n${reference}`;
+    return `Diagnostics uploaded.\n\nCopy if support asks:\n${reference}${tail}`;
   }
 
   return (
-    `${howTo}\n${cleanedBody}\n\n`
-    + "(If that text looks broken, select and copy it from the lines above.)"
+    `Diagnostics uploaded.\n\nCopy if support asks:\n${cleanedBody}${tail}\n\n`
+    + "(If that looks broken, copy from the lines above.)"
   );
 }

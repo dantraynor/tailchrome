@@ -32,7 +32,7 @@ interface ToastOptions {
   persistent?: boolean;
   /** When not persistent, remove after this many ms (default 2500). */
   dismissMs?: number;
-  /** Preserve line breaks (bug report references, etc.). */
+  /** Preserve line breaks (e.g. diagnostics reference + URL). */
   multiline?: boolean;
 }
 
@@ -61,6 +61,14 @@ export function showToast(message: string, levelOrOptions: "info" | "error" | To
     + (persistent ? " toast-persistent" : "")
     + (multiline ? " toast-multiline" : "");
   toast.textContent = message;
+  // Match --transition-normal (200ms) so toastOut finishes when the element is removed.
+  const toastAnimMs = 200;
+  if (!persistent) {
+    toast.style.setProperty(
+      "--toast-exit-delay",
+      `${Math.max(0, dismissMs - toastAnimMs)}ms`,
+    );
+  }
   document.body.appendChild(toast);
 
   if (!persistent) {

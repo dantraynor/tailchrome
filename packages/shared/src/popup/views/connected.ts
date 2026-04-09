@@ -1,5 +1,5 @@
 import type { TailscaleState } from "../../types";
-import { ADMIN_URL } from "../../constants";
+import { ADMIN_URL, TAILCHROME_PROJECT_URL } from "../../constants";
 import { renderHeader } from "../components/header";
 import { renderPeerList, updatePeerList, filterPeers } from "../components/peer-list";
 import { peersForDeviceList } from "../peer-filters";
@@ -397,6 +397,23 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   footer.appendChild(adminLink);
   footer.appendChild(sep1);
   footer.appendChild(logoutLink);
+
+  const githubCta = document.createElement("div");
+  githubCta.className = "footer-github-cta";
+  const githubLine = document.createElement("p");
+  githubLine.className = "footer-github-cta-line";
+  const starLink = document.createElement("a");
+  starLink.className = "footer-github-cta-link";
+  starLink.href = "#";
+  starLink.textContent = "Star the repo!";
+  starLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    chrome.tabs.create({ url: TAILCHROME_PROJECT_URL });
+  });
+  githubLine.appendChild(starLink);
+  githubCta.appendChild(githubLine);
+  footer.appendChild(githubCta);
+
   view.appendChild(footer);
 
   root.appendChild(view);
@@ -407,15 +424,16 @@ let lastHealthKey = "";
 
 function fillFooterDiagnostics(diagRow: HTMLElement, state: TailscaleState): void {
   diagRow.replaceChildren();
-  const bugLink = document.createElement("a");
-  bugLink.className = "footer-link";
-  bugLink.href = "#";
-  bugLink.textContent = "Bug report";
-  bugLink.addEventListener("click", (e) => {
+  const diagLink = document.createElement("a");
+  diagLink.className = "footer-link";
+  diagLink.href = "#";
+  diagLink.textContent = "Diagnostics";
+  diagLink.title = "Send anonymized diagnostics to Tailscale";
+  diagLink.addEventListener("click", (e) => {
     e.preventDefault();
     sendMessage({ type: "bug-report" });
   });
-  diagRow.appendChild(bugLink);
+  diagRow.appendChild(diagLink);
 }
 
 /**

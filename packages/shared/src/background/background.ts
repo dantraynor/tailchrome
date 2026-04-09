@@ -196,7 +196,7 @@ export function initBackground(
     }
 
     if (msg.diagnostic) {
-      // Bug reports include an ID users may need to copy; keep until dismissed by another toast.
+      // Diagnostics upload includes a reference users may need to copy; keep until another toast.
       if (msg.diagnostic.title === "Bug report") {
         sendToastToPopup(formatBugReportForToast(msg.diagnostic.body), "info", true, undefined, true);
       } else {

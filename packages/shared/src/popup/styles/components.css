@@ -420,7 +420,8 @@
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   z-index: 1000;
-  animation: toastIn var(--transition-normal) ease, toastOut var(--transition-normal) ease 2s forwards;
+  animation: toastIn var(--transition-normal) ease,
+    toastOut var(--transition-normal) ease var(--toast-exit-delay, 2300ms) forwards;
   pointer-events: none;
   white-space: normal;
   text-align: left;
@@ -543,6 +544,17 @@
   min-height: 36px;
 }
 
+button.setting-row {
+  width: 100%;
+  margin: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
 .setting-label {
   font-size: var(--font-size-md);
   color: var(--text-primary);
@@ -640,6 +652,31 @@
   width: 100%;
   text-align: center;
   font-size: var(--font-size-xs);
+}
+
+.footer-github-cta {
+  width: 100%;
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--border-light);
+  text-align: center;
+}
+
+.footer-github-cta-line {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  line-height: var(--line-height-relaxed);
+}
+
+.footer-github-cta-link {
+  color: var(--ts-blue);
+  font-weight: var(--font-weight-medium);
+  text-decoration: none;
+}
+
+.footer-github-cta-link:hover {
+  text-decoration: underline;
 }
 
 .footer-link {

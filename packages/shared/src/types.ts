@@ -217,7 +217,7 @@ export type PopupMessage =
       persistent?: boolean;
       /** Auto-dismiss delay when not persistent (ms). */
       dismissMs?: number;
-      /** Preserve newlines (e.g. bug report reference block). */
+      /** Preserve newlines (e.g. diagnostics toast). */
       multiline?: boolean;
     };
 

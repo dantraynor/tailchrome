@@ -75,6 +75,8 @@ export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void
   }
 
   container.dataset.displayKey = peerDisplayKey(peer);
+  container.dataset.sshActionShown =
+    container.dataset.showPeerSsh === "1" && peer.sshHost && peer.online ? "1" : "0";
 }
 
 function buildPeerDetailsText(peer: PeerInfo): string {
@@ -108,6 +110,7 @@ export function createPeerItem(
   container.dataset.peerId = peer.id;
   container.dataset.hostPingCap = supportsPingPeer ? "1" : "0";
   container.dataset.showPeerSsh = showPeerSSH ? "1" : "0";
+  container.dataset.sshActionShown = showPeerSSH && peer.sshHost && peer.online ? "1" : "0";
   container.dataset.displayKey = peerDisplayKey(peer);
 
   const row = document.createElement("div");
