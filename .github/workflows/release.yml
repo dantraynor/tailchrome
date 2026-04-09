@@ -148,8 +148,6 @@ jobs:
               --key-id "$APPLE_API_KEY_ID" \
               --issuer "$APPLE_API_ISSUER_ID" \
               --wait
-
-            xcrun stapler staple "$bin"
           done
 
       - name: Upload signed Darwin binaries
