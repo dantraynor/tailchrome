@@ -2,7 +2,7 @@
 
 > Access your Tailscale network directly from your browser. No system VPN required.
 
-**Version:** 0.1.6 (native host) | Manifest V3
+**Version:** 0.1.7 (native host) | Manifest V3
 **Browsers:** Chrome, Firefox
 **Platforms:** macOS (amd64, arm64), Linux (amd64), Windows (amd64)
 **License:** MIT
@@ -316,7 +316,7 @@ Defined in `packages/shared/src/constants.ts`:
 | `RECONNECT_BASE_MS`     | `1000`                              | Reconnection backoff base                                 |
 | `RECONNECT_MAX_MS`      | `30000`                             | Reconnection backoff ceiling                              |
 | `ADMIN_URL`             | `https://login.tailscale.com/admin` | Tailscale admin console                                   |
-| `EXPECTED_HOST_VERSION` | `0.1.6`                             | Expected native host version (major.minor match required) |
+| `EXPECTED_HOST_VERSION` | `0.1.7`                             | Expected native host version (major.minor match required) |
 
 
 ---
