@@ -7,10 +7,7 @@ import { TAILCHROME_PROJECT_URL } from "../constants";
 export function extractBugReportReference(raw: string): string | null {
   const collapsed = raw.replace(/\s+/g, "").trim();
   if (!collapsed) return null;
-  const i = collapsed.indexOf("BUG-");
-  if (i < 0) return null;
-  const fromBug = collapsed.slice(i);
-  const m = fromBug.match(/^BUG-[A-Za-z0-9-]+/);
+  const m = collapsed.match(/\bBUG-[A-Za-z0-9-]+\b/);
   return m?.[0] ?? null;
 }
 

@@ -201,7 +201,8 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   exitAdRow.appendChild(exitAdToggle);
   advancedPanel.appendChild(exitAdRow);
 
-  const localNodeRow = document.createElement("div");
+  const localNodeRow = document.createElement("button");
+  localNodeRow.type = "button";
   localNodeRow.className = "setting-row setting-row--clickable";
 
   const localNodeLabel = document.createElement("span");
@@ -222,8 +223,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   localNodeValue.appendChild(localChevron);
 
   localNodeRow.appendChild(localNodeValue);
-  localNodeRow.addEventListener("click", (e) => {
-    e.preventDefault();
+  localNodeRow.addEventListener("click", () => {
     sendMessage({ type: "open-web-client" });
   });
   advancedPanel.appendChild(localNodeRow);

@@ -425,7 +425,6 @@
   white-space: normal;
   text-align: left;
   overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 .toast.toast-error {
