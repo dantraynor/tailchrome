@@ -98,14 +98,17 @@ jobs:
           CERT_PATH="$RUNNER_TEMP/certificate.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 20)"
+          # Avoid echo (trailing newline / echo quirks); strip accidental CR/LF from secret paste
+          CERT_PASS="${APPLE_CERTIFICATE_PASSWORD%$'\r'}"
+          CERT_PASS="${CERT_PASS%$'\n'}"
 
-          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security import "$CERT_PATH" \
-            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -P "$CERT_PASS" \
             -A \
             -t cert \
             -f pkcs12 \
