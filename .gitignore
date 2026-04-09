@@ -14,6 +14,7 @@ packaging/macos/.pkg-stage-*/
 Thumbs.db
 
 # IDE
+.cursor/
 .vscode/
 .idea/
 
