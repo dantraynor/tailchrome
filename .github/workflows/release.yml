@@ -65,7 +65,7 @@ jobs:
           diff -qr "$ORIGINAL_DIR" "$REBUILT_DIR"
           popd >/dev/null
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: build-output
           retention-days: 1
@@ -85,7 +85,7 @@ jobs:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: build-output
 
@@ -154,7 +154,7 @@ jobs:
           done
 
       - name: Upload signed Darwin binaries
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: signed-darwin
           retention-days: 1
@@ -171,12 +171,12 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: build-output
 
       - name: Download signed Darwin binaries
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: signed-darwin
 
