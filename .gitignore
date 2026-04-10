@@ -18,6 +18,10 @@ Thumbs.db
 .vscode/
 .idea/
 
+# persistmem
+CLAUDE.md
+.claude/
+
 # Editor swap files
 *.swp
 *.swo
