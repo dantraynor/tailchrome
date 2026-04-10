@@ -59,12 +59,19 @@ fi
 PKG_PATH="$DIST_DIR/$OUT_NAME"
 echo "Writing $PKG_PATH ..."
 
+# Disable bundle relocation so the .app always lands in /Applications,
+# even if macOS finds a bundle with the same CFBundleIdentifier elsewhere
+# (e.g. a developer's repo checkout).
+pkgbuild --analyze --root "$STAGE/pkgroot" "$STAGE/component.plist"
+/usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$STAGE/component.plist"
+
 pkgbuild \
   --root "$STAGE/pkgroot" \
   --identifier "$PKG_ID" \
   --version "$VERSION_PKG" \
   --install-location / \
   --ownership recommended \
+  --component-plist "$STAGE/component.plist" \
   "$PKG_PATH"
 
 if [[ -n "${MACOS_SIGN_INSTALLER_IDENTITY:-}" ]]; then

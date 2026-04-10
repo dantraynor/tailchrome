@@ -436,6 +436,25 @@
   animation: toastIn var(--transition-normal) ease;
   pointer-events: auto;
   user-select: text;
+  padding-right: calc(var(--space-lg) + 1.2rem);
+}
+
+.toast-close {
+  position: absolute;
+  top: var(--space-xs);
+  right: var(--space-xs);
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+  padding: 2px 6px;
+}
+
+.toast-close:hover {
+  opacity: 1;
 }
 
 .toast.toast-multiline {

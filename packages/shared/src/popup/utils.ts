@@ -61,6 +61,14 @@ export function showToast(message: string, levelOrOptions: "info" | "error" | To
     + (persistent ? " toast-persistent" : "")
     + (multiline ? " toast-multiline" : "");
   toast.textContent = message;
+  if (persistent) {
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "toast-close";
+    closeBtn.setAttribute("aria-label", "Dismiss");
+    closeBtn.textContent = "\u00d7";
+    closeBtn.addEventListener("click", () => toast.remove());
+    toast.appendChild(closeBtn);
+  }
   // Match --transition-normal (200ms) so toastOut finishes when the element is removed.
   const toastAnimMs = 200;
   if (!persistent) {
