@@ -4,23 +4,22 @@ Access your Tailscale network directly from your browser. No system VPN required
 
 <img width="1400" height="560" alt="promo-marquee" src="https://github.com/user-attachments/assets/88f6953e-014c-4c35-aa44-d612786f6d17" />
 
-[https://tesseras.org/tailchrome/](https://tesseras.org/tailchrome/) | [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) | [Privacy Policy](docs/privacy-policy.md)
+[Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) | [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/) | [tesseras.org/tailchrome](https://tesseras.org/tailchrome/)
 
-Tailchrome runs a full Tailscale node per browser profile, without touching system networking. Tailnet traffic is routed through a local SOCKS5/HTTP proxy, so it works alongside (or without) the Tailscale system app.
+Tailchrome runs a full Tailscale node per browser profile, without touching system networking. Works in both Chrome and Firefox with full feature parity. Tailnet traffic is routed through a local SOCKS5/HTTP proxy, so it works alongside (or without) the Tailscale system app.
 
 <p align="center">
-  <img src="store-assets/readme-popup.png" alt="Tailchrome popup" width="300">
+  <img src="store-assets/readme-popup.png" alt="Tailchrome popup" width="320">&nbsp;&nbsp;&nbsp;&nbsp;<img src="store-assets/readme-popup-exit-nodes.png" alt="Tailchrome exit node picker" width="320">
 </p>
 
 ## Features
 
-- **Chrome and Firefox** — works in both browsers with full feature parity
 - **Per-profile isolation** — each browser profile gets its own independent Tailscale node and identity
-- **Exit nodes** — route all browser traffic through any exit node on your tailnet
+- **Exit nodes** — route all browser traffic through any exit node on your tailnet (including Mullvad exit nodes)
 - **MagicDNS** — access devices by name, not IP
 - **Subnet routing** — reach resources behind subnet routers
-- **Taildrop** — send files to other devices on your tailnet
 - **Profiles** — create and switch between multiple Tailscale identities
+- **Shields Up** — block incoming connections for extra security
 
 ## How it works
 
@@ -29,79 +28,27 @@ The extension has two parts:
 - A **browser extension** (Manifest V3, Chrome and Firefox) that manages proxy configuration and provides the popup UI
 - A **native host** (Go, using `tsnet`) that runs the actual Tailscale node and exposes a local proxy
 
-They communicate over the browser's native messaging protocol.
+They communicate over the browser's native messaging protocol. See the [full documentation](docs/DOCUMENTATION.md) for details.
 
 ## Install
 
-### Chrome
-
-1. [Install Tailchrome](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) from the Chrome Web Store
-2. **macOS:** Install the helper from the [latest GitHub Release](https://github.com/dantraynor/tailchrome/releases/latest) — download **`tailchrome-helper-macos.pkg`**, open it, then launch **Tailchrome Helper** once from Applications (no Terminal). **Other platforms:** click the extension icon and follow the prompts (download the small native helper and run it).
+1. Get the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) or [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/)
+2. Install the native helper from the [latest release](https://github.com/dantraynor/tailchrome/releases/latest) — on macOS, download and open **`tailchrome-helper-macos.pkg`**; on other platforms, download the binary and run it
 3. Log in to your Tailscale account
-
-### Firefox
-
-1. Install Tailchrome from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest) while the first AMO listing is being bootstrapped
-2. Click the extension icon and follow the prompts to install the separate native host helper from GitHub Releases
-3. Log in to your Tailscale account
-
-## Data Handling
-
-Tailchrome stores a per-browser-profile ID, your last selected exit node, and any custom peer URLs in browser local storage. On Firefox it also stores the current proxy restore state in session storage so tailnet routing survives background suspension.
-
-When Tailchrome is enabled, the extension connects to the local helper over native messaging and routes tailnet-bound traffic through the local Tailscale proxy. That transmission is required for login, MagicDNS, subnet routing, exit nodes, and Taildrop to work from the browser. Tailchrome does not include analytics or advertising trackers.
-
-See [docs/privacy-policy.md](docs/privacy-policy.md) for the full policy text used for Firefox store review.
 
 ## Development
 
-### Requirements
-
-- Go 1.21+
-- Node.js / pnpm
-- Desktop Chrome or Firefox for manual extension testing
-
-### Project Structure
-
 ```
-packages/extension/ # WXT app for Chrome and Firefox packaging/submission
-packages/shared/    # Shared code (types, state management, popup logic)
-host/         # Native messaging host (Go)
+pnpm install --frozen-lockfile
+make dev              # Chrome extension (watch mode)
+make host             # Native host binary
 ```
 
-### Build
-
-```
-pnpm build:chrome     # Chrome extension build
-pnpm build:firefox    # Firefox extension build
-pnpm zip:chrome       # chrome.zip
-pnpm zip:firefox      # firefox.zip + firefox-sources.zip
-pnpm lint:firefox     # AMO-style validation via web-ext lint
-pnpm review:firefox   # Firefox build + lint + zip + publish gate
-make host             # native host for the current platform
-make host-all         # release host binaries for all supported targets
-make dev              # Chrome watch mode via WXT
-```
-
-The extension outputs land in `packages/extension/.output/`. A production Chrome build goes to `chrome-mv3/`; `make dev` writes a development build to `chrome-mv3-dev/` (use that path while iterating). The native host binaries land in `dist/`.
-
-### Install for Development
-
-1. Run `pnpm install --frozen-lockfile`
-2. Build the extension and native host with `pnpm build:chrome`, `pnpm build:firefox`, and `make host`
-3. **Chrome:** Go to `chrome://extensions`, enable Developer Mode, and **Load unpacked**. Point at `packages/extension/.output/chrome-mv3-dev/` while `make dev` is running, or `packages/extension/.output/chrome-mv3/` if you only ran `pnpm build:chrome`. Click the extension’s reload button after WXT rebuilds when using dev mode.
-4. **Firefox:** Go to `about:debugging#/runtime/this-firefox` and load `packages/extension/.output/firefox-mv3/manifest.json` as a temporary addon
-5. Install the native host by running the binary directly (it auto-installs for both browsers)
-
-## Release Pipeline
-
-- Pull requests run extension typecheck/tests, Chrome build, the full Firefox review gate, and native-host builds in GitHub Actions.
-- Tagged releases (`v*`) build `chrome.zip`, `firefox.zip`, `firefox-sources.zip`, host binaries, the **macOS** `tailchrome-helper-macos.pkg` (universal helper + Tailchrome Helper app), and checksums, then attach them to the GitHub Release.
-- Store publication is driven from GitHub Actions with manual environment approvals before Chrome Web Store and AMO submission.
+PRs run CI (lint, typecheck, tests, Firefox review gate). Tagged releases build all artifacts and publish to the Chrome Web Store and Firefox Add-ons. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for full setup and build commands.
 
 ## Contributing
 
-This project is still early. Bug reports and feature requests are welcome. Please open an issue first before submitting a PR so we can discuss the approach. See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for setup and guidelines.
+Bug reports and feature requests are welcome. Please open an issue before submitting a PR so we can discuss the approach. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
 
 ## License
 

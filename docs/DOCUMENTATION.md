@@ -2,13 +2,14 @@
 
 > Access your Tailscale network directly from your browser. No system VPN required.
 
-**Version:** 0.1.8 (native host) | Manifest V3
-**Browsers:** Chrome, Firefox
-**Platforms:** macOS (amd64, arm64), Linux (amd64), Windows (amd64)
-**License:** MIT
-**Website:** [https://tesseras.org/tailchrome/](https://tesseras.org/tailchrome/)
-**Chrome Web Store:** [https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
-**Privacy Policy:** [docs/privacy-policy.md](privacy-policy.md)
+**Version:** 0.1.8 (native host) | Manifest V3  
+**Browsers:** Chrome, Firefox  
+**Platforms:** macOS (amd64, arm64), Linux (amd64), Windows (amd64)  
+**License:** MIT  
+**Website:** [tesseras.org/tailchrome](https://tesseras.org/tailchrome/)  
+**Chrome Web Store:** [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)  
+**Firefox Add-ons:** [Firefox Add-ons (AMO)](https://addons.mozilla.org/firefox/addon/tailchrome/)  
+**Privacy Policy:** [privacy-policy.md](privacy-policy.md)
 
 ---
 
@@ -172,8 +173,10 @@ Communication uses the Chrome native messaging wire format: a **4-byte little-en
 | `switch-profile`    | `profileID: string`                             | Switch to a different profile                    |
 | `new-profile`       | --                                              | Create and switch to a new empty profile         |
 | `delete-profile`    | `profileID: string`                             | Delete a profile                                 |
-| `send-file`         | `nodeID, fileName, fileData (base64), fileSize` | Send file via Taildrop                           |
+| `send-file`         | `nodeID, fileName, fileData (base64), fileSize, transferID?, chunkIndex?, chunkCount?` | Send file via Taildrop (supports chunked transfer) |
 | `suggest-exit-node` | --                                              | Request optimized exit node suggestion           |
+| `ping-peer`         | `nodeID: string`                                | Ping a specific peer (diagnostic)                |
+| `bug-report`        | `note?: string`                                 | Generate bug report                              |
 | `logout`            | --                                              | Log out of current Tailscale account             |
 
 
@@ -182,13 +185,14 @@ Communication uses the Chrome native messaging wire format: a **4-byte little-en
 
 | Reply Field          | When Sent                           | Payload                                         |
 | -------------------- | ----------------------------------- | ----------------------------------------------- |
-| `procRunning`        | Immediately on host startup         | `{ port, pid, version, error? }`                |
+| `procRunning`        | Immediately on host startup         | `{ port, pid, version, supportsNetcheck?, supportsPingPeer?, error? }` |
 | `init`               | After `init` command                | `{ error? }`                                    |
 | `pong`               | After `ping`                        | `{}`                                            |
 | `status`             | After state changes or `get-status` | Full `StatusUpdate` object                      |
 | `profiles`           | After profile commands              | `{ current, profiles[] }`                       |
 | `exitNodeSuggestion` | After `suggest-exit-node`           | `{ id, hostname, location? }`                   |
 | `fileSendProgress`   | During file send                    | `{ targetNodeID, name, percent, done, error? }` |
+| `diagnostic`         | After `ping-peer` or `bug-report`   | `{ title, body }`                                |
 | `error`              | On command failure                  | `{ cmd, message }`                              |
 
 
@@ -238,12 +242,12 @@ The shared package contains all the platform-agnostic logic. The extension packa
 
 | File               | Lines | Purpose                                                                                                         |
 | ------------------ | ----- | --------------------------------------------------------------------------------------------------------------- |
-| `background.ts`    | 489   | Core service worker: native host management, popup communication, state subscriptions, context menus, keepalive |
-| `native-host.ts`   | 165   | `NativeHostConnection` class with exponential backoff reconnection (1s-30s), profile UUID generation            |
-| `state-store.ts`   | 86    | Redux-like `StateStore` with `subscribe()`, `update()`, `applyStatusUpdate()`                                   |
-| `badge-manager.ts` | 106   | Extension icon/badge updates for online, offline, warning, and exit-node states                                 |
-| `proxy-utils.ts`   | 90    | IP-to-number conversion, CIDR parsing, MagicDNS suffix sanitization, subnet collection, `shouldProxyState()`    |
-| `timer-service.ts` | 55    | Abstract `TimerService` interface; `DefaultTimerService` wraps native `setInterval`/`clearInterval`             |
+| `background.ts`    | 522   | Core service worker: native host management, popup communication, state subscriptions, context menus, keepalive |
+| `native-host.ts`   | 164   | `NativeHostConnection` class with exponential backoff reconnection (1s-30s), profile UUID generation            |
+| `state-store.ts`   | 87    | Redux-like `StateStore` with `subscribe()`, `update()`, `applyStatusUpdate()`                                   |
+| `badge-manager.ts` | 105   | Extension icon/badge updates for online, offline, warning, and exit-node states                                 |
+| `proxy-utils.ts`   | 89    | IP-to-number conversion, CIDR parsing, MagicDNS suffix sanitization, subnet collection, `shouldProxyState()`    |
+| `timer-service.ts` | 54    | Abstract `TimerService` interface; `DefaultTimerService` wraps native `setInterval`/`clearInterval`             |
 
 
 `**packages/shared/src/popup/`**
@@ -330,14 +334,14 @@ The native host is a Go binary at `host/` using `tailscale.com/tsnet` v1.94.2.
 
 | File           | Lines | Purpose                                                                                                                  |
 | -------------- | ----- | ------------------------------------------------------------------------------------------------------------------------ |
-| `main.go`      | 118   | Entry point: `--install`, `--uninstall`, `--version` flags; auto-install for terminal invocation; native messaging mode  |
-| `host.go`      | 432   | `Host` struct: message read loop, request dispatch, `init`/`up`/`down`/`get-status`/`ping`/`set-prefs`/`logout` handlers |
-| `protocol.go`  | 156   | Wire protocol types: `Request`, `Reply`, `StatusUpdate`, `PeerInfo`, `PrefsView`, `ProfileInfo`, etc.                    |
-| `status.go`    | 173   | IPN bus watcher goroutine, full status refresh, `buildStatusUpdate()` from `ipnstate.Status`                             |
-| `proxy.go`     | 162   | SOCKS5 + HTTP multiplexed proxy on `127.0.0.1:0`, web client routing for `100.100.100.100`, HTTPS CONNECT tunneling      |
-| `profiles.go`  | 103   | Profile management: list, switch, create, delete via `tsnet` local client                                                |
-| `taildrop.go`  | 134   | File send via Taildrop `PushFile` API with progress-tracking `io.Reader` (reports every ~10%)                            |
-| `install.go`   | 196   | Native host manifest installation/uninstallation, binary self-copy to install dir                                        |
+| `main.go`      | 135   | Entry point: `--install`, `--uninstall`, `--version` flags; auto-install for terminal invocation; native messaging mode  |
+| `host.go`      | 572   | `Host` struct: message read loop, request dispatch, command handlers (init, up, down, status, ping, prefs, ping-peer, bug-report, logout) |
+| `protocol.go`  | 171   | Wire protocol types: `Request`, `Reply`, `StatusUpdate`, `PeerInfo`, `PrefsView`, `ProfileInfo`, `DiagnosticReply`, etc. |
+| `status.go`    | 212   | IPN bus watcher goroutine, full status refresh, `buildStatusUpdate()` from `ipnstate.Status`                             |
+| `proxy.go`     | 173   | SOCKS5 + HTTP multiplexed proxy on `127.0.0.1:0`, web client routing for `100.100.100.100`, HTTPS CONNECT tunneling      |
+| `profiles.go`  | 102   | Profile management: list, switch, create, delete via `tsnet` local client                                                |
+| `taildrop.go`  | 294   | File send via Taildrop `PushFile` API with chunked transfer and progress-tracking `io.Reader`                            |
+| `install.go`   | 195   | Native host manifest installation/uninstallation, binary self-copy to install dir                                        |
 | `install_*.go` | --    | Platform-specific manifest directory paths (darwin, linux, windows)                                                      |
 | `peers.go`     | --    | `extractPeers()` and `peerStatusToPeerInfo()` converters from `ipnstate` types                                           |
 | `exitnode.go`  | --    | `handleSetExitNode()`, `handleSuggestExitNode()` handlers                                                                |
@@ -516,7 +520,7 @@ The popup is a vanilla TypeScript UI (no framework) rendered into the extension 
 | Native host ID    | `com.tailscale.browserext.chrome`                     | `com.tailscale.browserext.firefox`           |
 | Permissions       | `proxy`, `storage`, `nativeMessaging`, `contextMenus` | Same + `alarms`                              |
 | Min version       | --                                                    | Firefox 140+                                 |
-| Distribution      | Chrome Web Store                                      | GitHub Releases; [AMO](https://addons.mozilla.org/) listing not published yet (update this row when live) |
+| Distribution      | Chrome Web Store                                      | [Firefox Add-ons (AMO)](https://addons.mozilla.org/firefox/addon/tailchrome/) |
 | Extension ID      | `bhfeceecialgilpedkoflminjgcjljll` (CWS)              | `tailchrome@tesseras.org` (gecko)            |
 
 
@@ -927,7 +931,7 @@ Full policy: [docs/privacy-policy.md](privacy-policy.md)
 
 ### Firefox AMO
 
-- **Listing status:** Not published on Mozilla Add-ons yet; install the signed `.xpi` from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest) until then. When the add-on is listed on AMO, update this subsection and the **Distribution** row under [Browser Differences](#browser-differences).
+- **Listing status:** Published on [Firefox Add-ons (AMO)](https://addons.mozilla.org/firefox/addon/tailchrome/).
 - **Categories:** Privacy & Security, Other
 - **Addon ID:** `tailchrome@tesseras.org`
 - **Minimum Firefox version:** 140.0
