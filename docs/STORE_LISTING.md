@@ -16,7 +16,6 @@ Tailchrome connects your browser to your Tailscale tailnet without installing a 
 - Exit nodes: route browser traffic through any exit node on your tailnet
 - MagicDNS: reach your devices by hostname
 - Subnet routing: access resources behind subnet routers
-- Taildrop: send files to other devices on your tailnet
 - No system networking changes: only browser traffic is affected
 - Shields Up mode for extra security
 
@@ -42,7 +41,7 @@ English
 
 ### Summary (250 chars max)
 
-Access your Tailscale tailnet directly from Firefox. Each browser profile runs its own isolated Tailscale node without affecting system networking. Supports exit nodes, MagicDNS, subnet routing, and Taildrop.
+Access your Tailscale tailnet directly from Firefox. Each browser profile runs its own isolated Tailscale node without affecting system networking. Supports exit nodes, MagicDNS, and subnet routing.
 
 ### Description
 
@@ -54,7 +53,6 @@ Tailchrome connects Firefox to your Tailscale tailnet without a system VPN. Each
 - Exit nodes for routing through your tailnet
 - MagicDNS hostname resolution
 - Subnet routing support
-- Taildrop file transfers
 - Zero system networking changes
 - Shields Up mode
 
