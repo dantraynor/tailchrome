@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 packaging/macos/.pkg-stage-*/
+packaging/macos/**/_CodeSignature/
 .output/
 .wxt/
 *.js.map
