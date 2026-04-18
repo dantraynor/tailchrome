@@ -98,11 +98,13 @@ describe("registerSidebarOpener (Firefox)", () => {
     (chrome.storage.local.get as unknown as ReturnType<typeof vi.fn>) = vi.fn(
       () => Promise.resolve({ uiSurface: "sidePanel" }),
     );
-    registerSidebarOpener();
-    const listeners =
+    const listenersArr =
       (chrome.action.onClicked as unknown as { _listeners: Array<(tab: unknown) => void> })
         ._listeners;
-    await listeners[listeners.length - 1]({});
+    const before = listenersArr.length;
+    registerSidebarOpener();
+    expect(listenersArr.length).toBe(before + 1);
+    await listenersArr[before]({});
     expect(chrome.sidebarAction.open).toHaveBeenCalledTimes(1);
   });
 
@@ -110,11 +112,13 @@ describe("registerSidebarOpener (Firefox)", () => {
     (chrome.storage.local.get as unknown as ReturnType<typeof vi.fn>) = vi.fn(
       () => Promise.resolve({ uiSurface: "popup" }),
     );
-    registerSidebarOpener();
-    const listeners =
+    const listenersArr =
       (chrome.action.onClicked as unknown as { _listeners: Array<(tab: unknown) => void> })
         ._listeners;
-    await listeners[listeners.length - 1]({});
+    const before = listenersArr.length;
+    registerSidebarOpener();
+    expect(listenersArr.length).toBe(before + 1);
+    await listenersArr[before]({});
     expect(chrome.sidebarAction.open).not.toHaveBeenCalled();
   });
 });
