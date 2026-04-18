@@ -1,10 +1,21 @@
 // Minimal chrome API mock for testing extension background scripts.
+import { vi } from "vitest";
+
+const actionClickedListeners: Array<(tab: unknown) => void> = [];
+const storageChangedListeners: Array<
+  (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, area: string) => void
+> = [];
 
 const chromeMock = {
   action: {
     setIcon: (_details: unknown) => Promise.resolve(),
     setBadgeText: (_details: unknown) => {},
     setBadgeBackgroundColor: (_details: unknown) => {},
+    setPopup: vi.fn((_details: { popup: string }) => Promise.resolve()),
+    onClicked: {
+      addListener: (fn: (tab: unknown) => void) => { actionClickedListeners.push(fn); },
+      _listeners: actionClickedListeners,
+    },
   },
   proxy: {
     settings: {
@@ -61,6 +72,19 @@ const chromeMock = {
       set: (_items: Record<string, unknown>) => Promise.resolve(),
       remove: (_key: string) => Promise.resolve(),
     },
+    onChanged: {
+      addListener: (fn: (changes: Record<string, chrome.storage.StorageChange>, area: string) => void) => {
+        storageChangedListeners.push(fn);
+      },
+      _listeners: storageChangedListeners,
+    },
+  },
+  sidePanel: {
+    setPanelBehavior: vi.fn((_details: { openPanelOnActionClick: boolean }) => Promise.resolve()),
+    open: vi.fn((_details: { windowId: number }) => Promise.resolve()),
+  },
+  sidebarAction: {
+    open: vi.fn(() => Promise.resolve()),
   },
   tabs: {
     create: (_opts: unknown) => Promise.resolve(),
