@@ -44,6 +44,7 @@ export function startFirefoxBackground(): void {
     .then(() => {
       backgroundHandle = initBackground(proxyManager, FIREFOX_NATIVE_HOST_ID, {
         skipKeepalive: true,
+        browserKind: "firefox",
       });
 
       browser.alarms.create("keepalive", {
