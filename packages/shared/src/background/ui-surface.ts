@@ -14,3 +14,18 @@ export async function readUiSurface(): Promise<UiSurface> {
 export async function writeUiSurface(value: UiSurface): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEY]: value });
 }
+
+export type BrowserKind = "chrome" | "firefox";
+
+export async function applyUiSurface(
+  surface: UiSurface,
+  browser: BrowserKind,
+): Promise<void> {
+  if (browser === "chrome") {
+    await chrome.sidePanel.setPanelBehavior({
+      openPanelOnActionClick: surface === "sidePanel",
+    });
+    return;
+  }
+  // Firefox branch added in Task 4.
+}
