@@ -7,9 +7,12 @@
 html, body {
   margin: 0;
   padding: 0;
-  width: 360px;
+  /* In popup mode the browser sizes the window to the body content; in side-panel
+     mode the browser sizes the body to the available width. Keep min/max so the
+     popup feels the same as before, but let the side panel grow. */
+  min-width: 320px;
   min-height: 200px;
-  max-height: 540px;
+  max-height: none;
   overflow-y: auto;
   font-family: var(--font-family);
   font-size: var(--font-size-base);
@@ -40,9 +43,12 @@ html, body {
 
 /* Root container */
 #root {
-  min-height: 100%;
   display: flex;
   flex-direction: column;
+  /* Container query host — breakpoints below react to #root's rendered width. */
+  container-type: inline-size;
+  width: 100%;
+  min-width: 320px;
 }
 
 /* Section dividers */
@@ -90,4 +96,47 @@ a:hover {
   outline: none;
   box-shadow: var(--shadow-focus);
   border-radius: var(--radius-sm);
+}
+
+/* === Container-query layout === */
+
+/* Popup baseline (~360px). Existing rules already cover this — no overrides. */
+
+/* Narrow side panel (Firefox sidebar default; Chrome panel at minimum width). */
+/* Token substitutions: --space-sm (8px) used for --space-2; no --color-border (using --border). */
+@container (min-width: 380px) and (max-width: 519px) {
+  .peer-row .peer-actions {
+    /* Action icons always visible; no hover-to-reveal in this surface. */
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .quick-settings .setting-row {
+    padding-block: var(--space-sm);
+  }
+}
+
+/* Wide side panel (≥ 520px). Two-column scaffold; right pane is intentionally
+   minimal in this iteration — Tier 2 #21 fills it out. */
+/* Token substitutions: --space-md (12px) used for --space-3; --border for --color-border;
+   --text-secondary for --color-muted; --font-size-sm (12px) for --font-sm. */
+@container (min-width: 520px) {
+  .peer-row .peer-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .panel-shell {
+    display: grid;
+    grid-template-columns: minmax(320px, 1fr) minmax(240px, 1fr);
+    gap: var(--space-md);
+    align-items: stretch;
+  }
+  .panel-shell .panel-detail-pane {
+    border-left: 1px solid var(--border);
+    padding-inline: var(--space-md);
+  }
+  .panel-shell .panel-detail-pane:empty::before {
+    content: "Select a peer to see details";
+    color: var(--text-secondary);
+    font-size: var(--font-size-sm);
+  }
 }

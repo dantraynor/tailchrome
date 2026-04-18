@@ -419,7 +419,19 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   view.appendChild(footer);
 
-  root.appendChild(view);
+  const shell = document.createElement("div");
+  shell.className = "panel-shell";
+
+  const main = document.createElement("div");
+  main.className = "panel-main";
+  main.appendChild(view);
+  shell.appendChild(main);
+
+  const detail = document.createElement("div");
+  detail.className = "panel-detail-pane";
+  shell.appendChild(detail);
+
+  root.appendChild(shell);
 }
 
 export async function renderUiSurfaceRow(parent: HTMLElement): Promise<void> {
