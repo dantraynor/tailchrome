@@ -27,5 +27,10 @@ export async function applyUiSurface(
     });
     return;
   }
-  // Firefox branch added in Task 4.
+  // Firefox: clear the popup so the toolbar click fires action.onClicked,
+  // which the background opens the sidebar from. Restore "popup.html" to
+  // bring the popup back.
+  await chrome.action.setPopup({
+    popup: surface === "sidePanel" ? "" : "popup.html",
+  });
 }
