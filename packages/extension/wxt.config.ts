@@ -23,6 +23,12 @@ interface TailchromeManifest extends UserManifest {
       data_collection_permissions?: FirefoxDataCollectionPermissions;
     };
   };
+  side_panel?: { default_path: string };
+  sidebar_action?: {
+    default_panel: string;
+    default_title: string;
+    default_icon: Record<string, string>;
+  };
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -97,6 +103,7 @@ export default defineConfig({
         "nativeMessaging",
         "contextMenus",
         ...(browser === "firefox" ? ["alarms"] : []),
+        ...(browser === "chrome" ? ["sidePanel" as const] : []),
       ],
       action: {
         default_icon: chromeActionIcons,
@@ -105,10 +112,20 @@ export default defineConfig({
     };
 
     if (browser === "chrome") {
+      manifest.side_panel = { default_path: "popup.html" };
       manifest.key =
         "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5/m925fPufiafHbegmZwPoowhf4XOlaEKseW/9Q3u47OQ6ALk/hSYqVOjvv2SZSVIVbVJs5CrfmjWqf65Y6Nf3EkkDYHiimLXifO1XekQMQWsp1KZNHR8ymKDyOE/BFFpl2QgQgfwvNLUYZv6z9+lS95UBZk4rkpm3qS3yFuMaShdURljE/DyrmelRQDCy8YJsoj2yyf4qkap3DCw5k2z5nRGxmw71E4JwavlKySIH5C+wCMo/EoHkjrS/uupbpTxvfTIuXYmmPhx3yyCwBazNrkNjNe5NQk1cLvUkrGvnzo8PO2Zx3Qh9qRZUtdMZ7p1xDzUZi37uePw6QT1xjKwQIDAQAB";
       return manifest;
     }
+
+    manifest.sidebar_action = {
+      default_panel: "popup.html",
+      default_title: "Tailchrome",
+      default_icon: {
+        "16": "icons/icon-16.png",
+        "32": "icons/icon-32.png",
+      },
+    };
 
     manifest.browser_specific_settings = {
       gecko: {
