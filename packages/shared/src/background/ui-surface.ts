@@ -2,6 +2,8 @@ export type UiSurface = "popup" | "sidePanel";
 
 const STORAGE_KEY = "uiSurface";
 const VALID_VALUES: ReadonlySet<UiSurface> = new Set(["popup", "sidePanel"]);
+// Keep in sync with the WXT popup entrypoint name (popup.html).
+const POPUP_PATH = "popup.html";
 
 export async function readUiSurface(): Promise<UiSurface> {
   const result = await chrome.storage.local.get(STORAGE_KEY);
@@ -28,10 +30,10 @@ export async function applyUiSurface(
     return;
   }
   // Firefox: clear the popup so the toolbar click fires action.onClicked,
-  // which the background opens the sidebar from. Restore "popup.html" to
+  // which the background opens the sidebar from. Restore POPUP_PATH to
   // bring the popup back.
   await chrome.action.setPopup({
-    popup: surface === "sidePanel" ? "" : "popup.html",
+    popup: surface === "sidePanel" ? "" : POPUP_PATH,
   });
 }
 
