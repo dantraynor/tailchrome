@@ -34,3 +34,15 @@ export async function applyUiSurface(
     popup: surface === "sidePanel" ? "" : "popup.html",
   });
 }
+
+// Firefox-only. Safe to call on Chrome too — Chrome routes toolbar clicks
+// through the popup or side-panel behaviour, so the listener never fires
+// for a popup-less click in side-panel mode.
+export function registerSidebarOpener(): void {
+  chrome.action.onClicked.addListener(async () => {
+    const surface = await readUiSurface();
+    if (surface !== "sidePanel") return;
+    if (typeof chrome.sidebarAction?.open !== "function") return;
+    await chrome.sidebarAction.open();
+  });
+}
