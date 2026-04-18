@@ -30,6 +30,15 @@ The extension has two parts:
 
 They communicate over the browser's native messaging protocol. See the [full documentation](docs/DOCUMENTATION.md) for details.
 
+### Side panel mode
+
+By default, clicking the Tailchrome toolbar icon opens a popup that dismisses on click-away. If you'd rather keep the UI visible while you browse, flip **Open as side panel** in the popup's quick settings:
+
+- **Chrome:** the side panel opens on toolbar click and stays open until you close it. Chrome keeps the extension's service worker alive while the panel is visible, so peer status updates feel snappier.
+- **Firefox:** the toolbar click opens Tailchrome in the sidebar. Flip the toggle from inside the sidebar to switch back to popup mode.
+
+The same UI renders in either surface; at wider widths the layout opens up to a two-column view (peer list + selected-peer details).
+
 ## Install
 
 1. Get the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) or [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/)
