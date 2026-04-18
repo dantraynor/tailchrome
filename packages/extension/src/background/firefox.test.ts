@@ -119,7 +119,7 @@ describe("startFirefoxBackground", () => {
     expect(mocks.initBackground).toHaveBeenCalledWith(
       mocks.proxyManagerInstance,
       FIREFOX_NATIVE_HOST_ID,
-      { skipKeepalive: true },
+      { browserKind: "firefox", skipKeepalive: true },
     );
     expect(alarmsCreate).toHaveBeenCalledWith("keepalive", {
       periodInMinutes: 25_000 / 60_000,
