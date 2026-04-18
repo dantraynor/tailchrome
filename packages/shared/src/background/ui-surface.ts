@@ -19,9 +19,9 @@ export type BrowserKind = "chrome" | "firefox";
 
 export async function applyUiSurface(
   surface: UiSurface,
-  browser: BrowserKind,
+  browserKind: BrowserKind,
 ): Promise<void> {
-  if (browser === "chrome") {
+  if (browserKind === "chrome") {
     await chrome.sidePanel.setPanelBehavior({
       openPanelOnActionClick: surface === "sidePanel",
     });
