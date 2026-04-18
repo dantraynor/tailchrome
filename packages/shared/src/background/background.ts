@@ -11,6 +11,12 @@ import { NativeHostConnection } from "./native-host";
 import { BadgeManager } from "./badge-manager";
 import { DefaultTimerService, type TimerService } from "./timer-service";
 import { formatBugReportForToast } from "./format-bug-report-toast";
+import {
+  applyUiSurface,
+  readUiSurface,
+  registerSidebarOpener,
+  type BrowserKind,
+} from "./ui-surface";
 
 export type { ProxyManager };
 
@@ -27,6 +33,7 @@ export interface InitBackgroundOptions {
   timerService?: TimerService;
   /** Skip the built-in setInterval keepalive (e.g. when the caller uses browser.alarms instead). */
   skipKeepalive?: boolean;
+  browserKind?: BrowserKind;
 }
 
 const ALLOWED_LOGIN_ORIGINS = [
@@ -69,6 +76,22 @@ export function initBackground(
   options?: InitBackgroundOptions,
 ): BackgroundHandle {
   const timerService = options?.timerService ?? new DefaultTimerService();
+  const browserKind: BrowserKind = options?.browserKind ?? "chrome";
+
+  // Apply the persisted UI-surface preference and react to changes.
+  void readUiSurface().then((surface) => applyUiSurface(surface, browserKind));
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !("uiSurface" in changes)) return;
+    const next = changes["uiSurface"]?.newValue;
+    if (next === "popup" || next === "sidePanel") {
+      void applyUiSurface(next, browserKind);
+    }
+  });
+
+  if (browserKind === "firefox") {
+    registerSidebarOpener();
+  }
+
   const store = new StateStore();
   const badgeManager = new BadgeManager();
 
