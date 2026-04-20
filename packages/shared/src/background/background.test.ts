@@ -795,7 +795,7 @@ describe("initBackground", () => {
             (changes: Record<string, { newValue?: unknown }>, area: string) => void
           >;
         })._listeners;
-      await listeners[listeners.length - 1]({ uiSurface: { newValue: "popup" } }, "local");
+      await listeners[listeners.length - 1]!({ uiSurface: { newValue: "popup" } }, "local");
       await Promise.resolve();
 
       expect(chrome.sidePanel.setPanelBehavior).toHaveBeenCalledWith({

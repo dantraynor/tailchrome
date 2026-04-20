@@ -1,9 +1,24 @@
 export type UiSurface = "popup" | "sidePanel";
+export type BrowserKind = "chrome" | "firefox";
 
 const STORAGE_KEY = "uiSurface";
 const VALID_VALUES: ReadonlySet<UiSurface> = new Set(["popup", "sidePanel"]);
 // Keep in sync with the WXT popup entrypoint name (popup.html).
 const POPUP_PATH = "popup.html";
+
+// Firefox-only: @types/chrome doesn't declare this. Captured at module load
+// so the synchronous click handler below never has to pay a property lookup
+// that TypeScript can't verify.
+type SidebarActionGlobal = { open(): Promise<void> } | undefined;
+const sidebarAction = (chrome as typeof chrome & {
+  sidebarAction?: SidebarActionGlobal;
+}).sidebarAction;
+
+// Synchronously-readable mirror of the stored preference. Firefox's
+// action.onClicked must call sidebarAction.open() inside the user-gesture
+// window — awaiting storage.local.get between the click and the call will
+// consume the gesture token and the open rejects.
+let cachedSurface: UiSurface = "popup";
 
 export async function readUiSurface(): Promise<UiSurface> {
   const result = await chrome.storage.local.get(STORAGE_KEY);
@@ -17,12 +32,20 @@ export async function writeUiSurface(value: UiSurface): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEY]: value });
 }
 
-export type BrowserKind = "chrome" | "firefox";
+export function getCachedUiSurface(): UiSurface {
+  return cachedSurface;
+}
+
+// Exposed for test setup; production code updates the cache via applyUiSurface.
+export function setCachedUiSurface(value: UiSurface): void {
+  cachedSurface = value;
+}
 
 export async function applyUiSurface(
   surface: UiSurface,
   browserKind: BrowserKind,
 ): Promise<void> {
+  cachedSurface = surface;
   if (browserKind === "chrome") {
     await chrome.sidePanel.setPanelBehavior({
       openPanelOnActionClick: surface === "sidePanel",
@@ -37,14 +60,13 @@ export async function applyUiSurface(
   });
 }
 
-// Firefox-only. Safe to call on Chrome too — Chrome routes toolbar clicks
-// through the popup or side-panel behaviour, so the listener never fires
-// for a popup-less click in side-panel mode.
+// Firefox-only. Registered by background startup when browserKind === "firefox".
+// The click handler MUST run synchronously to preserve the user-gesture token
+// that sidebarAction.open() requires.
 export function registerSidebarOpener(): void {
-  chrome.action.onClicked.addListener(async () => {
-    const surface = await readUiSurface();
-    if (surface !== "sidePanel") return;
-    if (typeof chrome.sidebarAction?.open !== "function") return;
-    await chrome.sidebarAction.open();
+  chrome.action.onClicked.addListener(() => {
+    if (cachedSurface !== "sidePanel") return;
+    if (!sidebarAction || typeof sidebarAction.open !== "function") return;
+    void sidebarAction.open();
   });
 }

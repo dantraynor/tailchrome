@@ -1,5 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { readUiSurface, writeUiSurface } from "./ui-surface";
+import {
+  applyUiSurface,
+  readUiSurface,
+  registerSidebarOpener,
+  setCachedUiSurface,
+  writeUiSurface,
+} from "./ui-surface";
+
+// sidebarAction is Firefox-only and not in @types/chrome; the mock adds it.
+const chromeWithSidebar = chrome as typeof chrome & {
+  sidebarAction: { open: ReturnType<typeof vi.fn> };
+};
 
 describe("ui-surface setting", () => {
   beforeEach(() => {
@@ -36,8 +47,6 @@ describe("ui-surface setting", () => {
     expect(setSpy).toHaveBeenCalledWith({ uiSurface: "sidePanel" });
   });
 });
-
-import { applyUiSurface } from "./ui-surface";
 
 describe("applyUiSurface — Chrome", () => {
   beforeEach(() => {
@@ -87,38 +96,32 @@ describe("applyUiSurface — Firefox", () => {
   });
 });
 
-import { registerSidebarOpener } from "./ui-surface";
-
 describe("registerSidebarOpener (Firefox)", () => {
   beforeEach(() => {
-    (chrome.sidebarAction.open as ReturnType<typeof vi.fn>).mockClear();
+    chromeWithSidebar.sidebarAction.open.mockClear();
   });
 
-  it("opens the sidebar when toolbar click fires while in sidePanel mode", async () => {
-    (chrome.storage.local.get as unknown as ReturnType<typeof vi.fn>) = vi.fn(
-      () => Promise.resolve({ uiSurface: "sidePanel" }),
-    );
+  it("opens the sidebar when toolbar click fires while in sidePanel mode", () => {
+    setCachedUiSurface("sidePanel");
     const listenersArr =
       (chrome.action.onClicked as unknown as { _listeners: Array<(tab: unknown) => void> })
         ._listeners;
     const before = listenersArr.length;
     registerSidebarOpener();
     expect(listenersArr.length).toBe(before + 1);
-    await listenersArr[before]({});
-    expect(chrome.sidebarAction.open).toHaveBeenCalledTimes(1);
+    listenersArr[before]!({});
+    expect(chromeWithSidebar.sidebarAction.open).toHaveBeenCalledTimes(1);
   });
 
-  it("does NOT open the sidebar when in popup mode (popup handles the click)", async () => {
-    (chrome.storage.local.get as unknown as ReturnType<typeof vi.fn>) = vi.fn(
-      () => Promise.resolve({ uiSurface: "popup" }),
-    );
+  it("does NOT open the sidebar when in popup mode (popup handles the click)", () => {
+    setCachedUiSurface("popup");
     const listenersArr =
       (chrome.action.onClicked as unknown as { _listeners: Array<(tab: unknown) => void> })
         ._listeners;
     const before = listenersArr.length;
     registerSidebarOpener();
     expect(listenersArr.length).toBe(before + 1);
-    await listenersArr[before]({});
-    expect(chrome.sidebarAction.open).not.toHaveBeenCalled();
+    listenersArr[before]!({});
+    expect(chromeWithSidebar.sidebarAction.open).not.toHaveBeenCalled();
   });
 });
