@@ -7,12 +7,8 @@
 html, body {
   margin: 0;
   padding: 0;
-  /* In popup mode the browser sizes the window to the body content; in side-panel
-     mode the browser sizes the body to the available width. Keep min/max so the
-     popup feels the same as before, but let the side panel grow. */
-  min-width: 320px;
+  width: 360px;
   min-height: 200px;
-  max-height: none;
   overflow-y: auto;
   font-family: var(--font-family);
   font-size: var(--font-size-base);
@@ -21,6 +17,17 @@ html, body {
   background: var(--bg-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* When the extension renders in a side panel (Chrome) or sidebar (Firefox)
+   the host surface is wider than the popup's 360px. Release the fixed width
+   so the body fills the available space and the #root container queries
+   can drive the responsive layout. */
+@media (min-width: 380px) {
+  html, body {
+    width: 100%;
+    max-width: none;
+  }
 }
 
 /* Thin, subtle scrollbar */
@@ -100,30 +107,21 @@ a:hover {
 
 /* === Container-query layout === */
 
-/* Popup baseline (~360px). Existing rules already cover this — no overrides. */
+/* Popup baseline (~360px) and narrow side panel (380–519px) use the existing
+   compact layout with no overrides. Row-action visibility is click-driven by
+   .peer-item-container--expanded, so width-based visibility tweaks aren't
+   applicable here; revisit if the interaction model changes. */
 
-/* Narrow side panel (Firefox sidebar default; Chrome panel at minimum width). */
-/* Token substitutions: --space-sm (8px) used for --space-2; no --color-border (using --border). */
+/* Narrow side panel breathing room. */
 @container (min-width: 380px) and (max-width: 519px) {
-  .peer-row .peer-actions {
-    /* Action icons always visible; no hover-to-reveal in this surface. */
-    opacity: 1;
-    pointer-events: auto;
-  }
   .quick-settings .setting-row {
     padding-block: var(--space-sm);
   }
 }
 
-/* Wide side panel (≥ 520px). Two-column scaffold; right pane is intentionally
-   minimal in this iteration — Tier 2 #21 fills it out. */
-/* Token substitutions: --space-md (12px) used for --space-3; --border for --color-border;
-   --text-secondary for --color-muted; --font-size-sm (12px) for --font-sm. */
+/* Wide side panel (≥ 520px): two-column scaffold. The right pane stays minimal
+   in this iteration and is populated by a follow-up (peer-details drawer). */
 @container (min-width: 520px) {
-  .peer-row .peer-actions {
-    opacity: 1;
-    pointer-events: auto;
-  }
   .panel-shell {
     display: grid;
     grid-template-columns: minmax(320px, 1fr) minmax(240px, 1fr);
