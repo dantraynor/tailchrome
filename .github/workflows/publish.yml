@@ -46,7 +46,10 @@ jobs:
           gh release download "${{ inputs.release_tag }}" --dir dist --pattern chrome.zip --pattern SHA256SUMS.txt
       - name: Verify checksums
         run: |
-          grep '  chrome.zip$' dist/SHA256SUMS.txt | (cd dist && sha256sum -c -)
+          set -euo pipefail
+          grep '  chrome.zip$' dist/SHA256SUMS.txt > dist/chrome.SHA256SUMS.txt
+          test "$(wc -l < dist/chrome.SHA256SUMS.txt)" -eq 1
+          (cd dist && sha256sum -c chrome.SHA256SUMS.txt)
       - name: Submit to Chrome Web Store
         env:
           CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
@@ -94,7 +97,10 @@ jobs:
           unzip -q dist/firefox.zip -d dist/firefox-unpacked
       - name: Verify checksums
         run: |
-          grep -E '  (firefox.zip|firefox-sources.zip)$' dist/SHA256SUMS.txt | (cd dist && sha256sum -c -)
+          set -euo pipefail
+          grep -E '  (firefox.zip|firefox-sources.zip)$' dist/SHA256SUMS.txt > dist/firefox.SHA256SUMS.txt
+          test "$(wc -l < dist/firefox.SHA256SUMS.txt)" -eq 2
+          (cd dist && sha256sum -c firefox.SHA256SUMS.txt)
       - name: Validate Firefox publish gate
         run: |
           pnpm validate:firefox-publish -- \
