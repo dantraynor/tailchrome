@@ -22,6 +22,7 @@ Thumbs.db
 # persistmem
 CLAUDE.md
 .claude/
+docs/superpowers/
 
 # Editor swap files
 *.swp
