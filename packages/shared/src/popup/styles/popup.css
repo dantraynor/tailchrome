@@ -105,6 +105,19 @@ a:hover {
   border-radius: var(--radius-sm);
 }
 
+/* Surface toggle footer for the disconnected / needs-login / needs-install /
+   needs-update views. The connected view shows the toggle inside its quick-
+   settings block, but those views never reach quick-settings, so the toggle
+   needs an always-on home that lets users switch back from side-panel mode. */
+.ui-surface-footer {
+  margin-top: auto;
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--border);
+}
+.ui-surface-footer .setting-row {
+  padding: 0;
+}
+
 /* === Container-query layout === */
 
 /* Popup baseline (~360px) and narrow side panel (380–519px) use the existing
