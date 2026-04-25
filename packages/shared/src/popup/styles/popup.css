@@ -113,15 +113,17 @@ a:hover {
    applicable here; revisit if the interaction model changes. */
 
 /* Narrow side panel breathing room. */
-@container (min-width: 380px) and (max-width: 519px) {
+@container (min-width: 380px) and (max-width: 599px) {
   .quick-settings .setting-row {
     padding-block: var(--space-sm);
   }
 }
 
-/* Wide side panel (≥ 520px): two-column scaffold. The right pane stays minimal
-   in this iteration and is populated by a follow-up (peer-details drawer). */
-@container (min-width: 520px) {
+/* Wide side panel (≥ 600px): two-column scaffold. The right pane stays minimal
+   in this iteration and is populated by a follow-up (peer-details drawer).
+   Track minimums (320 + 240) plus the 12px gap need 572px just to fit, so the
+   breakpoint sits at 600px to keep a small buffer above the math floor. */
+@container (min-width: 600px) {
   .panel-shell {
     display: grid;
     grid-template-columns: minmax(320px, 1fr) minmax(240px, 1fr);
