@@ -28,6 +28,7 @@ interface TailchromeManifest extends UserManifest {
     default_panel: string;
     default_title: string;
     default_icon: Record<string, string>;
+    open_at_install?: boolean;
   };
 }
 
@@ -125,6 +126,9 @@ export default defineConfig({
         "16": "icons/icon-16.png",
         "32": "icons/icon-32.png",
       },
+      // Firefox defaults open_at_install to true; keep the sidebar opt-in
+      // and let the uiSurface toggle control when it appears.
+      open_at_install: false,
     };
 
     manifest.browser_specific_settings = {
