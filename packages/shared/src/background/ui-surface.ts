@@ -47,6 +47,10 @@ export async function applyUiSurface(
 ): Promise<void> {
   cachedSurface = surface;
   if (browserKind === "chrome") {
+    // chrome.sidePanel was added in Chrome 114; older Chromium builds may
+    // install the extension without the API. Skip silently in that case
+    // so background startup can't crash on the missing global.
+    if (typeof chrome.sidePanel?.setPanelBehavior !== "function") return;
     await chrome.sidePanel.setPanelBehavior({
       openPanelOnActionClick: surface === "sidePanel",
     });

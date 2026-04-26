@@ -79,12 +79,19 @@ export function initBackground(
   const browserKind: BrowserKind = options?.browserKind ?? "chrome";
 
   // Apply the persisted UI-surface preference and react to changes.
-  void readUiSurface().then((surface) => applyUiSurface(surface, browserKind));
+  // Catch rejections so the service worker startup never fails on a
+  // missing-API edge case (older Chrome, Firefox without the polyfill, etc.).
+  const logUiSurfaceFailure = (err: unknown): void => {
+    console.warn("[Background] applyUiSurface failed:", err);
+  };
+  void readUiSurface()
+    .then((surface) => applyUiSurface(surface, browserKind))
+    .catch(logUiSurfaceFailure);
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local" || !("uiSurface" in changes)) return;
     const next = changes["uiSurface"]?.newValue;
     if (next === "popup" || next === "sidePanel") {
-      void applyUiSurface(next, browserKind);
+      void applyUiSurface(next, browserKind).catch(logUiSurfaceFailure);
     }
   });
 
