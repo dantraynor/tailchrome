@@ -122,36 +122,16 @@ a:hover {
 
 /* === Container-query layout === */
 
-/* Popup baseline (~360px) and narrow side panel (380–519px) use the existing
-   compact layout with no overrides. Row-action visibility is click-driven by
-   .peer-item-container--expanded, so width-based visibility tweaks aren't
-   applicable here; revisit if the interaction model changes. */
+/* Popup baseline (~360px) and side panels (380px+) currently use the same
+   compact single-column layout. The .panel-shell + .panel-detail-pane DOM
+   wrappers are in place but a wide two-column layout is intentionally not
+   wired here — the right pane has nothing to render until the peer-details
+   drawer ships, and showing an unfillable column would be a broken
+   affordance. Land the breakpoint and pane styling in the drawer PR. */
 
 /* Narrow side panel breathing room. */
-@container (min-width: 380px) and (max-width: 599px) {
+@container (min-width: 380px) {
   .quick-settings .setting-row {
     padding-block: var(--space-sm);
-  }
-}
-
-/* Wide side panel (≥ 600px): two-column scaffold. The right pane stays minimal
-   in this iteration and is populated by a follow-up (peer-details drawer).
-   Track minimums (320 + 240) plus the 12px gap need 572px just to fit, so the
-   breakpoint sits at 600px to keep a small buffer above the math floor. */
-@container (min-width: 600px) {
-  .panel-shell {
-    display: grid;
-    grid-template-columns: minmax(320px, 1fr) minmax(240px, 1fr);
-    gap: var(--space-md);
-    align-items: stretch;
-  }
-  .panel-shell .panel-detail-pane {
-    border-left: 1px solid var(--border);
-    padding-inline: var(--space-md);
-  }
-  .panel-shell .panel-detail-pane:empty::before {
-    content: "Select a peer to see details";
-    color: var(--text-secondary);
-    font-size: var(--font-size-sm);
   }
 }

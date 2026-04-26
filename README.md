@@ -37,7 +37,7 @@ By default, clicking the Tailchrome toolbar icon opens a popup that dismisses on
 - **Chrome:** the side panel opens on toolbar click and stays open until you close it. Chrome keeps the extension's service worker alive while the panel is visible, so peer status updates feel snappier.
 - **Firefox:** the toolbar click opens Tailchrome in the sidebar. Flip the toggle from inside the sidebar to switch back to popup mode.
 
-The same UI renders in either surface. If you drag the panel wide enough, the layout reserves space for a future details pane next to the peer list.
+The same UI renders in either surface.
 
 ## Install
 
