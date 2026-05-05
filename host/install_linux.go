@@ -6,6 +6,32 @@ import (
 	"path/filepath"
 )
 
+// chromiumBrowserTarget is one Chromium-family browser's native-messaging
+// manifest target on this platform. On Linux only Name and Dir are used.
+type chromiumBrowserTarget struct {
+	Name string
+	Dir  string
+	Path string // unused on Linux
+}
+
+// chromiumManifestDirs returns the per-browser native-messaging manifest
+// directories on Linux. Writing the same manifest JSON into every directory
+// ensures the extension works in whichever Chromium-family browser the user
+// installs it into.
+func chromiumManifestDirs() []chromiumBrowserTarget {
+	home, _ := os.UserHomeDir()
+	return []chromiumBrowserTarget{
+		{Name: "Chrome", Dir: filepath.Join(home, ".config", "google-chrome", "NativeMessagingHosts")},
+		{Name: "Chromium", Dir: filepath.Join(home, ".config", "chromium", "NativeMessagingHosts")},
+		{Name: "Brave", Dir: filepath.Join(home, ".config", "BraveSoftware", "Brave-Browser", "NativeMessagingHosts")},
+		{Name: "Edge", Dir: filepath.Join(home, ".config", "microsoft-edge", "NativeMessagingHosts")},
+		{Name: "Vivaldi", Dir: filepath.Join(home, ".config", "vivaldi", "NativeMessagingHosts")},
+		{Name: "Opera", Dir: filepath.Join(home, ".config", "opera", "NativeMessagingHosts")},
+	}
+}
+
+// chromeManifestDir returns the legacy single-browser manifest directory.
+// Retained until Task 2 removes the last caller.
 func chromeManifestDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "google-chrome", "NativeMessagingHosts")
@@ -27,7 +53,14 @@ func platformUninstall() error {
 	return nil
 }
 
+// platformPostInstallChrome is the legacy single-browser hook. Retained until
+// Task 2 removes its last caller.
 func platformPostInstallChrome(_ string) error  { return nil }
+
+// platformPostInstallChromium is the per-browser hook used by the new
+// installChromiumFamily loop. No-op on Linux.
+func platformPostInstallChromium(_ string, _ string) error { return nil }
+
 func platformPostInstallFirefox(_ string) error { return nil }
 
 // isBrowserInstalled checks whether a browser is present on the system.

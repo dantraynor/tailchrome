@@ -8,9 +8,40 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-func chromeManifestDir() string {
+// chromiumBrowserTarget is one Chromium-family browser's native-messaging
+// manifest target on Windows. Dir is the shared on-disk JSON directory; Path
+// is the per-browser HKCU registry key path that points at the JSON.
+type chromiumBrowserTarget struct {
+	Name string
+	Dir  string
+	Path string
+}
+
+// chromiumManifestDirs returns the per-browser native-messaging manifest
+// targets on Windows. Every target shares the same on-disk Dir; only the
+// registry Path differs. Multiple registry keys safely point at the same
+// JSON file.
+func chromiumManifestDirs() []chromiumBrowserTarget {
+	jsonDir := chromiumJSONDir()
+	return []chromiumBrowserTarget{
+		{Name: "Chrome", Dir: jsonDir, Path: `Software\Google\Chrome\NativeMessagingHosts\` + manifestNameChrome},
+		{Name: "Chromium", Dir: jsonDir, Path: `Software\Chromium\NativeMessagingHosts\` + manifestNameChrome},
+		{Name: "Brave", Dir: jsonDir, Path: `Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\` + manifestNameChrome},
+		{Name: "Edge", Dir: jsonDir, Path: `Software\Microsoft\Edge\NativeMessagingHosts\` + manifestNameChrome},
+		{Name: "Vivaldi", Dir: jsonDir, Path: `Software\Vivaldi\NativeMessagingHosts\` + manifestNameChrome},
+		{Name: "Opera", Dir: jsonDir, Path: `Software\Opera Software\Opera Stable\NativeMessagingHosts\` + manifestNameChrome},
+	}
+}
+
+func chromiumJSONDir() string {
 	appData := os.Getenv("LOCALAPPDATA")
 	return filepath.Join(appData, "Tailscale", "BrowserExt")
+}
+
+// chromeManifestDir returns the legacy single-browser manifest directory.
+// Retained until Task 2 removes the last caller.
+func chromeManifestDir() string {
+	return chromiumJSONDir()
 }
 
 func firefoxManifestDir() string {
@@ -23,14 +54,27 @@ func binaryInstallDir() string {
 	return filepath.Join(appData, "Tailscale", "BrowserExt")
 }
 
-// platformPostInstallChrome creates the Windows registry key for Chrome after
-// the manifest file has been written.
+// platformPostInstallChrome is the legacy single-browser hook used by the old
+// installChrome flow. Creates the Chrome registry key only.
+// Retained until Task 2 removes the last caller.
 func platformPostInstallChrome(manifestPath string) error {
 	return createRegistryKey(
 		registry.CURRENT_USER,
 		`Software\Google\Chrome\NativeMessagingHosts\`+manifestNameChrome,
 		manifestPath,
 	)
+}
+
+// platformPostInstallChromium creates the HKCU registry key for the named
+// Chromium-family browser pointing at the manifest JSON.
+func platformPostInstallChromium(name, manifestPath string) error {
+	for _, target := range chromiumManifestDirs() {
+		if target.Name != name {
+			continue
+		}
+		return createRegistryKey(registry.CURRENT_USER, target.Path, manifestPath)
+	}
+	return fmt.Errorf("no Windows registry path defined for browser %q", name)
 }
 
 // platformPostInstallFirefox creates the Windows registry key for Firefox after
@@ -45,10 +89,10 @@ func platformPostInstallFirefox(manifestPath string) error {
 
 // platformUninstall performs Windows-specific uninstall steps:
 // removing registry keys for Chrome and Firefox native messaging hosts.
+// Will be expanded in Task 2 to cover every Chromium-family browser.
 func platformUninstall() error {
 	var firstErr error
 
-	// Remove Chrome registry key.
 	if err := removeRegistryKey(
 		registry.CURRENT_USER,
 		`Software\Google\Chrome\NativeMessagingHosts\`+manifestNameChrome,
@@ -56,7 +100,6 @@ func platformUninstall() error {
 		firstErr = err
 	}
 
-	// Remove Firefox registry key.
 	if err := removeRegistryKey(
 		registry.CURRENT_USER,
 		`Software\Mozilla\NativeMessagingHosts\`+manifestNameFirefox,
@@ -95,7 +138,6 @@ func removeRegistryKey(baseKey registry.Key, path string) error {
 func isBrowserInstalled(browser string) bool {
 	switch browser {
 	case "chrome":
-		// Check common Chrome install location on Windows.
 		localAppData := os.Getenv("LOCALAPPDATA")
 		_, err := os.Stat(filepath.Join(localAppData, "Google", "Chrome", "Application", "chrome.exe"))
 		if err != nil {
@@ -112,7 +154,8 @@ func isBrowserInstalled(browser string) bool {
 }
 
 // ensureWindowsRegistryKeys creates the Windows registry keys for both
-// Chrome and Firefox after the manifest files have been written.
+// Chrome and Firefox after the manifest files have been written. Legacy;
+// removed in Task 2 once nothing references it.
 func ensureWindowsRegistryKeys() error {
 	chromeManifest := filepath.Join(chromeManifestDir(), manifestNameChrome+".json")
 	if _, err := os.Stat(chromeManifest); err == nil {
