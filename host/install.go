@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,18 +20,27 @@ const chromeWebStoreExtensionID = "bhfeceecialgilpedkoflminjgcjljll"
 // firefoxExtensionID is the gecko addon ID for the Firefox extension.
 const firefoxExtensionID = "tailchrome@tesseras.org"
 
-// chromeManifest is the native messaging host manifest for Chrome.
+// nativeManifest is the native messaging host manifest format shared by
+// Chromium-family browsers and Firefox.
 type nativeManifest struct {
 	Name              string   `json:"name"`
 	Description       string   `json:"description"`
 	Path              string   `json:"path"`
 	Type              string   `json:"type"`
-	AllowedOrigins    []string `json:"allowed_origins,omitempty"`    // Chrome
+	AllowedOrigins    []string `json:"allowed_origins,omitempty"`    // Chromium-family
 	AllowedExtensions []string `json:"allowed_extensions,omitempty"` // Firefox
 }
 
+// BrowserInstallResult captures per-browser status from installChromiumFamily.
+type BrowserInstallResult struct {
+	Name          string
+	ParentExisted bool
+	Err           error
+}
+
 // install parses the install argument and installs the native messaging host manifest.
-// The argument format is "C<extensionID>" for Chrome or "F<extensionID>" for Firefox.
+// The argument format is "C<extensionID>" for the Chromium family or
+// "F<extensionID>" for Firefox.
 func install(arg string) error {
 	if len(arg) < 2 {
 		return fmt.Errorf("install argument must be C<extensionID> or F<extensionID>")
@@ -41,24 +51,22 @@ func install(arg string) error {
 
 	switch browserType {
 	case 'C', 'c':
-		return installChrome(extensionID)
+		_, err := installChromiumFamily(extensionID)
+		return err
 	case 'F', 'f':
 		return installFirefox(extensionID)
 	default:
-		return fmt.Errorf("unknown browser type %q; use C for Chrome or F for Firefox", string(browserType))
+		return fmt.Errorf("unknown browser type %q; use C for Chromium-family or F for Firefox", string(browserType))
 	}
 }
 
-// installChrome installs the native messaging host for Chrome.
-func installChrome(extensionID string) error {
-	dir := chromeManifestDir()
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create manifest dir: %w", err)
-	}
-
+// installChromiumFamily writes the native messaging manifest into every
+// supported Chromium-family browser's directory on this platform and reports
+// per-browser status. Returns a non-nil error only when every browser failed.
+func installChromiumFamily(extensionID string) ([]BrowserInstallResult, error) {
 	binPath, err := installBinary()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	manifest := nativeManifest{
@@ -71,11 +79,54 @@ func installChrome(extensionID string) error {
 		},
 	}
 
-	manifestPath := filepath.Join(dir, manifestNameChrome+".json")
+	dirs := chromiumManifestDirs()
+
+	// Pre-pass: snapshot which browsers have a pre-existing footprint, before
+	// we mutate anything. This makes "ParentExisted" mean "did this look
+	// installed at the moment we started?" on every platform — important on
+	// Windows where browsers share a common manifest JSON directory, so
+	// stat'ing inside the loop would report a misleading footprint for
+	// browsers iterated after the first.
+	parentExisted := make([]bool, len(dirs))
+	for i := range dirs {
+		parentExisted[i] = browserHasFootprint(dirs[i])
+	}
+
+	results := make([]BrowserInstallResult, 0, len(dirs))
+	successes := 0
+	for i, target := range dirs {
+		r := BrowserInstallResult{Name: target.Name, ParentExisted: parentExisted[i]}
+		if err := installOneChromium(target, manifest); err != nil {
+			r.Err = err
+		} else {
+			successes++
+		}
+		results = append(results, r)
+	}
+
+	if successes == 0 {
+		errs := make([]error, 0, len(results))
+		for _, r := range results {
+			if r.Err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", r.Name, r.Err))
+			}
+		}
+		return results, fmt.Errorf("no Chromium-family browser manifests installed: %w", errors.Join(errs...))
+	}
+	return results, nil
+}
+
+// installOneChromium writes the manifest JSON into target.Dir and runs the
+// per-browser platform post-install hook. Returns nil on success.
+func installOneChromium(target chromiumBrowserTarget, manifest nativeManifest) error {
+	if err := os.MkdirAll(target.Dir, 0755); err != nil {
+		return fmt.Errorf("create dir: %w", err)
+	}
+	manifestPath := filepath.Join(target.Dir, manifestNameChrome+".json")
 	if err := writeManifest(manifestPath, manifest); err != nil {
 		return err
 	}
-	return platformPostInstallChrome(manifestPath)
+	return platformPostInstallChromium(target.Name, manifestPath)
 }
 
 // installFirefox installs the native messaging host for Firefox.
@@ -111,13 +162,15 @@ func installFirefox(extensionID string) error {
 func uninstall() error {
 	var firstErr error
 
-	// Remove Chrome manifest.
-	chromePath := filepath.Join(chromeManifestDir(), manifestNameChrome+".json")
-	if err := os.Remove(chromePath); err != nil && !os.IsNotExist(err) {
-		firstErr = fmt.Errorf("failed to remove Chrome manifest: %w", err)
+	for _, target := range chromiumManifestDirs() {
+		path := filepath.Join(target.Dir, manifestNameChrome+".json")
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("failed to remove %s manifest: %w", target.Name, err)
+			}
+		}
 	}
 
-	// Remove Firefox manifest.
 	firefoxPath := filepath.Join(firefoxManifestDir(), manifestNameFirefox+".json")
 	if err := os.Remove(firefoxPath); err != nil && !os.IsNotExist(err) {
 		if firstErr == nil {
@@ -125,7 +178,6 @@ func uninstall() error {
 		}
 	}
 
-	// Platform-specific cleanup (e.g., Windows registry).
 	if err := platformUninstall(); err != nil && firstErr == nil {
 		firstErr = err
 	}
@@ -156,7 +208,6 @@ func installBinary() (string, error) {
 	}
 	destPath := filepath.Join(installDir, binaryName)
 
-	// If the source and destination are the same, skip the copy.
 	if exe == destPath {
 		return destPath, nil
 	}
