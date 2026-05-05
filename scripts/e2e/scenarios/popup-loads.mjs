@@ -1,9 +1,12 @@
-/**
- * Smoke test: the popup HTML loads, the bundle executes, and the loading
- * spinner is replaced with a real view (any of: needs-install, needs-login,
- * disconnected, connected). The native host is unavailable in CI, so this
- * normally lands on the "needs-install" view.
- */
+import { expectText, waitForPopup } from "../assertions.mjs";
+import { makeControl } from "../fixtures.mjs";
+
+export const name = "popup-loads";
+export const suite = "smoke";
+export const browsers = ["chrome", "firefox"];
+
+export const control = () => makeControl();
+
 export async function run({ openPopup }) {
   const consoleErrors = [];
   const page = await openPopup({
@@ -16,27 +19,11 @@ export async function run({ openPopup }) {
   });
 
   try {
-    await page.waitForFunction(
-      () => {
-        const root = document.querySelector("#root");
-        return (
-          root && !root.querySelector(".spinner") && root.children.length > 0
-        );
-      },
-      { timeout: 10_000 },
-    );
+    await waitForPopup(page);
+    await expectText(page, "example.ts.net");
+    await expectText(page, "router");
 
-    const { hasView, hasContent } = await page.evaluate(() => {
-      const root = document.querySelector("#root");
-      return {
-        hasView: !!root?.querySelector(".view"),
-        hasContent: (root?.textContent ?? "").trim().length > 0,
-      };
-    });
-
-    if (!hasContent) {
-      throw new Error("popup-loads: #root has no rendered content");
-    }
+    const hasView = await page.$(".view");
     if (!hasView) {
       throw new Error("popup-loads: expected a .view container in #root");
     }
@@ -49,5 +36,3 @@ export async function run({ openPopup }) {
     await page.close();
   }
 }
-
-export const name = "popup-loads";
