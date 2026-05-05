@@ -19,7 +19,7 @@ Tailchrome connects your browser to your Tailscale tailnet without installing a 
 - Side panel mode: opt-in toggle keeps the Tailchrome UI docked next to your tabs instead of dismissing on click-away
 - No system networking changes: only browser traffic is affected
 - Shields Up mode for extra security
-- Works in Chrome and other Chromium-family browsers (Brave, Edge, Vivaldi, Opera, Arc)
+- Works in Chrome and other Chromium-family browsers (Brave, Edge, Vivaldi, Opera; Arc on macOS)
 
 **How it works:**
 Tailchrome uses a lightweight native helper app that runs a full Tailscale node for each browser profile. Your system networking stays untouched. Only traffic from the browser is routed through your tailnet.

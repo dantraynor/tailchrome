@@ -1,5 +1,8 @@
 # Dependencies
 node_modules/
+# This is a pnpm workspace; reject npm/yarn lockfiles created by accident.
+package-lock.json
+yarn.lock
 
 # Build output
 dist/
