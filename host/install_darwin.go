@@ -20,6 +20,9 @@ func chromiumManifestDirs() []chromiumBrowserTarget {
 	appSupport := filepath.Join(home, "Library", "Application Support")
 	return []chromiumBrowserTarget{
 		{Name: "Chrome", Dir: filepath.Join(appSupport, "Google", "Chrome", "NativeMessagingHosts")},
+		{Name: "Chrome Beta", Dir: filepath.Join(appSupport, "Google", "Chrome Beta", "NativeMessagingHosts")},
+		{Name: "Chrome Canary", Dir: filepath.Join(appSupport, "Google", "Chrome Canary", "NativeMessagingHosts")},
+		{Name: "Chrome Dev", Dir: filepath.Join(appSupport, "Google", "Chrome Dev", "NativeMessagingHosts")},
 		{Name: "Chromium", Dir: filepath.Join(appSupport, "Chromium", "NativeMessagingHosts")},
 		{Name: "Brave", Dir: filepath.Join(appSupport, "BraveSoftware", "Brave-Browser", "NativeMessagingHosts")},
 		{Name: "Edge", Dir: filepath.Join(appSupport, "Microsoft Edge", "NativeMessagingHosts")},
@@ -63,8 +66,18 @@ func platformPostInstallFirefox(_ string) error { return nil }
 func isBrowserInstalled(browser string) bool {
 	switch browser {
 	case "chrome":
-		_, err := os.Stat("/Applications/Google Chrome.app")
-		return err == nil
+		for _, appPath := range []string{
+			"/Applications/Google Chrome.app",
+			"/Applications/Google Chrome Beta.app",
+			"/Applications/Google Chrome Canary.app",
+			"/Applications/Google Chrome Dev.app",
+			"/Applications/Chromium.app",
+		} {
+			if _, err := os.Stat(appPath); err == nil {
+				return true
+			}
+		}
+		return false
 	case "firefox":
 		_, err := os.Stat("/Applications/Firefox.app")
 		return err == nil

@@ -22,6 +22,8 @@ func chromiumManifestDirs() []chromiumBrowserTarget {
 	home, _ := os.UserHomeDir()
 	return []chromiumBrowserTarget{
 		{Name: "Chrome", Dir: filepath.Join(home, ".config", "google-chrome", "NativeMessagingHosts")},
+		{Name: "Chrome Beta", Dir: filepath.Join(home, ".config", "google-chrome-beta", "NativeMessagingHosts")},
+		{Name: "Chrome Dev", Dir: filepath.Join(home, ".config", "google-chrome-unstable", "NativeMessagingHosts")},
 		{Name: "Chromium", Dir: filepath.Join(home, ".config", "chromium", "NativeMessagingHosts")},
 		{Name: "Brave", Dir: filepath.Join(home, ".config", "BraveSoftware", "Brave-Browser", "NativeMessagingHosts")},
 		{Name: "Edge", Dir: filepath.Join(home, ".config", "microsoft-edge", "NativeMessagingHosts")},
@@ -64,11 +66,19 @@ func platformPostInstallFirefox(_ string) error { return nil }
 func isBrowserInstalled(browser string) bool {
 	switch browser {
 	case "chrome":
-		_, err := exec.LookPath("google-chrome")
-		if err != nil {
-			_, err = exec.LookPath("google-chrome-stable")
+		for _, bin := range []string{
+			"google-chrome",
+			"google-chrome-stable",
+			"google-chrome-beta",
+			"google-chrome-unstable",
+			"chromium",
+			"chromium-browser",
+		} {
+			if _, err := exec.LookPath(bin); err == nil {
+				return true
+			}
 		}
-		return err == nil
+		return false
 	case "firefox":
 		_, err := exec.LookPath("firefox")
 		return err == nil

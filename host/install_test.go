@@ -6,33 +6,53 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 )
 
-func TestChromiumManifestDirsContainsCommonBrowsers(t *testing.T) {
+func TestChromiumManifestDirsContainsExpectedTargets(t *testing.T) {
+	home := setupTempHome(t)
 	dirs := chromiumManifestDirs()
 	if len(dirs) == 0 {
 		t.Fatal("chromiumManifestDirs() returned empty slice")
 	}
 
-	wantNames := []string{"Chrome", "Chromium", "Brave", "Edge", "Vivaldi", "Opera"}
-	if runtime.GOOS == "darwin" {
-		wantNames = append(wantNames, "Arc")
+	var want []chromiumBrowserTarget
+	switch runtime.GOOS {
+	case "darwin":
+		base := filepath.Join(home, "Library", "Application Support")
+		want = []chromiumBrowserTarget{
+			{Name: "Chrome", Dir: filepath.Join(base, "Google", "Chrome", "NativeMessagingHosts")},
+			{Name: "Chrome Beta", Dir: filepath.Join(base, "Google", "Chrome Beta", "NativeMessagingHosts")},
+			{Name: "Chrome Canary", Dir: filepath.Join(base, "Google", "Chrome Canary", "NativeMessagingHosts")},
+			{Name: "Chrome Dev", Dir: filepath.Join(base, "Google", "Chrome Dev", "NativeMessagingHosts")},
+			{Name: "Chromium", Dir: filepath.Join(base, "Chromium", "NativeMessagingHosts")},
+			{Name: "Brave", Dir: filepath.Join(base, "BraveSoftware", "Brave-Browser", "NativeMessagingHosts")},
+			{Name: "Edge", Dir: filepath.Join(base, "Microsoft Edge", "NativeMessagingHosts")},
+			{Name: "Vivaldi", Dir: filepath.Join(base, "Vivaldi", "NativeMessagingHosts")},
+			{Name: "Opera", Dir: filepath.Join(base, "com.operasoftware.Opera", "NativeMessagingHosts")},
+			{Name: "Arc", Dir: filepath.Join(base, "Arc", "User Data", "NativeMessagingHosts")},
+		}
+	case "linux":
+		cfg := filepath.Join(home, ".config")
+		want = []chromiumBrowserTarget{
+			{Name: "Chrome", Dir: filepath.Join(cfg, "google-chrome", "NativeMessagingHosts")},
+			{Name: "Chrome Beta", Dir: filepath.Join(cfg, "google-chrome-beta", "NativeMessagingHosts")},
+			{Name: "Chrome Dev", Dir: filepath.Join(cfg, "google-chrome-unstable", "NativeMessagingHosts")},
+			{Name: "Chromium", Dir: filepath.Join(cfg, "chromium", "NativeMessagingHosts")},
+			{Name: "Brave", Dir: filepath.Join(cfg, "BraveSoftware", "Brave-Browser", "NativeMessagingHosts")},
+			{Name: "Edge", Dir: filepath.Join(cfg, "microsoft-edge", "NativeMessagingHosts")},
+			{Name: "Vivaldi", Dir: filepath.Join(cfg, "vivaldi", "NativeMessagingHosts")},
+			{Name: "Opera", Dir: filepath.Join(cfg, "opera", "NativeMessagingHosts")},
+		}
+	default:
+		t.Skipf("no expected list for GOOS=%s", runtime.GOOS)
 	}
 
-	for _, want := range wantNames {
-		found := false
-		for _, d := range dirs {
-			if d.Name == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("chromiumManifestDirs() missing entry for %q", want)
-		}
+	if !reflect.DeepEqual(dirs, want) {
+		t.Errorf("chromiumManifestDirs() mismatch\n got: %#v\nwant: %#v", dirs, want)
 	}
 }
 

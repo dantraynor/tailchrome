@@ -25,6 +25,8 @@ type chromiumBrowserTarget struct {
 func chromiumManifestDirs() []chromiumBrowserTarget {
 	jsonDir := chromiumJSONDir()
 	return []chromiumBrowserTarget{
+		// Chrome Stable, Beta, Dev, and Canary use the Chrome native messaging
+		// registry root; Canary's SxS suffix is for install/user-data paths.
 		{Name: "Chrome", Dir: jsonDir, Path: `Software\Google\Chrome\NativeMessagingHosts\` + manifestNameChrome},
 		{Name: "Chromium", Dir: jsonDir, Path: `Software\Chromium\NativeMessagingHosts\` + manifestNameChrome},
 		{Name: "Brave", Dir: jsonDir, Path: `Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\` + manifestNameChrome},
@@ -140,12 +142,25 @@ func isBrowserInstalled(browser string) bool {
 	switch browser {
 	case "chrome":
 		localAppData := os.Getenv("LOCALAPPDATA")
-		_, err := os.Stat(filepath.Join(localAppData, "Google", "Chrome", "Application", "chrome.exe"))
-		if err != nil {
-			progFiles := os.Getenv("PROGRAMFILES")
-			_, err = os.Stat(filepath.Join(progFiles, "Google", "Chrome", "Application", "chrome.exe"))
+		programFiles := os.Getenv("PROGRAMFILES")
+		programFilesX86 := os.Getenv("PROGRAMFILES(X86)")
+		for _, root := range []string{localAppData, programFiles, programFilesX86} {
+			for _, rel := range []string{
+				filepath.Join("Google", "Chrome", "Application", "chrome.exe"),
+				filepath.Join("Google", "Chrome Beta", "Application", "chrome.exe"),
+				filepath.Join("Google", "Chrome Dev", "Application", "chrome.exe"),
+				filepath.Join("Google", "Chrome SxS", "Application", "chrome.exe"),
+				filepath.Join("Chromium", "Application", "chrome.exe"),
+			} {
+				if root == "" {
+					continue
+				}
+				if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
+					return true
+				}
+			}
 		}
-		return err == nil
+		return false
 	case "firefox":
 		progFiles := os.Getenv("PROGRAMFILES")
 		_, err := os.Stat(filepath.Join(progFiles, "Mozilla Firefox", "firefox.exe"))
