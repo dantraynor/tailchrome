@@ -34,11 +34,12 @@ func main() {
 		if err != nil {
 			log.Fatalf("Chromium-family install failed: %v", err)
 		}
-		printChromiumResults(results)
+		width := browserNameColWidth(results)
+		printChromiumResults(width, results)
 		if err := installFirefox(firefoxExtensionID); err != nil {
 			log.Fatalf("Firefox install failed: %v", err)
 		}
-		fmt.Println("Firefox:  installed.")
+		printBrowserResult(width, "Firefox", true, nil)
 		fmt.Println("\nYou can use the Tailchrome extension in your browser.")
 		os.Exit(0)
 	}
@@ -67,13 +68,14 @@ func main() {
 		if err != nil {
 			log.Fatalf("Chromium-family install failed: %v", err)
 		}
-		printChromiumResults(results)
+		width := browserNameColWidth(results)
+		printChromiumResults(width, results)
 
 		fmt.Println("Installing native messaging host for Firefox...")
 		if err := installFirefox(firefoxExtensionID); err != nil {
 			log.Fatalf("Firefox install failed: %v", err)
 		}
-		fmt.Println("Firefox:  installed.")
+		printBrowserResult(width, "Firefox", true, nil)
 
 		fmt.Printf("\nYou can now close this terminal and use the Tailchrome extension.\n")
 		os.Exit(0)
@@ -120,17 +122,38 @@ func errString(err error) string {
 	return err.Error()
 }
 
-// printChromiumResults prints one status line per Chromium-family browser.
-// Format: "<Name>: <status>." with column-aligned colons.
-func printChromiumResults(results []BrowserInstallResult) {
+// browserNameColWidth returns the printf padding width that aligns the
+// "<Name>:" column for the given Chromium-family results plus the Firefox
+// line, computed at runtime so adding a longer browser name later cannot
+// silently break alignment.
+func browserNameColWidth(results []BrowserInstallResult) int {
+	w := len("Firefox") + 1 // include the trailing colon
 	for _, r := range results {
-		switch {
-		case r.Err != nil:
-			fmt.Printf("%-9s failed: %v\n", r.Name+":", r.Err)
-		case r.ParentExisted:
-			fmt.Printf("%-9s installed.\n", r.Name+":")
-		default:
-			fmt.Printf("%-9s installed (ready for first use).\n", r.Name+":")
+		if n := len(r.Name) + 1; n > w {
+			w = n
 		}
+	}
+	return w
+}
+
+// printBrowserResult prints one status line for a single browser using the
+// shared column width so colons align across the whole install run.
+func printBrowserResult(width int, name string, parentExisted bool, err error) {
+	nameCol := name + ":"
+	switch {
+	case err != nil:
+		fmt.Printf("%-*s failed: %v\n", width, nameCol, err)
+	case parentExisted:
+		fmt.Printf("%-*s installed.\n", width, nameCol)
+	default:
+		fmt.Printf("%-*s installed (ready for first use).\n", width, nameCol)
+	}
+}
+
+// printChromiumResults prints one status line per Chromium-family browser at
+// the given column width.
+func printChromiumResults(width int, results []BrowserInstallResult) {
+	for _, r := range results {
+		printBrowserResult(width, r.Name, r.ParentExisted, r.Err)
 	}
 }
