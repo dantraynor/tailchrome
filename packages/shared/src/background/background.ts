@@ -11,12 +11,7 @@ import { NativeHostConnection } from "./native-host";
 import { BadgeManager } from "./badge-manager";
 import { DefaultTimerService, type TimerService } from "./timer-service";
 import { formatBugReportForToast } from "./format-bug-report-toast";
-import {
-  applyUiSurface,
-  readUiSurface,
-  registerSidebarOpener,
-  type BrowserKind,
-} from "./ui-surface";
+import { applyUiSurface, readUiSurface, type BrowserKind } from "./ui-surface";
 
 export type { ProxyManager };
 
@@ -94,10 +89,6 @@ export function initBackground(
       void applyUiSurface(next, browserKind).catch(logUiSurfaceFailure);
     }
   });
-
-  if (browserKind === "firefox") {
-    registerSidebarOpener();
-  }
 
   const store = new StateStore();
   const badgeManager = new BadgeManager();

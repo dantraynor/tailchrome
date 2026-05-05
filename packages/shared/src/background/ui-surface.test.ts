@@ -3,7 +3,6 @@ import {
   applyUiSurface,
   readUiSurface,
   registerSidebarOpener,
-  setCachedUiSurface,
   writeUiSurface,
 } from "./ui-surface";
 
@@ -101,27 +100,16 @@ describe("registerSidebarOpener (Firefox)", () => {
     chromeWithSidebar.sidebarAction.open.mockClear();
   });
 
-  it("opens the sidebar when toolbar click fires while in sidePanel mode", () => {
-    setCachedUiSurface("sidePanel");
+  it("registers a single onClicked listener that opens the sidebar synchronously", () => {
     const listenersArr =
       (chrome.action.onClicked as unknown as { _listeners: Array<(tab: unknown) => void> })
         ._listeners;
     const before = listenersArr.length;
     registerSidebarOpener();
     expect(listenersArr.length).toBe(before + 1);
+    // Firefox only fires action.onClicked when setPopup has been cleared
+    // (= side-panel mode), so the handler unconditionally opens the sidebar.
     listenersArr[before]!({});
     expect(chromeWithSidebar.sidebarAction.open).toHaveBeenCalledTimes(1);
-  });
-
-  it("does NOT open the sidebar when in popup mode (popup handles the click)", () => {
-    setCachedUiSurface("popup");
-    const listenersArr =
-      (chrome.action.onClicked as unknown as { _listeners: Array<(tab: unknown) => void> })
-        ._listeners;
-    const before = listenersArr.length;
-    registerSidebarOpener();
-    expect(listenersArr.length).toBe(before + 1);
-    listenersArr[before]!({});
-    expect(chromeWithSidebar.sidebarAction.open).not.toHaveBeenCalled();
   });
 });

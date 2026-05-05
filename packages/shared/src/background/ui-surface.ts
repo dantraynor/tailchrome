@@ -14,12 +14,6 @@ const sidebarAction = (chrome as typeof chrome & {
   sidebarAction?: SidebarActionGlobal;
 }).sidebarAction;
 
-// Synchronously-readable mirror of the stored preference. Firefox's
-// action.onClicked must call sidebarAction.open() inside the user-gesture
-// window — awaiting storage.local.get between the click and the call will
-// consume the gesture token and the open rejects.
-let cachedSurface: UiSurface = "popup";
-
 export async function readUiSurface(): Promise<UiSurface> {
   const result = await chrome.storage.local.get(STORAGE_KEY);
   const stored = result[STORAGE_KEY];
@@ -32,20 +26,10 @@ export async function writeUiSurface(value: UiSurface): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEY]: value });
 }
 
-export function getCachedUiSurface(): UiSurface {
-  return cachedSurface;
-}
-
-// Exposed for test setup; production code updates the cache via applyUiSurface.
-export function setCachedUiSurface(value: UiSurface): void {
-  cachedSurface = value;
-}
-
 export async function applyUiSurface(
   surface: UiSurface,
   browserKind: BrowserKind,
 ): Promise<void> {
-  cachedSurface = surface;
   if (browserKind === "chrome") {
     // chrome.sidePanel was added in Chrome 114; older Chromium builds may
     // install the extension without the API. Skip silently in that case
@@ -64,12 +48,14 @@ export async function applyUiSurface(
   });
 }
 
-// Firefox-only. Registered by background startup when browserKind === "firefox".
-// The click handler MUST run synchronously to preserve the user-gesture token
-// that sidebarAction.open() requires.
+// Firefox-only. MUST be registered synchronously at service-worker top-level
+// so a toolbar click that wakes a dormant SW is delivered to the listener.
+// The handler is unconditionally sync: action.onClicked only fires on Firefox
+// when setPopup has been cleared (= side-panel mode), so the popup-mode case
+// can't reach this code, and we don't need to consult any cached state that
+// might not be ready yet on cold start.
 export function registerSidebarOpener(): void {
   chrome.action.onClicked.addListener(() => {
-    if (cachedSurface !== "sidePanel") return;
     if (!sidebarAction || typeof sidebarAction.open !== "function") return;
     void sidebarAction.open();
   });
