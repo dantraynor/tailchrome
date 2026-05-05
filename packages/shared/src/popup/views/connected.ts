@@ -10,6 +10,7 @@ import { createToggle } from "../components/toggle-switch";
 import { renderExitNodes } from "./exit-nodes";
 import { renderProfiles } from "./profiles";
 import { iconChevronRight } from "../icons";
+import { renderUiSurfaceRow } from "../components/ui-surface-row";
 
 type SubViewRenderer = (root: HTMLElement, state: TailscaleState, onBack: () => void) => void;
 
@@ -295,7 +296,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   // Profile switcher row (only show when multiple profiles exist)
   if (state.profiles.length > 0) {
     const profileRow = document.createElement("div");
-    profileRow.className = "setting-row setting-row--clickable";
+    profileRow.className = "setting-row setting-row--clickable setting-row-profile";
 
     const profileLabel = document.createElement("span");
     profileLabel.className = "setting-label";
@@ -303,7 +304,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
     profileRow.appendChild(profileLabel);
 
     const profileValue = document.createElement("span");
-    profileValue.className = "setting-value";
+    profileValue.className = "setting-value setting-value-profile";
     profileValue.textContent = state.currentProfile?.name ?? "Default";
 
     const profileChevron = document.createElement("span");
@@ -318,6 +319,8 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
     profileRow.addEventListener("click", () => openSubView(root, renderProfiles));
     settings.appendChild(profileRow);
   }
+
+  void renderUiSurfaceRow(settings);
 
   view.appendChild(settings);
 
@@ -416,7 +419,19 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   view.appendChild(footer);
 
-  root.appendChild(view);
+  const shell = document.createElement("div");
+  shell.className = "panel-shell";
+
+  const main = document.createElement("div");
+  main.className = "panel-main";
+  main.appendChild(view);
+  shell.appendChild(main);
+
+  const detail = document.createElement("div");
+  detail.className = "panel-detail-pane";
+  shell.appendChild(detail);
+
+  root.appendChild(shell);
 }
 
 // Track health key to detect changes during in-place updates
@@ -469,9 +484,11 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     return;
   }
 
-  const hasProfileRow = [...view.querySelectorAll(".setting-label")].some(
-    (el) => el.textContent === "Profile",
-  );
+  // Profile data arrives after the initial get-status, so the first render
+  // may lack the Profile row while later updates need it (or vice versa).
+  // Presence mismatch requires a full render to add or remove the row with
+  // its click handler — in-place update can't materialise a new row.
+  const hasProfileRow = view.querySelector(".setting-row-profile") !== null;
   const shouldHaveProfileRow = state.profiles.length > 0;
   if (hasProfileRow !== shouldHaveProfileRow) {
     renderConnected(root, state);
@@ -561,9 +578,14 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
       }
     }
 
-    // Profile value (last .setting-value if profiles exist)
-    if (state.profiles.length > 0 && settingValues.length > 1) {
-      const profileValueEl = settingValues[settingValues.length - 1]!;
+    // Profile value — target by its specific class, not by last-of-type.
+    // Multiple setting-value elements exist (exit node, local node page);
+    // "last" was previously matching the local-node-page value and
+    // clobbering it with the profile name.
+    const profileValueEl = quickSettings.querySelector<HTMLElement>(
+      ".setting-value-profile",
+    );
+    if (state.profiles.length > 0 && profileValueEl) {
       const newProfileName = state.currentProfile?.name ?? "Default";
       const profileTextNode = profileValueEl.firstChild;
       if (profileTextNode && profileTextNode.nodeType === Node.TEXT_NODE) {

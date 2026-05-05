@@ -1,5 +1,6 @@
 import type { TailscaleState } from "../../types";
 import { renderHeader } from "../components/header";
+import { renderUiSurfaceFooter } from "../components/ui-surface-row";
 import { iconPlug, iconWarning } from "../icons";
 import { sendMessage } from "../popup";
 
@@ -137,5 +138,6 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
   }
 
   view.appendChild(content);
+  renderUiSurfaceFooter(view);
   root.appendChild(view);
 }

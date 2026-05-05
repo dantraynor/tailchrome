@@ -1,5 +1,6 @@
 import type { TailscaleState } from "../../types";
 import { renderHeader } from "../components/header";
+import { renderUiSurfaceFooter } from "../components/ui-surface-row";
 import { sendMessage } from "../popup";
 import { iconLock } from "../icons";
 
@@ -48,6 +49,7 @@ export function renderNeedsLogin(root: HTMLElement, state: TailscaleState): void
   content.appendChild(description);
   content.appendChild(loginBtn);
   view.appendChild(content);
+  renderUiSurfaceFooter(view);
 
   root.appendChild(view);
 }

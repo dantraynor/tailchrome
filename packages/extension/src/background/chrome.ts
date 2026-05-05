@@ -6,6 +6,7 @@ export function startChromeBackground(): void {
   const { proxyManager } = initBackground(
     new ChromeProxyManager(),
     CHROME_NATIVE_HOST_ID,
+    { browserKind: "chrome" },
   );
 
   chrome.runtime.onSuspend?.addListener(() => {

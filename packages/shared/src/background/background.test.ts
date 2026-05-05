@@ -819,6 +819,46 @@ describe("initBackground", () => {
     });
   });
 
+  describe("uiSurface wiring", () => {
+    beforeEach(() => {
+      (chrome.sidePanel.setPanelBehavior as ReturnType<typeof vi.fn>).mockClear();
+      (chrome.storage.local.get as unknown as ReturnType<typeof vi.fn>) = vi.fn(
+        () => Promise.resolve({ uiSurface: "sidePanel" }),
+      );
+    });
+
+    it("calls applyUiSurface with the persisted setting on init", async () => {
+      const proxy: ProxyManager = { apply: vi.fn(), clear: vi.fn() };
+      initBackground(proxy, "test-host", { browserKind: "chrome" });
+      // applyUiSurface is async; flush the microtask queue.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(chrome.sidePanel.setPanelBehavior).toHaveBeenCalledWith({
+        openPanelOnActionClick: true,
+      });
+    });
+
+    it("re-applies when uiSurface changes in storage", async () => {
+      const proxy: ProxyManager = { apply: vi.fn(), clear: vi.fn() };
+      initBackground(proxy, "test-host", { browserKind: "chrome" });
+      await Promise.resolve();
+      (chrome.sidePanel.setPanelBehavior as ReturnType<typeof vi.fn>).mockClear();
+
+      const listeners =
+        (chrome.storage.onChanged as unknown as {
+          _listeners: Array<
+            (changes: Record<string, { newValue?: unknown }>, area: string) => void
+          >;
+        })._listeners;
+      await listeners[listeners.length - 1]!({ uiSurface: { newValue: "popup" } }, "local");
+      await Promise.resolve();
+
+      expect(chrome.sidePanel.setPanelBehavior).toHaveBeenCalledWith({
+        openPanelOnActionClick: false,
+      });
+    });
+  });
+
   describe("keepalive", () => {
     it("sends ping at keepalive interval when connected", async () => {
       await setupBackground();
