@@ -202,7 +202,7 @@ export function makeControl(overrides = {}) {
   const status = overrides.status ?? makeRunningState();
   return {
     proxyPort: 1055,
-    hostVersion: "0.1.8",
+    hostVersion: "0.1.9",
     supportsNetcheck: true,
     supportsPingPeer: true,
     status,
