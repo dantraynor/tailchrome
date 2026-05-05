@@ -61,26 +61,3 @@ func browserHasFootprint(target chromiumBrowserTarget) bool {
 }
 
 func platformPostInstallFirefox(_ string) error { return nil }
-
-// isBrowserInstalled checks whether a browser is present on the system.
-func isBrowserInstalled(browser string) bool {
-	switch browser {
-	case "chrome":
-		for _, appPath := range []string{
-			"/Applications/Google Chrome.app",
-			"/Applications/Google Chrome Beta.app",
-			"/Applications/Google Chrome Canary.app",
-			"/Applications/Google Chrome Dev.app",
-			"/Applications/Chromium.app",
-		} {
-			if _, err := os.Stat(appPath); err == nil {
-				return true
-			}
-		}
-		return false
-	case "firefox":
-		_, err := os.Stat("/Applications/Firefox.app")
-		return err == nil
-	}
-	return false
-}

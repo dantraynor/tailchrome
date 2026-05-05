@@ -136,35 +136,3 @@ func removeRegistryKey(baseKey registry.Key, path string) error {
 	}
 	return nil
 }
-
-// isBrowserInstalled checks whether a browser is present on the system.
-func isBrowserInstalled(browser string) bool {
-	switch browser {
-	case "chrome":
-		localAppData := os.Getenv("LOCALAPPDATA")
-		programFiles := os.Getenv("PROGRAMFILES")
-		programFilesX86 := os.Getenv("PROGRAMFILES(X86)")
-		for _, root := range []string{localAppData, programFiles, programFilesX86} {
-			for _, rel := range []string{
-				filepath.Join("Google", "Chrome", "Application", "chrome.exe"),
-				filepath.Join("Google", "Chrome Beta", "Application", "chrome.exe"),
-				filepath.Join("Google", "Chrome Dev", "Application", "chrome.exe"),
-				filepath.Join("Google", "Chrome SxS", "Application", "chrome.exe"),
-				filepath.Join("Chromium", "Application", "chrome.exe"),
-			} {
-				if root == "" {
-					continue
-				}
-				if _, err := os.Stat(filepath.Join(root, rel)); err == nil {
-					return true
-				}
-			}
-		}
-		return false
-	case "firefox":
-		progFiles := os.Getenv("PROGRAMFILES")
-		_, err := os.Stat(filepath.Join(progFiles, "Mozilla Firefox", "firefox.exe"))
-		return err == nil
-	}
-	return false
-}

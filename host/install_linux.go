@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 )
 
@@ -61,27 +60,3 @@ func browserHasFootprint(target chromiumBrowserTarget) bool {
 }
 
 func platformPostInstallFirefox(_ string) error { return nil }
-
-// isBrowserInstalled checks whether a browser is present on the system.
-func isBrowserInstalled(browser string) bool {
-	switch browser {
-	case "chrome":
-		for _, bin := range []string{
-			"google-chrome",
-			"google-chrome-stable",
-			"google-chrome-beta",
-			"google-chrome-unstable",
-			"chromium",
-			"chromium-browser",
-		} {
-			if _, err := exec.LookPath(bin); err == nil {
-				return true
-			}
-		}
-		return false
-	case "firefox":
-		_, err := exec.LookPath("firefox")
-		return err == nil
-	}
-	return false
-}
