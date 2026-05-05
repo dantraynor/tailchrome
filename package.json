@@ -12,6 +12,7 @@
     "review:firefox": "pnpm lint:firefox && pnpm zip:firefox && pnpm validate:firefox-publish",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
+    "e2e": "node ./scripts/e2e/run.mjs",
     "validate:ids": "node ./scripts/validate-extension-ids.mjs",
     "validate:firefox-publish": "node ./scripts/validate-firefox-publish.mjs",
     "validate:release-tag": "node ./scripts/validate-release-tag.mjs",
@@ -21,5 +22,9 @@
     "overrides": {
       "picomatch": "^4.0.4"
     }
+  },
+  "dependencies": {
+    "puppeteer": "^24.42.0",
+    "puppeteer-core": "^24.42.0"
   }
 }
