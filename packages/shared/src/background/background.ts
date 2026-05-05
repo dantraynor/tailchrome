@@ -210,14 +210,16 @@ export function initBackground(
         store.update({ installError: true, hostConnected: false });
       } else if (msg.error.cmd === "suggest-exit-node") {
         // Recommendation is a passive feature: log the failure but don't
-        // pollute the popup with a toast or set a sticky error. Clear any
-        // previously cached suggestion so the picker doesn't keep showing a
-        // stale "Recommended" row when the host can no longer recommend one.
+        // pollute the popup with a toast or set a sticky error.
+        //
+        // Do not clear `exitNodeSuggestion` here: suggest-exit-node replies
+        // are not correlated to a specific request in this code path, so a
+        // late error from an older request could otherwise erase a newer
+        // successful recommendation.
         console.warn(
           `[Background] suggest-exit-node failed:`,
           msg.error.message
         );
-        store.update({ exitNodeSuggestion: null });
       } else {
         console.error(
           `[Background] Native error for cmd="${msg.error.cmd}":`,
