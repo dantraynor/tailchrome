@@ -13,6 +13,8 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "e2e": "node ./scripts/e2e/run.mjs",
+    "e2e:chrome": "node ./scripts/e2e/run.mjs --browser=chrome",
+    "e2e:firefox": "node ./scripts/e2e/run.mjs --browser=firefox",
     "validate:ids": "node ./scripts/validate-extension-ids.mjs",
     "validate:firefox-publish": "node ./scripts/validate-firefox-publish.mjs",
     "validate:release-tag": "node ./scripts/validate-release-tag.mjs",

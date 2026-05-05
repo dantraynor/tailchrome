@@ -4,7 +4,9 @@
  * Puppeteer scenarios against it.
  *
  *   pnpm e2e              # test the current branch
+ *   pnpm e2e:firefox      # test the Firefox build
  *   pnpm e2e 123          # gh pr checkout 123, test, then restore the branch
+ *   pnpm e2e --browser=firefox 123
  *   HEADLESS=false pnpm e2e
  *
  * Aborts on a dirty working tree. Restores the original branch on exit.
@@ -17,6 +19,7 @@ import { launch } from "./launch.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const scenariosDir = resolve(dirname(fileURLToPath(import.meta.url)), "scenarios");
+const supportedBrowsers = new Set(["chrome", "firefox"]);
 
 function sh(cmd) {
   const result = spawnSync(cmd, {
@@ -42,8 +45,37 @@ function requireCleanTree() {
   }
 }
 
+function parseArgs(argv) {
+  let browserName = process.env.BROWSER ?? "chrome";
+  let pr;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
+    if (arg === "--chrome") {
+      browserName = "chrome";
+    } else if (arg === "--firefox") {
+      browserName = "firefox";
+    } else if (arg === "--browser") {
+      browserName = argv[++index];
+    } else if (arg.startsWith("--browser=")) {
+      browserName = arg.slice("--browser=".length);
+    } else if (!pr) {
+      pr = arg;
+    } else {
+      throw new Error(`Unexpected argument: ${arg}`);
+    }
+  }
+
+  if (!supportedBrowsers.has(browserName)) {
+    throw new Error(`Unsupported e2e browser: ${browserName}`);
+  }
+
+  return { browserName, pr };
+}
+
 async function main() {
-  const pr = process.argv[2];
+  const { browserName, pr } = parseArgs(process.argv.slice(2));
 
   let restore = () => {};
   let exitCode = 0;
@@ -70,18 +102,18 @@ async function main() {
       console.log(`> Testing current branch: ${ref}`);
     }
 
-    console.log("> pnpm build:chrome");
-    sh("pnpm build:chrome");
+    console.log(`> pnpm build:${browserName}`);
+    sh(`pnpm build:${browserName}`);
 
     const extensionDir = resolve(
       repoRoot,
-      "packages/extension/.output/chrome-mv3",
+      `packages/extension/.output/${browserName}-mv3`,
     );
     if (!existsSync(extensionDir)) {
       throw new Error(`Built extension not found at ${extensionDir}`);
     }
 
-    const { browser, openPopup } = await launch(extensionDir);
+    const { browser, openPopup } = await launch(extensionDir, { browserName });
     try {
       const files = readdirSync(scenariosDir)
         .filter((f) => f.endsWith(".mjs"))
