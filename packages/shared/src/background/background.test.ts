@@ -232,6 +232,61 @@ describe("initBackground", () => {
         })
       );
     });
+
+    it("stores exit node suggestion in state without showing a toast", async () => {
+      await setupBackground();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+
+      sendNativeMessage({
+        exitNodeSuggestion: {
+          id: "node-suggested",
+          hostname: "best.example.ts.net",
+          location: {
+            city: "Frankfurt",
+            cityCode: "fra",
+            country: "Germany",
+            countryCode: "DE",
+          },
+        },
+      });
+
+      expect(proxyManager.apply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          exitNodeSuggestion: expect.objectContaining({ id: "node-suggested" }),
+        })
+      );
+      // Suggestion arrivals must not push a toast — the picker shows them visually.
+      const toastCalls = popupPort.postMessage.mock.calls.filter(
+        (args: unknown[]) => (args[0] as { type?: string }).type === "toast"
+      );
+      expect(toastCalls).toHaveLength(0);
+    });
+
+    it("stays quiet on suggest-exit-node errors", async () => {
+      await setupBackground();
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+
+      sendNativeMessage({
+        error: { cmd: "suggest-exit-node", message: "no suggestion available" },
+      });
+
+      // No toast, no sticky error in state.
+      const toastCalls = popupPort.postMessage.mock.calls.filter(
+        (args: unknown[]) => (args[0] as { type?: string }).type === "toast"
+      );
+      expect(toastCalls).toHaveLength(0);
+      expect(proxyManager.apply).not.toHaveBeenCalledWith(
+        expect.objectContaining({ error: "no suggestion available" })
+      );
+      warnSpy.mockRestore();
+    });
   });
 
   describe("popup communication", () => {

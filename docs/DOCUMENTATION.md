@@ -6,7 +6,7 @@
 **Browsers:** Chrome, Firefox  
 **Platforms:** macOS (amd64, arm64), Linux (amd64), Windows (amd64)  
 **License:** MIT  
-**Website:** [tesseras.org/tailchrome](https://tesseras.org/tailchrome/)  
+**Website:** [tesseras.org/tailchrome](https://tesseras.org/)  
 **Chrome Web Store:** [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)  
 **Firefox Add-ons:** [Firefox Add-ons (AMO)](https://addons.mozilla.org/firefox/addon/tailchrome/)  
 **Privacy Policy:** [privacy-policy.md](privacy-policy.md)
