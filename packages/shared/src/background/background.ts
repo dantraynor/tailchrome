@@ -169,13 +169,10 @@ export function initBackground(
       });
     }
 
-    // Exit node suggestion — store in state and show toast, do NOT auto-apply
+    // Exit node suggestion — store in state, do NOT auto-apply.
+    // The popup picker surfaces this in a "Recommended" row; no toast needed.
     if (msg.exitNodeSuggestion) {
       store.update({ exitNodeSuggestion: msg.exitNodeSuggestion });
-      sendToastToPopup(
-        `Suggested exit node: ${msg.exitNodeSuggestion.hostname}`,
-        "info",
-      );
     }
 
     // File send progress
@@ -211,6 +208,18 @@ export function initBackground(
     if (msg.error) {
       if (msg.error.message === "install_error") {
         store.update({ installError: true, hostConnected: false });
+      } else if (msg.error.cmd === "suggest-exit-node") {
+        // Recommendation is a passive feature: log the failure but don't
+        // pollute the popup with a toast or set a sticky error.
+        //
+        // Do not clear `exitNodeSuggestion` here: suggest-exit-node replies
+        // are not correlated to a specific request in this code path, so a
+        // late error from an older request could otherwise erase a newer
+        // successful recommendation.
+        console.warn(
+          `[Background] suggest-exit-node failed:`,
+          msg.error.message
+        );
       } else {
         console.error(
           `[Background] Native error for cmd="${msg.error.cmd}":`,

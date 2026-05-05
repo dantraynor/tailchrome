@@ -1,4 +1,4 @@
-import type { TailscaleState, PeerInfo } from "../../types";
+import type { TailscaleState, PeerInfo, ExitNodeSuggestion } from "../../types";
 import { addListKeyboardNav } from "../utils";
 import { sendMessage } from "../popup";
 import { iconArrowLeft } from "../icons";
@@ -38,9 +38,13 @@ export function renderExitNodes(
   state: TailscaleState,
   onBack: () => void
 ): void {
-  // Only reset the search query on initial open (not on state-driven re-renders)
-  if (!root.querySelector(".exit-nodes-header")) {
+  // Only reset the search query on initial open (not on state-driven re-renders).
+  // Also request a fresh recommendation so the "Recommended" row reflects the
+  // currently best-available exit node.
+  const initialOpen = !root.querySelector(".exit-nodes-header");
+  if (initialOpen) {
     exitNodeSearchQuery = "";
+    sendMessage({ type: "suggest-exit-node" });
   }
   root.textContent = "";
   const view = document.createElement("div");
@@ -144,14 +148,14 @@ function renderExitNodeList(
 
   const filtered = filterExitNodes(allExitNodes, exitNodeSearchQuery);
 
-  // Suggested exit node (hidden when searching)
+  // Recommended exit node (hidden when searching)
   if (!exitNodeSearchQuery && state.exitNodeSuggestion) {
     const suggestSection = document.createElement("div");
     suggestSection.className = "exit-nodes-section exit-nodes-section--suggested";
 
     const suggestHeader = document.createElement("div");
     suggestHeader.className = "section-header";
-    suggestHeader.textContent = "Suggested";
+    suggestHeader.textContent = "Recommended";
     suggestSection.appendChild(suggestHeader);
 
     const suggestion = state.exitNodeSuggestion;
@@ -160,8 +164,20 @@ function renderExitNodeList(
       : suggestion.hostname;
     const isSelected =
       state.exitNode != null && state.exitNode.id === state.exitNodeSuggestion.id;
-    const suggestRow = createExitNodeRow(suggestLabel, null, isSelected, () =>
-      sendMessage({ type: "set-exit-node", nodeID: state.exitNodeSuggestion!.id })
+    // Match against the peer list so we can show the flag and online indicator,
+    // then fall back to a synthetic node carrying just the suggestion's location.
+    const matchingPeer =
+      allExitNodes.find((n) => n.id === suggestion.id) ?? null;
+    const rowNode: PeerInfo | null =
+      matchingPeer ?? (suggestion.location
+        ? { ...synthesizeSuggestionPeer(suggestion) }
+        : null);
+    const suggestRow = createExitNodeRow(
+      suggestLabel,
+      rowNode,
+      isSelected,
+      () => sendMessage({ type: "set-exit-node", nodeID: state.exitNodeSuggestion!.id }),
+      "Best available",
     );
     suggestSection.appendChild(suggestRow);
     container.appendChild(suggestSection);
@@ -365,7 +381,8 @@ function createExitNodeRow(
   label: string,
   node: PeerInfo | null,
   isSelected: boolean,
-  onSelect: () => void
+  onSelect: () => void,
+  subLabelOverride?: string,
 ): HTMLElement {
   const row = document.createElement("div");
   row.className = "exit-node-row" + (isSelected ? " exit-node-row--selected" : "");
@@ -385,7 +402,12 @@ function createExitNodeRow(
   nameEl.textContent = label;
   info.appendChild(nameEl);
 
-  if (node) {
+  if (subLabelOverride) {
+    const sub = document.createElement("span");
+    sub.className = "exit-node-status";
+    sub.textContent = subLabelOverride;
+    info.appendChild(sub);
+  } else if (node) {
     const status = document.createElement("span");
     status.className = "exit-node-status";
     const dot = document.createElement("span");
@@ -498,4 +520,37 @@ function countryCodeToEmoji(code: string): string {
     a + upper.charCodeAt(0) - 65,
     a + upper.charCodeAt(1) - 65
   );
+}
+
+/**
+ * Builds a placeholder PeerInfo for the recommended exit node when the suggestion's
+ * peer isn't in our peer list (e.g. the netmap hasn't propagated it yet). Only the
+ * fields used by the row renderer are populated.
+ */
+function synthesizeSuggestionPeer(suggestion: ExitNodeSuggestion): PeerInfo {
+  return {
+    id: suggestion.id,
+    hostname: suggestion.hostname,
+    dnsName: "",
+    tailscaleIPs: [],
+    os: "",
+    online: true,
+    active: false,
+    exitNode: false,
+    exitNodeOption: true,
+    isSubnetRouter: false,
+    subnets: [],
+    tags: [],
+    rxBytes: 0,
+    txBytes: 0,
+    lastSeen: null,
+    lastHandshake: null,
+    location: suggestion.location,
+    taildropTarget: false,
+    sshHost: false,
+    userId: 0,
+    userName: "",
+    userLoginName: "",
+    userProfilePicURL: "",
+  };
 }
