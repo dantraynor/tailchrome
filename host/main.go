@@ -30,14 +30,15 @@ func main() {
 	}
 
 	if *installNowFlag {
-		if _, err := installChromiumFamily(chromeWebStoreExtensionID); err != nil {
+		results, err := installChromiumFamily(chromeWebStoreExtensionID)
+		if err != nil {
 			log.Fatalf("Chromium-family install failed: %v", err)
 		}
-		fmt.Println("Chrome: installed successfully.")
+		printChromiumResults(results)
 		if err := installFirefox(firefoxExtensionID); err != nil {
 			log.Fatalf("Firefox install failed: %v", err)
 		}
-		fmt.Println("Firefox: installed successfully.")
+		fmt.Println("Firefox:  installed.")
 		fmt.Println("\nYou can use the Tailchrome extension in your browser.")
 		os.Exit(0)
 	}
@@ -61,33 +62,18 @@ func main() {
 	// If running interactively (user ran the binary in a terminal),
 	// auto-install for detected browsers.
 	if term.IsTerminal(int(os.Stdin.Fd())) {
-		hasChrome := isBrowserInstalled("chrome")
-		hasFirefox := isBrowserInstalled("firefox")
-
-		if !hasChrome && !hasFirefox {
-			// No browser detected; fall back to installing for both.
-			hasChrome = true
-			hasFirefox = true
+		fmt.Println("Installing native messaging hosts for the Chromium browser family...")
+		results, err := installChromiumFamily(chromeWebStoreExtensionID)
+		if err != nil {
+			log.Fatalf("Chromium-family install failed: %v", err)
 		}
+		printChromiumResults(results)
 
-		installed := 0
-		if hasChrome {
-			fmt.Println("Installing native messaging host for Chrome...")
-			if _, err := installChromiumFamily(chromeWebStoreExtensionID); err != nil {
-				log.Fatalf("Chromium-family install failed: %v", err)
-			}
-			fmt.Println("Chrome: installed successfully.")
-			installed++
+		fmt.Println("Installing native messaging host for Firefox...")
+		if err := installFirefox(firefoxExtensionID); err != nil {
+			log.Fatalf("Firefox install failed: %v", err)
 		}
-
-		if hasFirefox {
-			fmt.Println("Installing native messaging host for Firefox...")
-			if err := installFirefox(firefoxExtensionID); err != nil {
-				log.Fatalf("Firefox install failed: %v", err)
-			}
-			fmt.Println("Firefox: installed successfully.")
-			installed++
-		}
+		fmt.Println("Firefox:  installed.")
 
 		fmt.Printf("\nYou can now close this terminal and use the Tailchrome extension.\n")
 		os.Exit(0)
@@ -132,4 +118,19 @@ func errString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// printChromiumResults prints one status line per Chromium-family browser.
+// Format: "<Name>: <status>." with column-aligned colons.
+func printChromiumResults(results []BrowserInstallResult) {
+	for _, r := range results {
+		switch {
+		case r.Err != nil:
+			fmt.Printf("%-9s failed: %v\n", r.Name+":", r.Err)
+		case r.ParentExisted:
+			fmt.Printf("%-9s installed.\n", r.Name+":")
+		default:
+			fmt.Printf("%-9s installed (ready for first use).\n", r.Name+":")
+		}
+	}
 }
