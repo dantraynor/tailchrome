@@ -59,6 +59,7 @@ func (h *Host) handleSuggestExitNode() {
 			CountryCode: loc.CountryCode(),
 			Latitude:    loc.Latitude(),
 			Longitude:   loc.Longitude(),
+			Priority:    loc.Priority(),
 		}
 	}
 

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { detectPlatform, formatBytes, formatKeyExpiryLocal } from "./utils";
+import {
+  detectPlatform,
+  formatBytes,
+  formatKeyExpiryLocal,
+  formatLocationLabel,
+} from "./utils";
 
 describe("detectPlatform", () => {
   const originalNavigator = globalThis.navigator;
@@ -97,5 +102,55 @@ describe("formatKeyExpiryLocal", () => {
     const result = formatKeyExpiryLocal("2025-12-31T23:59:59Z");
     expect(result).toBeTruthy();
     expect(result).not.toBe("2025-12-31T23:59:59Z");
+  });
+});
+
+describe("formatLocationLabel", () => {
+  it("formats city and country", () => {
+    expect(
+      formatLocationLabel(
+        {
+          city: "Frankfurt",
+          cityCode: "fra",
+          country: "Germany",
+          countryCode: "DE",
+        },
+        "exit.example.ts.net",
+      ),
+    ).toBe("Frankfurt, Germany");
+  });
+
+  it("falls back to country code when country is omitted", () => {
+    expect(
+      formatLocationLabel(
+        {
+          city: "Frankfurt",
+          cityCode: "fra",
+          countryCode: "DE",
+        },
+        "exit.example.ts.net",
+      ),
+    ).toBe("Frankfurt, DE");
+  });
+
+  it("uses the fallback when location has no display fields", () => {
+    expect(
+      formatLocationLabel({ latitude: 50.1, longitude: 8.6 }, "exit.example.ts.net"),
+    ).toBe("exit.example.ts.net");
+  });
+
+  it("can prefer country code for compact labels", () => {
+    expect(
+      formatLocationLabel(
+        {
+          city: "Frankfurt",
+          cityCode: "fra",
+          country: "Germany",
+          countryCode: "DE",
+        },
+        "exit.example.ts.net",
+        "countryCode",
+      ),
+    ).toBe("Frankfurt, DE");
   });
 });

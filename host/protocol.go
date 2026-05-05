@@ -127,6 +127,7 @@ type LocationInfo struct {
 	CountryCode string  `json:"countryCode,omitempty"`
 	Latitude    float64 `json:"latitude,omitempty"`
 	Longitude   float64 `json:"longitude,omitempty"`
+	Priority    int     `json:"priority,omitempty"`
 }
 
 // ProfilesReply is the response to profile management commands.

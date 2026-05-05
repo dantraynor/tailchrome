@@ -246,7 +246,12 @@ export function initBackground(
           `[Background] Native error for cmd="${msg.error.cmd}":`,
           msg.error.message
         );
-        store.update({ error: msg.error.message });
+        store.update({
+          error: msg.error.message,
+          ...(msg.error.cmd === "set-exit-node"
+            ? { pendingExitNodeID: null }
+            : {}),
+        });
         sendToastToPopup(msg.error.message, "error");
       }
     }
@@ -408,12 +413,14 @@ export function initBackground(
       }
 
       case "set-exit-node": {
+        store.update({ pendingExitNodeID: msg.nodeID });
         nativeHost.send({ cmd: "set-exit-node", nodeID: msg.nodeID });
         chrome.storage.local.set({ lastExitNodeID: msg.nodeID });
         break;
       }
 
       case "clear-exit-node": {
+        store.update({ pendingExitNodeID: "" });
         nativeHost.send({ cmd: "set-exit-node", nodeID: "" });
         chrome.storage.local.remove("lastExitNodeID");
         break;

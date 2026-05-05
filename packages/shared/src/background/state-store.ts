@@ -17,6 +17,7 @@ const DEFAULT_STATE: TailscaleState = {
   browseToURL: null,
   prefs: null,
   health: [],
+  pendingExitNodeID: null,
   currentProfile: null,
   profiles: [],
   exitNodeSuggestion: null,
@@ -54,6 +55,13 @@ export class StateStore {
   }
 
   applyStatusUpdate(status: StatusUpdate): void {
+    const confirmedExitNodeID =
+      status.exitNode?.id ?? status.prefs?.exitNodeID ?? null;
+    const pendingExitNodeID = nextPendingExitNodeID(
+      this.state.pendingExitNodeID,
+      confirmedExitNodeID,
+    );
+
     this.update({
       backendState: status.backendState,
       tailnet: status.tailnet,
@@ -72,6 +80,7 @@ export class StateStore {
       prefs: status.prefs,
       health: status.health ?? [],
       error: status.error,
+      pendingExitNodeID,
     });
   }
 
@@ -84,4 +93,16 @@ export class StateStore {
       }
     }
   }
+}
+
+function nextPendingExitNodeID(
+  pendingExitNodeID: string | null,
+  confirmedExitNodeID: string | null,
+): string | null {
+  if (pendingExitNodeID === null) return null;
+  if ((pendingExitNodeID || null) === (confirmedExitNodeID || null)) {
+    return null;
+  }
+
+  return pendingExitNodeID;
 }

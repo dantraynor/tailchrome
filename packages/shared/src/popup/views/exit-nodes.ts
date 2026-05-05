@@ -1,5 +1,5 @@
-import type { TailscaleState, PeerInfo, ExitNodeSuggestion } from "../../types";
-import { addListKeyboardNav } from "../utils";
+import type { TailscaleState, PeerInfo } from "../../types";
+import { addListKeyboardNav, formatLocationLabel } from "../utils";
 import { sendMessage } from "../popup";
 import { iconArrowLeft } from "../icons";
 import { isMullvadExitNodePeer } from "../peer-filters";
@@ -22,6 +22,44 @@ interface ExitNodeGrouping {
   shared: PeerInfo[];
 }
 
+interface ApproxLocation {
+  latitude: number;
+  longitude: number;
+  countryCode?: string;
+}
+
+const TIMEZONE_APPROX_LOCATIONS: Record<string, ApproxLocation> = {
+  "America/New_York": { latitude: 40.7128, longitude: -74.006, countryCode: "US" },
+  "America/Detroit": { latitude: 42.3314, longitude: -83.0458, countryCode: "US" },
+  "America/Kentucky/Louisville": { latitude: 38.2527, longitude: -85.7585, countryCode: "US" },
+  "America/Kentucky/Monticello": { latitude: 36.8298, longitude: -84.8491, countryCode: "US" },
+  "America/Indiana/Indianapolis": { latitude: 39.7684, longitude: -86.1581, countryCode: "US" },
+  "America/Indiana/Vincennes": { latitude: 38.6773, longitude: -87.5286, countryCode: "US" },
+  "America/Indiana/Winamac": { latitude: 41.0514, longitude: -86.6031, countryCode: "US" },
+  "America/Indiana/Marengo": { latitude: 38.369, longitude: -86.3436, countryCode: "US" },
+  "America/Indiana/Petersburg": { latitude: 38.4914, longitude: -87.2786, countryCode: "US" },
+  "America/Indiana/Vevay": { latitude: 38.7478, longitude: -85.0672, countryCode: "US" },
+  "America/Chicago": { latitude: 41.8781, longitude: -87.6298, countryCode: "US" },
+  "America/Indiana/Tell_City": { latitude: 37.9514, longitude: -86.7678, countryCode: "US" },
+  "America/Indiana/Knox": { latitude: 41.2959, longitude: -86.625, countryCode: "US" },
+  "America/Menominee": { latitude: 45.1078, longitude: -87.6143, countryCode: "US" },
+  "America/North_Dakota/Center": { latitude: 47.1164, longitude: -101.2996, countryCode: "US" },
+  "America/North_Dakota/New_Salem": { latitude: 46.8436, longitude: -101.4107, countryCode: "US" },
+  "America/North_Dakota/Beulah": { latitude: 47.2633, longitude: -101.7779, countryCode: "US" },
+  "America/Denver": { latitude: 39.7392, longitude: -104.9903, countryCode: "US" },
+  "America/Boise": { latitude: 43.615, longitude: -116.2023, countryCode: "US" },
+  "America/Phoenix": { latitude: 33.4484, longitude: -112.074, countryCode: "US" },
+  "America/Los_Angeles": { latitude: 34.0522, longitude: -118.2437, countryCode: "US" },
+  "America/Anchorage": { latitude: 61.2181, longitude: -149.9003, countryCode: "US" },
+  "America/Juneau": { latitude: 58.3019, longitude: -134.4197, countryCode: "US" },
+  "America/Sitka": { latitude: 57.0531, longitude: -135.33, countryCode: "US" },
+  "America/Metlakatla": { latitude: 55.1292, longitude: -131.5764, countryCode: "US" },
+  "America/Yakutat": { latitude: 59.5469, longitude: -139.7272, countryCode: "US" },
+  "America/Nome": { latitude: 64.5011, longitude: -165.4064, countryCode: "US" },
+  "America/Adak": { latitude: 51.88, longitude: -176.6581, countryCode: "US" },
+  "Pacific/Honolulu": { latitude: 21.3069, longitude: -157.8583, countryCode: "US" },
+};
+
 /** Persists search query within a single exit node sub-view session. */
 let exitNodeSearchQuery = "";
 
@@ -39,12 +77,9 @@ export function renderExitNodes(
   onBack: () => void
 ): void {
   // Only reset the search query on initial open (not on state-driven re-renders).
-  // Also request a fresh recommendation so the "Recommended" row reflects the
-  // currently best-available exit node.
   const initialOpen = !root.querySelector(".exit-nodes-header");
   if (initialOpen) {
     exitNodeSearchQuery = "";
-    sendMessage({ type: "suggest-exit-node" });
   }
   root.textContent = "";
   const view = document.createElement("div");
@@ -147,9 +182,15 @@ function renderExitNodeList(
   container.textContent = "";
 
   const filtered = filterExitNodes(allExitNodes, exitNodeSearchQuery);
+  const recommendedMullvad = selectRecommendedMullvadExitNode(allExitNodes);
+  const selectedExitNodeID = effectiveSelectedExitNodeID(state);
+  const selectedExitNode = selectedExitNodeID
+    ? allExitNodes.find((node) => node.id === selectedExitNodeID) ??
+      (state.exitNode?.id === selectedExitNodeID ? state.exitNode : null)
+    : null;
 
-  // Recommended exit node (hidden when searching)
-  if (!exitNodeSearchQuery && state.exitNodeSuggestion) {
+  // Recommended Mullvad exit node (hidden when searching)
+  if (!exitNodeSearchQuery && recommendedMullvad) {
     const suggestSection = document.createElement("div");
     suggestSection.className = "exit-nodes-section exit-nodes-section--suggested";
 
@@ -158,26 +199,19 @@ function renderExitNodeList(
     suggestHeader.textContent = "Recommended";
     suggestSection.appendChild(suggestHeader);
 
-    const suggestion = state.exitNodeSuggestion;
-    const suggestLabel = suggestion.location
-      ? `${suggestion.location.city}, ${suggestion.location.country}`
-      : suggestion.hostname;
+    const suggestLabel = formatLocationLabel(
+      recommendedMullvad.location,
+      recommendedMullvad.hostname,
+    );
     const isSelected =
-      state.exitNode != null && state.exitNode.id === state.exitNodeSuggestion.id;
-    // Match against the peer list so we can show the flag and online indicator,
-    // then fall back to a synthetic node carrying just the suggestion's location.
-    const matchingPeer =
-      allExitNodes.find((n) => n.id === suggestion.id) ?? null;
-    const rowNode: PeerInfo | null =
-      matchingPeer ?? (suggestion.location
-        ? { ...synthesizeSuggestionPeer(suggestion) }
-        : null);
+      selectedExitNodeID === recommendedMullvad.id ||
+      sameExitNodeLocation(recommendedMullvad, selectedExitNode);
     const suggestRow = createExitNodeRow(
       suggestLabel,
-      rowNode,
+      recommendedMullvad,
       isSelected,
-      () => sendMessage({ type: "set-exit-node", nodeID: state.exitNodeSuggestion!.id }),
-      "Best available",
+      () => selectExitNode(recommendedMullvad.id),
+      "Best available Mullvad VPN",
     );
     suggestSection.appendChild(suggestRow);
     container.appendChild(suggestSection);
@@ -188,8 +222,8 @@ function renderExitNodeList(
     const noneRow = createExitNodeRow(
       "None (direct connection)",
       null,
-      state.exitNode == null,
-      () => sendMessage({ type: "clear-exit-node" })
+      selectedExitNodeID == null,
+      () => clearExitNode()
     );
     container.appendChild(noneRow);
   }
@@ -209,7 +243,7 @@ function renderExitNodeList(
     return;
   }
 
-  if (!hasAnyNodes && !state.exitNodeSuggestion) {
+  if (!hasAnyNodes && !recommendedMullvad) {
     const emptyState = document.createElement("div");
     emptyState.className = "empty-state";
 
@@ -235,10 +269,14 @@ function renderExitNodeList(
   // "Mullvad VPN" section
   if (mullvad.length > 0) {
     // Auto-expand the country containing the active exit node on first render only
-    if (!autoExpandDone && state.exitNode) {
+    if (!autoExpandDone && selectedExitNodeID) {
       autoExpandDone = true;
-      const activeNode = allExitNodes.find((n) => n.id === state.exitNode!.id);
-      if (activeNode && isMullvadExitNodePeer(activeNode) && activeNode.location) {
+      const activeNode = allExitNodes.find((n) => n.id === selectedExitNodeID);
+      if (
+        activeNode &&
+        isMullvadExitNodePeer(activeNode) &&
+        activeNode.location?.countryCode
+      ) {
         expandedCountries.add(activeNode.location.countryCode);
       }
     }
@@ -249,6 +287,21 @@ function renderExitNodeList(
   if (shared.length > 0) {
     renderFlatSection(container, "Shared", shared, state);
   }
+}
+
+export function selectRecommendedMullvadExitNode(
+  nodes: PeerInfo[],
+  clientLocation: ApproxLocation | null = currentApproxLocation(),
+): PeerInfo | null {
+  const candidates = nodes.filter(
+    (node) =>
+      node.exitNodeOption &&
+      isMullvadExitNodePeer(node) &&
+      hasLocationLabel(node.location),
+  );
+
+  candidates.sort((a, b) => compareRecommendedMullvadExitNodes(a, b, clientLocation));
+  return candidates[0] ?? null;
 }
 
 function renderFlatSection(
@@ -264,14 +317,13 @@ function renderFlatSection(
   sectionHeader.className = "section-header";
   sectionHeader.textContent = label;
   section.appendChild(sectionHeader);
+  const selectedExitNodeID = effectiveSelectedExitNodeID(state);
 
   for (const node of nodes) {
-    const nodeLabel = node.location
-      ? `${node.location.city}, ${node.location.country}`
-      : node.hostname;
-    const isSelected = state.exitNode != null && state.exitNode.id === node.id;
+    const nodeLabel = formatLocationLabel(node.location, node.hostname);
+    const isSelected = selectedExitNodeID === node.id;
     const row = createExitNodeRow(nodeLabel, node, isSelected, () =>
-      sendMessage({ type: "set-exit-node", nodeID: node.id })
+      selectExitNode(node.id)
     );
     section.appendChild(row);
   }
@@ -291,6 +343,7 @@ function renderMullvadSection(
   sectionHeader.className = "section-header";
   sectionHeader.textContent = "Mullvad VPN";
   section.appendChild(sectionHeader);
+  const selectedExitNodeID = effectiveSelectedExitNodeID(state);
 
   for (const country of groups) {
     const isExpanded = expandedCountries.has(country.countryCode);
@@ -338,11 +391,11 @@ function renderMullvadSection(
       const bestNode = city.nodes.find((n) => n.online) ?? city.nodes[0];
       if (!bestNode) continue;
       const cityHasSelection = city.nodes.some(
-        (n) => state.exitNode != null && state.exitNode.id === n.id
+        (n) => selectedExitNodeID === n.id
       );
 
       const row = createExitNodeRow(city.city, bestNode, cityHasSelection, () =>
-        sendMessage({ type: "set-exit-node", nodeID: bestNode.id })
+        selectExitNode(bestNode.id)
       );
       row.classList.add("mullvad-city-row");
       cityList.appendChild(row);
@@ -433,8 +486,10 @@ function createExitNodeRow(
       spinner.className = "spinner spinner-sm";
       row.appendChild(spinner);
       row.classList.add("exit-node-row--selected");
-      onSelect();
+      radio.classList.add("exit-node-radio--selected");
+      row.setAttribute("aria-checked", "true");
     }
+    onSelect();
   };
   row.addEventListener("click", handleSelect);
   row.addEventListener("keydown", (e) => {
@@ -446,6 +501,46 @@ function createExitNodeRow(
   return row;
 }
 
+function selectExitNode(nodeID: string): void {
+  sendMessage({ type: "set-exit-node", nodeID });
+}
+
+function clearExitNode(): void {
+  sendMessage({ type: "clear-exit-node" });
+}
+
+function effectiveSelectedExitNodeID(state: TailscaleState): string | null {
+  if (state.pendingExitNodeID !== null) {
+    return state.pendingExitNodeID || null;
+  }
+
+  return state.exitNode?.id ?? state.prefs?.exitNodeID ?? null;
+}
+
+function sameExitNodeLocation(
+  a: Pick<PeerInfo, "location">,
+  b: Pick<PeerInfo, "location"> | null,
+): boolean {
+  if (!a.location || !b?.location) return false;
+
+  const aCountry = (
+    locationPart(a.location.countryCode) ?? locationPart(a.location.country)
+  )?.toUpperCase();
+  const bCountry = (
+    locationPart(b.location.countryCode) ?? locationPart(b.location.country)
+  )?.toUpperCase();
+  if (!aCountry || !bCountry || aCountry !== bCountry) return false;
+
+  const aCity = (
+    locationPart(a.location.cityCode) ?? locationPart(a.location.city)
+  )?.toLowerCase();
+  const bCity = (
+    locationPart(b.location.cityCode) ?? locationPart(b.location.city)
+  )?.toLowerCase();
+
+  return Boolean(aCity && bCity && aCity === bCity);
+}
+
 function groupExitNodes(nodes: PeerInfo[]): ExitNodeGrouping {
   const own: PeerInfo[] = [];
   const mullvadRaw: PeerInfo[] = [];
@@ -453,7 +548,7 @@ function groupExitNodes(nodes: PeerInfo[]): ExitNodeGrouping {
 
   for (const node of nodes) {
     if (isMullvadExitNodePeer(node)) {
-      if (node.location) {
+      if (node.location && hasLocationLabel(node.location)) {
         mullvadRaw.push(node);
       } else {
         // Mullvad node without location — show in shared as fallback
@@ -477,11 +572,15 @@ function groupMullvadByCountry(nodes: PeerInfo[]): MullvadCountryGroup[] {
   for (const node of nodes) {
     const loc = node.location;
     if (!loc) continue;
-    const cc = loc.countryCode;
-    const cityKey = loc.cityCode || loc.city;
+    const cc = locationPart(loc.countryCode) ?? locationPart(loc.country) ?? node.id;
+    const cityKey =
+      locationPart(loc.cityCode) ?? locationPart(loc.city) ?? node.hostname;
 
-    countryNames.set(cc, loc.country);
-    cityNames.set(cityKey, loc.city);
+    countryNames.set(
+      cc,
+      locationPart(loc.country) ?? locationPart(loc.countryCode) ?? "Unknown",
+    );
+    cityNames.set(cityKey, locationPart(loc.city) ?? node.hostname);
 
     if (!countryMap.has(cc)) countryMap.set(cc, new Map());
     const cityMap = countryMap.get(cc)!;
@@ -512,6 +611,92 @@ function groupMullvadByCountry(nodes: PeerInfo[]): MullvadCountryGroup[] {
   return result;
 }
 
+function locationPart(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function hasLocationLabel(location: PeerInfo["location"]): boolean {
+  return Boolean(
+    locationPart(location?.city) ||
+    locationPart(location?.country) ||
+    locationPart(location?.countryCode),
+  );
+}
+
+function currentApproxLocation(): ApproxLocation | null {
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return timeZone ? TIMEZONE_APPROX_LOCATIONS[timeZone] ?? null : null;
+  } catch {
+    return null;
+  }
+}
+
+function compareRecommendedMullvadExitNodes(
+  a: PeerInfo,
+  b: PeerInfo,
+  clientLocation: ApproxLocation | null,
+): number {
+  const online = Number(b.online) - Number(a.online);
+  if (online !== 0) return online;
+
+  if (clientLocation) {
+    const sameCountry =
+      Number(normalizedCountryCode(b.location) === clientLocation.countryCode) -
+      Number(normalizedCountryCode(a.location) === clientLocation.countryCode);
+    if (sameCountry !== 0) return sameCountry;
+
+    const aDistance = distanceKm(clientLocation, a.location);
+    const bDistance = distanceKm(clientLocation, b.location);
+    if (aDistance != null && bDistance != null) {
+      const distance = aDistance - bDistance;
+      if (distance !== 0) return distance;
+    } else if (aDistance != null || bDistance != null) {
+      return aDistance != null ? -1 : 1;
+    }
+  }
+
+  const priority = (b.location?.priority ?? 0) - (a.location?.priority ?? 0);
+  if (priority !== 0) return priority;
+
+  return formatLocationLabel(a.location, a.hostname).localeCompare(
+    formatLocationLabel(b.location, b.hostname),
+  );
+}
+
+function normalizedCountryCode(location: PeerInfo["location"]): string | undefined {
+  return locationPart(location?.countryCode)?.toUpperCase();
+}
+
+function distanceKm(
+  origin: ApproxLocation,
+  destination: PeerInfo["location"],
+): number | null {
+  const destLat = destination?.latitude;
+  const destLon = destination?.longitude;
+  if (
+    typeof destLat !== "number" ||
+    typeof destLon !== "number" ||
+    !Number.isFinite(destLat) ||
+    !Number.isFinite(destLon)
+  ) {
+    return null;
+  }
+
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(destLat - origin.latitude);
+  const dLon = toRadians(destLon - origin.longitude);
+  const lat1 = toRadians(origin.latitude);
+  const lat2 = toRadians(destLat);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 function countryCodeToEmoji(code: string): string {
   const upper = code.toUpperCase();
   if (upper.length !== 2) return "";
@@ -520,37 +705,4 @@ function countryCodeToEmoji(code: string): string {
     a + upper.charCodeAt(0) - 65,
     a + upper.charCodeAt(1) - 65
   );
-}
-
-/**
- * Builds a placeholder PeerInfo for the recommended exit node when the suggestion's
- * peer isn't in our peer list (e.g. the netmap hasn't propagated it yet). Only the
- * fields used by the row renderer are populated.
- */
-function synthesizeSuggestionPeer(suggestion: ExitNodeSuggestion): PeerInfo {
-  return {
-    id: suggestion.id,
-    hostname: suggestion.hostname,
-    dnsName: "",
-    tailscaleIPs: [],
-    os: "",
-    online: true,
-    active: false,
-    exitNode: false,
-    exitNodeOption: true,
-    isSubnetRouter: false,
-    subnets: [],
-    tags: [],
-    rxBytes: 0,
-    txBytes: 0,
-    lastSeen: null,
-    lastHandshake: null,
-    location: suggestion.location,
-    taildropTarget: false,
-    sshHost: false,
-    userId: 0,
-    userName: "",
-    userLoginName: "",
-    userProfilePicURL: "",
-  };
 }
