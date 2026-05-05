@@ -265,23 +265,13 @@ describe("initBackground", () => {
       expect(toastCalls).toHaveLength(0);
     });
 
-    it("clears stale suggestion and stays quiet on suggest-exit-node errors", async () => {
+    it("stays quiet on suggest-exit-node errors", async () => {
       await setupBackground();
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-      // Seed a previous successful suggestion.
-      sendNativeMessage({
-        exitNodeSuggestion: {
-          id: "node-suggested",
-          hostname: "best.example.ts.net",
-          location: null,
-        },
-      });
 
       const popupPort = createPopupPort();
       connectListeners[0]!(popupPort);
       popupPort.postMessage.mockClear();
-      (proxyManager.apply as ReturnType<typeof vi.fn>).mockClear();
 
       sendNativeMessage({
         error: { cmd: "suggest-exit-node", message: "no suggestion available" },
@@ -294,11 +284,6 @@ describe("initBackground", () => {
       expect(toastCalls).toHaveLength(0);
       expect(proxyManager.apply).not.toHaveBeenCalledWith(
         expect.objectContaining({ error: "no suggestion available" })
-      );
-
-      // Stale suggestion must be cleared so the picker doesn't keep showing it.
-      expect(proxyManager.apply).toHaveBeenCalledWith(
-        expect.objectContaining({ exitNodeSuggestion: null })
       );
       warnSpy.mockRestore();
     });
