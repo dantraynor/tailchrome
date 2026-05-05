@@ -81,6 +81,7 @@ func peerStatusToPeerInfo(ps *ipnstate.PeerStatus, st *ipnstate.Status) PeerInfo
 			CountryCode: ps.Location.CountryCode,
 			Latitude:    ps.Location.Latitude,
 			Longitude:   ps.Location.Longitude,
+			Priority:    ps.Location.Priority,
 		}
 	}
 

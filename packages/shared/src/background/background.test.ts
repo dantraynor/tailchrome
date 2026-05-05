@@ -515,6 +515,9 @@ describe("initBackground", () => {
         cmd: "set-exit-node",
         nodeID: "node123",
       });
+      expect(proxyManager.apply).toHaveBeenCalledWith(
+        expect.objectContaining({ pendingExitNodeID: "node123" }),
+      );
       expect(chrome.storage.local.set).toHaveBeenCalledWith({ lastExitNodeID: "node123" });
     });
 
@@ -530,6 +533,9 @@ describe("initBackground", () => {
         cmd: "set-exit-node",
         nodeID: "",
       });
+      expect(proxyManager.apply).toHaveBeenCalledWith(
+        expect.objectContaining({ pendingExitNodeID: "" }),
+      );
       expect(chrome.storage.local.remove).toHaveBeenCalledWith("lastExitNodeID");
     });
 

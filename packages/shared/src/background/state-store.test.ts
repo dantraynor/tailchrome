@@ -218,6 +218,43 @@ describe("StateStore", () => {
       expect(store.getState().health).toEqual([]);
     });
 
+    it("keeps pending exit node until status confirms it", () => {
+      const store = new StateStore();
+      store.update({ pendingExitNodeID: "node123" });
+
+      store.applyStatusUpdate({
+        backendState: "Running",
+        running: true,
+        tailnet: "t",
+        magicDNSSuffix: "",
+        selfNode: null,
+        needsLogin: false,
+        browseToURL: "",
+        exitNode: null,
+        peers: [],
+        prefs: null,
+        health: [],
+        error: null,
+      });
+      expect(store.getState().pendingExitNodeID).toBe("node123");
+
+      store.applyStatusUpdate({
+        backendState: "Running",
+        running: true,
+        tailnet: "t",
+        magicDNSSuffix: "",
+        selfNode: null,
+        needsLogin: false,
+        browseToURL: "",
+        exitNode: { id: "node123", hostname: "nyc", location: null, online: true },
+        peers: [],
+        prefs: null,
+        health: [],
+        error: null,
+      });
+      expect(store.getState().pendingExitNodeID).toBeNull();
+    });
+
     it("notifies listeners after applying status", () => {
       const store = new StateStore();
       const listener = vi.fn();

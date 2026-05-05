@@ -1,3 +1,5 @@
+import type { PeerLocation } from "../types";
+
 /**
  * Escapes HTML special characters to prevent XSS when inserting user content.
  */
@@ -192,4 +194,29 @@ export function formatKeyExpiryLocal(iso: string | null | undefined): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString();
+}
+
+function nonEmpty(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/**
+ * Formats a geographic label from native-host location data.
+ * Location fields are omitted from JSON when empty, so handle partial objects.
+ */
+export function formatLocationLabel(
+  location: Partial<PeerLocation> | null | undefined,
+  fallback: string,
+  countryPreference: "country" | "countryCode" = "country",
+): string {
+  const city = nonEmpty(location?.city);
+  const preferredCountry =
+    countryPreference === "countryCode" ? location?.countryCode : location?.country;
+  const secondaryCountry =
+    countryPreference === "countryCode" ? location?.country : location?.countryCode;
+  const country = nonEmpty(preferredCountry) ?? nonEmpty(secondaryCountry);
+  const parts = [city, country].filter((part): part is string => Boolean(part));
+
+  return parts.length > 0 ? parts.join(", ") : fallback;
 }

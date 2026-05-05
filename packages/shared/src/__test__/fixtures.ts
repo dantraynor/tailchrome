@@ -16,6 +16,7 @@ export function baseState(overrides: Partial<TailscaleState> = {}): TailscaleSta
     browseToURL: null,
     prefs: null,
     health: [],
+    pendingExitNodeID: null,
     currentProfile: null,
     profiles: [],
     exitNodeSuggestion: null,

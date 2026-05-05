@@ -115,10 +115,13 @@ export interface PeerInfo {
 }
 
 export interface PeerLocation {
-  city: string;
-  cityCode: string;
-  country: string;
-  countryCode: string;
+  city?: string;
+  cityCode?: string;
+  country?: string;
+  countryCode?: string;
+  latitude?: number;
+  longitude?: number;
+  priority?: number;
 }
 
 export interface ExitNodeInfo {
@@ -189,6 +192,8 @@ export interface TailscaleState {
   browseToURL: string | null;
   prefs: TailscalePrefs | null;
   health: string[];
+  /** Exit node ID optimistically selected in the UI while the native host catches up. */
+  pendingExitNodeID: string | null;
 
   currentProfile: ProfileInfo | null;
   profiles: ProfileInfo[];

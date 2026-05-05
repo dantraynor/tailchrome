@@ -4,7 +4,7 @@ import { renderHeader } from "../components/header";
 import { renderPeerList, updatePeerList, filterPeers } from "../components/peer-list";
 import { peersForDeviceList } from "../peer-filters";
 import { renderHealthWarnings } from "../components/health-warnings";
-import { createCopyButton, formatKeyExpiryLocal } from "../utils";
+import { createCopyButton, formatKeyExpiryLocal, formatLocationLabel } from "../utils";
 import { sendMessage, enterSubView, leaveSubView, getLatestState } from "../popup";
 import { createToggle } from "../components/toggle-switch";
 import { renderExitNodes } from "./exit-nodes";
@@ -127,9 +127,11 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   const exitValue = document.createElement("span");
   exitValue.className = "setting-value";
   if (state.exitNode) {
-    exitValue.textContent = state.exitNode.location
-      ? `${state.exitNode.location.city}, ${state.exitNode.location.countryCode}`
-      : state.exitNode.hostname;
+    exitValue.textContent = formatLocationLabel(
+      state.exitNode.location,
+      state.exitNode.hostname,
+      "countryCode",
+    );
   } else {
     exitValue.textContent = "None";
   }
@@ -456,9 +458,11 @@ function fillFooterDiagnostics(diagRow: HTMLElement, state: TailscaleState): voi
  */
 function exitNodeDisplayText(state: TailscaleState): string {
   if (state.exitNode) {
-    return state.exitNode.location
-      ? `${state.exitNode.location.city}, ${state.exitNode.location.countryCode}`
-      : state.exitNode.hostname;
+    return formatLocationLabel(
+      state.exitNode.location,
+      state.exitNode.hostname,
+      "countryCode",
+    );
   }
   return "None";
 }
