@@ -155,9 +155,10 @@ func TestInstallChromiumFamilyParentExistedTrueWhenDirPresent(t *testing.T) {
 	if len(dirs) == 0 {
 		t.Skip("no chromium manifest dirs on this platform")
 	}
-	// Pre-create one parent dir so its result reports ParentExisted=true.
+	// Pre-create one browser's parent (config) dir so its result
+	// reports ParentExisted=true.
 	first := dirs[0]
-	if err := os.MkdirAll(first.Dir, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(first.Dir), 0755); err != nil {
 		t.Fatalf("pre-create dir: %v", err)
 	}
 

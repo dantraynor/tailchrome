@@ -80,30 +80,27 @@ func installChromiumFamily(extensionID string) ([]BrowserInstallResult, error) {
 	}
 
 	dirs := chromiumManifestDirs()
+
+	// Pre-pass: snapshot which browsers have a pre-existing footprint, before
+	// we mutate anything. This makes "ParentExisted" mean "did this look
+	// installed at the moment we started?" on every platform — important on
+	// Windows where browsers share a common manifest JSON directory, so
+	// stat'ing inside the loop would report a misleading footprint for
+	// browsers iterated after the first.
+	parentExisted := make([]bool, len(dirs))
+	for i := range dirs {
+		parentExisted[i] = browserHasFootprint(dirs[i])
+	}
+
 	results := make([]BrowserInstallResult, 0, len(dirs))
 	successes := 0
-	for _, target := range dirs {
-		r := BrowserInstallResult{Name: target.Name}
-		if _, statErr := os.Stat(target.Dir); statErr == nil {
-			r.ParentExisted = true
-		}
-		if err := os.MkdirAll(target.Dir, 0755); err != nil {
-			r.Err = fmt.Errorf("create dir: %w", err)
-			results = append(results, r)
-			continue
-		}
-		manifestPath := filepath.Join(target.Dir, manifestNameChrome+".json")
-		if err := writeManifest(manifestPath, manifest); err != nil {
+	for i, target := range dirs {
+		r := BrowserInstallResult{Name: target.Name, ParentExisted: parentExisted[i]}
+		if err := installOneChromium(target, manifest); err != nil {
 			r.Err = err
-			results = append(results, r)
-			continue
+		} else {
+			successes++
 		}
-		if err := platformPostInstallChromium(target.Name, manifestPath); err != nil {
-			r.Err = err
-			results = append(results, r)
-			continue
-		}
-		successes++
 		results = append(results, r)
 	}
 
@@ -117,6 +114,19 @@ func installChromiumFamily(extensionID string) ([]BrowserInstallResult, error) {
 		return results, fmt.Errorf("no Chromium-family browser manifests installed: %w", errors.Join(errs...))
 	}
 	return results, nil
+}
+
+// installOneChromium writes the manifest JSON into target.Dir and runs the
+// per-browser platform post-install hook. Returns nil on success.
+func installOneChromium(target chromiumBrowserTarget, manifest nativeManifest) error {
+	if err := os.MkdirAll(target.Dir, 0755); err != nil {
+		return fmt.Errorf("create dir: %w", err)
+	}
+	manifestPath := filepath.Join(target.Dir, manifestNameChrome+".json")
+	if err := writeManifest(manifestPath, manifest); err != nil {
+		return err
+	}
+	return platformPostInstallChromium(target.Name, manifestPath)
 }
 
 // installFirefox installs the native messaging host for Firefox.

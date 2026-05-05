@@ -49,6 +49,14 @@ func platformUninstall() error {
 // installChromiumFamily loop. No-op on macOS.
 func platformPostInstallChromium(_ string, _ string) error { return nil }
 
+// browserHasFootprint reports whether there is evidence on this machine that
+// the named browser has ever run — either its config dir exists (Linux/macOS)
+// or its vendor registry key exists (Windows). Used to label install status.
+func browserHasFootprint(target chromiumBrowserTarget) bool {
+	_, err := os.Stat(filepath.Dir(target.Dir))
+	return err == nil
+}
+
 func platformPostInstallFirefox(_ string) error { return nil }
 
 // isBrowserInstalled checks whether a browser is present on the system.

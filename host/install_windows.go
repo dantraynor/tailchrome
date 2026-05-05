@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/sys/windows/registry"
 )
@@ -58,6 +59,25 @@ func platformPostInstallChromium(name, manifestPath string) error {
 		return createRegistryKey(registry.CURRENT_USER, target.Path, manifestPath)
 	}
 	return fmt.Errorf("no Windows registry path defined for browser %q", name)
+}
+
+// browserHasFootprint reports whether there is evidence on this machine that
+// the named browser has ever run — either its config dir exists (Linux/macOS)
+// or its vendor registry key exists (Windows). Used to label install status.
+func browserHasFootprint(target chromiumBrowserTarget) bool {
+	// target.Path is like `Software\Google\Chrome\NativeMessagingHosts\<name>`.
+	// The vendor key is the path up to (but excluding) `NativeMessagingHosts`.
+	idx := strings.LastIndex(target.Path, `\NativeMessagingHosts\`)
+	if idx < 0 {
+		return false
+	}
+	vendorKey := target.Path[:idx]
+	k, err := registry.OpenKey(registry.CURRENT_USER, vendorKey, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	_ = k.Close()
+	return true
 }
 
 // platformPostInstallFirefox creates the Windows registry key for Firefox after
