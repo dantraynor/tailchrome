@@ -1,8 +1,6 @@
 # Chromium-family Native Messaging Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
-**Goal:** Make the native helper write its native-messaging manifest to every supported Chromium-family browser (Chrome, Chromium, Brave, Edge, Vivaldi, Opera, Arc on macOS) so the extension works in any of them, fixing #66.
+**Goal:** Make the native helper write its native-messaging manifest to every supported Chromium-family browser and Chrome channel (Chrome Stable/Beta/Canary/Dev where shipped, Chromium, Brave, Edge, Vivaldi, Opera, Arc on macOS) so the extension works in any of them, fixing #65 and #66.
 
 **Architecture:** Replace the single `chromeManifestDir()` function in each platform file with a per-platform list of `chromiumBrowserTarget` entries. Refactor `installChrome` into `installChromiumFamily`, which loops over the list, writing the same manifest JSON into every directory and returning a per-browser result slice. `uninstall()` does the inverse. `main.go` prints per-browser status lines.
 

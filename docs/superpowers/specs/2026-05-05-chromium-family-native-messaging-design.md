@@ -1,17 +1,20 @@
-# Native messaging support for Chromium-family browsers
+# Native messaging support for Chromium-family browsers and Chrome channels
 
+Closes [#65](https://github.com/dantraynor/tailchrome/issues/65).
 Closes [#66](https://github.com/dantraynor/tailchrome/issues/66).
 
 ## Problem
 
 The native helper (`tailscale-browser-ext`) only writes its native messaging
-manifest into Google Chrome's directory. Brave, Edge, Vivaldi, Opera, Chromium,
-and Arc all use different per-browser directories for native messaging hosts,
-so the extension installed in those browsers cannot find the helper after the
-user runs the installer.
+manifest into Google Chrome Stable's directory. Chrome Beta, Chrome Canary,
+Chrome Dev, Brave, Edge, Vivaldi, Opera, Chromium, and Arc all use different
+per-browser or per-channel directories for native messaging hosts on at least
+one supported platform, so the extension installed in those browsers cannot
+find the helper after the user runs the installer.
 
-Reported on Brave 1.89.143 / CachyOS in #66, but the same failure mode applies
-to every Chromium-based browser other than Chrome.
+Reported on Chrome Beta on macOS in #65 and Brave 1.89.143 / CachyOS in #66,
+but the same failure mode applies to every Chromium-based browser or Chrome
+channel with a separate native messaging host location.
 
 The current code paths are:
 
@@ -29,8 +32,8 @@ macOS, registry on Windows).
 ## Goal
 
 The helper writes its native messaging manifest to every supported Chromium
-browser's location on every supported platform, so the extension works in any
-of them without further user action.
+browser and Chrome channel location on every supported platform, so the
+extension works in any of them without further user action.
 
 ## Non-goals
 
@@ -57,6 +60,9 @@ of them without further user action.
 | Browser  | Linux config dir                                     | macOS Application Support dir          | Windows registry path                                            |
 | -------- | ---------------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------- |
 | Chrome   | `.config/google-chrome/NativeMessagingHosts`         | `Google/Chrome/NativeMessagingHosts`   | `Software\Google\Chrome\NativeMessagingHosts`                    |
+| Chrome Beta | `.config/google-chrome-beta/NativeMessagingHosts` | `Google/Chrome Beta/NativeMessagingHosts` | Covered by `Software\Google\Chrome\NativeMessagingHosts`      |
+| Chrome Canary | — (Linux not shipped)                         | `Google/Chrome Canary/NativeMessagingHosts` | Covered by `Software\Google\Chrome\NativeMessagingHosts`   |
+| Chrome Dev | `.config/google-chrome-unstable/NativeMessagingHosts` | `Google/Chrome Dev/NativeMessagingHosts` | Covered by `Software\Google\Chrome\NativeMessagingHosts`    |
 | Chromium | `.config/chromium/NativeMessagingHosts`              | `Chromium/NativeMessagingHosts`        | `Software\Chromium\NativeMessagingHosts`                         |
 | Brave    | `.config/BraveSoftware/Brave-Browser/NativeMessagingHosts` | `BraveSoftware/Brave-Browser/NativeMessagingHosts` | `Software\BraveSoftware\Brave-Browser\NativeMessagingHosts` |
 | Edge     | `.config/microsoft-edge/NativeMessagingHosts`        | `Microsoft Edge/NativeMessagingHosts`  | `Software\Microsoft\Edge\NativeMessagingHosts`                   |
@@ -67,6 +73,9 @@ of them without further user action.
 The macOS paths are all rooted at `~/Library/Application Support/`. Linux paths
 are rooted at `$HOME`. Windows paths are HKCU registry keys with the manifest
 JSON living at `%LOCALAPPDATA%\Tailscale\BrowserExt\<manifest-name>.json`.
+Chrome Stable, Beta, Dev, and Canary share the Chrome native messaging
+registry root on Windows; Canary's `Chrome SxS` suffix applies to install and
+user-data paths, not the native messaging registry root.
 
 The same `chromeWebStoreExtensionID` (`bhfeceecialgilpedkoflminjgcjljll`) is
 used for every Chromium browser, because all of them install Chrome Web Store
@@ -89,6 +98,8 @@ func chromiumManifestDirs() []struct{ Name, Dir string } {
     home, _ := os.UserHomeDir()
     return []struct{ Name, Dir string }{
         {"Chrome",   filepath.Join(home, ".config", "google-chrome", "NativeMessagingHosts")},
+        {"Chrome Beta", filepath.Join(home, ".config", "google-chrome-beta", "NativeMessagingHosts")},
+        {"Chrome Dev", filepath.Join(home, ".config", "google-chrome-unstable", "NativeMessagingHosts")},
         {"Chromium", filepath.Join(home, ".config", "chromium", "NativeMessagingHosts")},
         {"Brave",    filepath.Join(home, ".config", "BraveSoftware", "Brave-Browser", "NativeMessagingHosts")},
         {"Edge",     filepath.Join(home, ".config", "microsoft-edge", "NativeMessagingHosts")},
@@ -99,7 +110,8 @@ func chromiumManifestDirs() []struct{ Name, Dir string } {
 ```
 
 `host/install_darwin.go` mirrors the structure rooted at
-`~/Library/Application Support/`, plus an extra `Arc` entry pointing at
+`~/Library/Application Support/`, adds Chrome Beta, Chrome Canary, and Chrome
+Dev under `Google/`, plus an extra `Arc` entry pointing at
 `Arc/User Data/NativeMessagingHosts`.
 
 `host/install_windows.go` defines a slice of (display-name, registry-path)
@@ -224,7 +236,8 @@ Add a unit test in `host/install_test.go` that:
 4. Calls `uninstall()` and asserts the files are gone.
 
 A separate per-platform test verifies that the platform's list of target
-directories is non-empty and contains at least Chrome and Brave.
+directories is non-empty and pins the full ordered list, including Chrome
+channel entries.
 
 Manual verification:
 
