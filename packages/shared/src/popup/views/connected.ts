@@ -469,6 +469,15 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     return;
   }
 
+  const hasProfileRow = [...view.querySelectorAll(".setting-label")].some(
+    (el) => el.textContent === "Profile",
+  );
+  const shouldHaveProfileRow = state.profiles.length > 0;
+  if (hasProfileRow !== shouldHaveProfileRow) {
+    renderConnected(root, state);
+    return;
+  }
+
   const tailnetEl = view.querySelector(".status-bar-tailnet");
   if (tailnetEl) {
     const newTailnet = state.tailnet || "My Tailnet";

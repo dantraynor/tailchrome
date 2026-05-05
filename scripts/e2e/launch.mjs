@@ -1,6 +1,7 @@
 import puppeteer from "puppeteer";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -51,6 +52,11 @@ function ensureChromeInstalled() {
   }
 }
 
+function chromeExecutablePath() {
+  if (process.env.CHROME_BINARY) return process.env.CHROME_BINARY;
+  return puppeteer.executablePath();
+}
+
 function ensureFirefoxInstalled() {
   const firefoxBinary = process.env.FIREFOX_BINARY;
   if (firefoxBinary) {
@@ -85,8 +91,11 @@ async function launchChrome(extensionDir) {
   ensureChromeInstalled();
 
   const headless = process.env.HEADLESS !== "false";
+  const userDataDir = mkdtempSync(resolve(tmpdir(), "tailchrome-chrome-profile-"));
   const browser = await puppeteer.launch({
     headless,
+    executablePath: chromeExecutablePath(),
+    userDataDir,
     args: [
       `--disable-extensions-except=${extensionDir}`,
       `--load-extension=${extensionDir}`,
@@ -111,10 +120,12 @@ async function launchChrome(extensionDir) {
 async function launchFirefox(extensionDir) {
   const executablePath = ensureFirefoxInstalled();
   const headless = process.env.HEADLESS !== "false";
+  const userDataDir = mkdtempSync(resolve(tmpdir(), "tailchrome-firefox-profile-"));
   const browser = await puppeteer.launch({
     browser: "firefox",
     executablePath,
     headless,
+    userDataDir,
     extraPrefsFirefox: {
       "extensions.webextensions.uuids": JSON.stringify({
         [firefoxAddonId]: firefoxExtensionUuid,
