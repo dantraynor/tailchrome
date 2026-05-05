@@ -1,6 +1,7 @@
 import { copyToClipboard, showToast, detectPlatform } from "../utils";
 import { EXPECTED_HOST_VERSION } from "../../constants";
 import { iconPackage, iconRefresh } from "../icons";
+import { renderUiSurfaceFooter } from "../components/ui-surface-row";
 
 type Platform = "macos" | "linux" | "windows" | "unknown";
 
@@ -297,6 +298,7 @@ export function renderInstallFlow(
   }
 
   view.appendChild(content);
+  renderUiSurfaceFooter(view);
   root.appendChild(view);
 }
 

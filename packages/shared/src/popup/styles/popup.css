@@ -9,7 +9,6 @@ html, body {
   padding: 0;
   width: 360px;
   min-height: 200px;
-  max-height: 540px;
   overflow-y: auto;
   font-family: var(--font-family);
   font-size: var(--font-size-base);
@@ -18,6 +17,17 @@ html, body {
   background: var(--bg-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* When the extension renders in a side panel (Chrome) or sidebar (Firefox)
+   the host surface is wider than the popup's 360px. Release the fixed width
+   so the body fills the available space and the #root container queries
+   can drive the responsive layout. */
+@media (min-width: 380px) {
+  html, body {
+    width: 100%;
+    max-width: none;
+  }
 }
 
 /* Thin, subtle scrollbar */
@@ -40,9 +50,12 @@ html, body {
 
 /* Root container */
 #root {
-  min-height: 100%;
   display: flex;
   flex-direction: column;
+  /* Container query host — breakpoints below react to #root's rendered width. */
+  container-type: inline-size;
+  width: 100%;
+  min-width: 320px;
 }
 
 /* Section dividers */
@@ -90,4 +103,35 @@ a:hover {
   outline: none;
   box-shadow: var(--shadow-focus);
   border-radius: var(--radius-sm);
+}
+
+/* Surface toggle footer for the disconnected / needs-login / needs-install /
+   needs-update views. The connected view shows the toggle inside its quick-
+   settings block, but those views never reach quick-settings, so the toggle
+   needs an always-on home that lets users switch back from side-panel mode.
+   The footer trails the view's content rather than sticking to the bottom —
+   .view isn't a flex container, so flex-based bottom alignment would be a
+   no-op. Acceptable for the small content these views render. */
+.ui-surface-footer {
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--border);
+}
+.ui-surface-footer .setting-row {
+  padding: 0;
+}
+
+/* === Container-query layout === */
+
+/* Popup baseline (~360px) and side panels (380px+) currently use the same
+   compact single-column layout. The .panel-shell + .panel-detail-pane DOM
+   wrappers are in place but a wide two-column layout is intentionally not
+   wired here — the right pane has nothing to render until the peer-details
+   drawer ships, and showing an unfillable column would be a broken
+   affordance. Land the breakpoint and pane styling in the drawer PR. */
+
+/* Narrow side panel breathing room. */
+@container (min-width: 380px) {
+  .quick-settings .setting-row {
+    padding-block: var(--space-sm);
+  }
 }

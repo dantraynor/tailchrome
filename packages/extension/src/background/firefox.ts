@@ -2,6 +2,7 @@ import {
   initBackground,
   type BackgroundHandle,
 } from "@tailchrome/shared/background/background";
+import { registerSidebarOpener } from "@tailchrome/shared/background/ui-surface";
 import { KEEPALIVE_INTERVAL_MS } from "@tailchrome/shared/constants";
 import { FIREFOX_NATIVE_HOST_ID } from "../constants";
 import { FirefoxProxyManager } from "./firefox-proxy-manager";
@@ -29,6 +30,12 @@ export function startFirefoxBackground(): void {
   const proxyManager = new FirefoxProxyManager();
   let backgroundHandle: BackgroundHandle | null = null;
 
+  // Register the sidebar opener synchronously at top-level so a toolbar
+  // click that wakes a dormant service worker is delivered to the listener.
+  // Anything registered later (after async storage restore resolves) can
+  // miss the wake-up event.
+  registerSidebarOpener();
+
   browser.proxy.onRequest.addListener(proxyManager.listener, {
     urls: ["<all_urls>"],
   });
@@ -44,6 +51,7 @@ export function startFirefoxBackground(): void {
     .then(() => {
       backgroundHandle = initBackground(proxyManager, FIREFOX_NATIVE_HOST_ID, {
         skipKeepalive: true,
+        browserKind: "firefox",
       });
 
       browser.alarms.create("keepalive", {

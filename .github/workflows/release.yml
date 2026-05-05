@@ -179,13 +179,20 @@ jobs:
         uses: actions/download-artifact@v6
         with:
           name: signed-darwin
+          path: signed-darwin
 
       - name: Collect release assets
         run: |
           set -euo pipefail
           mkdir -p release
-          cp dist/tailscale-browser-ext-darwin-amd64 release/
-          cp dist/tailscale-browser-ext-darwin-arm64 release/
+          # actions/upload-artifact strips the common-ancestor prefix when
+          # all uploaded paths share one. signed-darwin uploads two dist/...
+          # files, so dist/ is stripped and the artifact's contents are flat
+          # — they extract straight into signed-darwin/.
+          cp signed-darwin/tailscale-browser-ext-darwin-amd64 release/
+          cp signed-darwin/tailscale-browser-ext-darwin-arm64 release/
+          # build-output uploads paths under both dist/ and packages/, so it
+          # has no common ancestor and the artifact preserves the full paths.
           cp dist/tailscale-browser-ext-linux-amd64 release/
           cp dist/tailscale-browser-ext-windows-amd64.exe release/
           cp packages/extension/.output/chrome.zip release/
