@@ -30,8 +30,8 @@ func main() {
 	}
 
 	if *installNowFlag {
-		if err := installChrome(chromeWebStoreExtensionID); err != nil {
-			log.Fatalf("Chrome install failed: %v", err)
+		if _, err := installChromiumFamily(chromeWebStoreExtensionID); err != nil {
+			log.Fatalf("Chromium-family install failed: %v", err)
 		}
 		fmt.Println("Chrome: installed successfully.")
 		if err := installFirefox(firefoxExtensionID); err != nil {
@@ -73,8 +73,8 @@ func main() {
 		installed := 0
 		if hasChrome {
 			fmt.Println("Installing native messaging host for Chrome...")
-			if err := installChrome(chromeWebStoreExtensionID); err != nil {
-				log.Fatalf("Chrome install failed: %v", err)
+			if _, err := installChromiumFamily(chromeWebStoreExtensionID); err != nil {
+				log.Fatalf("Chromium-family install failed: %v", err)
 			}
 			fmt.Println("Chrome: installed successfully.")
 			installed++

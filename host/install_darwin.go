@@ -29,13 +29,6 @@ func chromiumManifestDirs() []chromiumBrowserTarget {
 	}
 }
 
-// chromeManifestDir returns the legacy single-browser manifest directory.
-// Retained until Task 2 removes the last caller.
-func chromeManifestDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Library", "Application Support", "Google", "Chrome", "NativeMessagingHosts")
-}
-
 func firefoxManifestDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, "Library", "Application Support", "Mozilla", "NativeMessagingHosts")
@@ -51,10 +44,6 @@ func binaryInstallDir() string {
 func platformUninstall() error {
 	return nil
 }
-
-// platformPostInstallChrome is the legacy single-browser hook. Retained until
-// Task 2 removes its last caller.
-func platformPostInstallChrome(_ string) error  { return nil }
 
 // platformPostInstallChromium is the per-browser hook used by the new
 // installChromiumFamily loop. No-op on macOS.
