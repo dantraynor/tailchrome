@@ -43,12 +43,17 @@ pnpm lint:firefox        # AMO-style validation
 pnpm review:firefox      # Full Firefox validation pipeline
 pnpm test                # All tests
 pnpm typecheck           # TypeScript validation
+pnpm e2e:chrome          # Puppeteer smoke suite (Chrome)
+pnpm e2e:firefox         # Puppeteer smoke suite (Firefox)
+pnpm e2e:full            # Full Puppeteer suite, both browsers
 make host                # Native host for current platform
 make host-all            # All platform binaries
 make dev                 # Chrome watch mode (WXT)
 ```
 
 Extension builds go to `packages/extension/.output/`. Native host binaries go to `dist/`.
+
+See [puppeteer-testing-suite.md](puppeteer-testing-suite.md) for the end-to-end harness layout.
 
 ## Reporting Bugs
 

@@ -13,12 +13,13 @@ Tailchrome connects your browser to your Tailscale tailnet without installing a 
 **Key features:**
 - Access devices on your tailnet by name or IP, directly from the browser
 - Per-profile isolation: each Chrome profile gets its own Tailscale identity
-- Exit nodes: route browser traffic through any exit node on your tailnet
+- Exit nodes: route browser traffic through any exit node on your tailnet, with a "Best available" recommendation that picks a nearby Mullvad location when available
 - MagicDNS: reach your devices by hostname
 - Subnet routing: access resources behind subnet routers
-- Taildrop: send files to other devices on your tailnet
+- Side panel mode: opt-in toggle keeps the Tailchrome UI docked next to your tabs instead of dismissing on click-away
 - No system networking changes: only browser traffic is affected
 - Shields Up mode for extra security
+- Works in Chrome and other Chromium-family browsers (Brave, Edge, Vivaldi, Opera, Arc)
 
 **How it works:**
 Tailchrome uses a lightweight native helper app that runs a full Tailscale node for each browser profile. Your system networking stays untouched. Only traffic from the browser is routed through your tailnet.
@@ -42,7 +43,7 @@ English
 
 ### Summary (250 chars max)
 
-Access your Tailscale tailnet directly from Firefox. Each browser profile runs its own isolated Tailscale node without affecting system networking. Supports exit nodes, MagicDNS, subnet routing, and Taildrop.
+Access your Tailscale tailnet directly from Firefox. Each browser profile runs its own isolated Tailscale node without affecting system networking. Supports exit nodes, MagicDNS, subnet routing, and an optional sidebar UI.
 
 ### Description
 
@@ -51,10 +52,10 @@ Tailchrome connects Firefox to your Tailscale tailnet without a system VPN. Each
 **Features:**
 - Browse devices on your tailnet by name or IP
 - Per-profile Tailscale isolation
-- Exit nodes for routing through your tailnet
+- Exit nodes for routing through your tailnet, with a "Best available" recommendation that prefers nearby Mullvad locations when available
 - MagicDNS hostname resolution
 - Subnet routing support
-- Taildrop file transfers
+- Optional sidebar mode keeps Tailchrome docked while you browse
 - Zero system networking changes
 - Shields Up mode
 

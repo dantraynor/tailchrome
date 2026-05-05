@@ -2,7 +2,7 @@
 
 > Access your Tailscale network directly from your browser. No system VPN required.
 
-**Version:** 0.1.8 (native host) | Manifest V3  
+**Version:** 0.1.9 (native host) | Manifest V3  
 **Browsers:** Chrome, Firefox  
 **Platforms:** macOS (amd64, arm64), Linux (amd64), Windows (amd64)  
 **License:** MIT  
@@ -111,7 +111,7 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 
 - **Tailnet access** -- browse devices on your tailnet by IP or MagicDNS name, directly from the browser
 - **Per-profile isolation** -- each browser profile gets its own independent Tailscale node and identity
-- **Exit nodes** -- route all browser traffic through any exit node on your tailnet, with suggested-node optimization
+- **Exit nodes** -- route all browser traffic through any exit node on your tailnet, with a "Best available" Recommended row in the picker that picks a nearby Mullvad location when one is available
 - **MagicDNS** -- resolve tailnet device names automatically
 - **Subnet routing** -- access resources behind subnet routers (auto-detected from peer info)
 - **Allow LAN access** -- when using an exit node, optionally allow local network access
@@ -146,6 +146,7 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 - **Toast notifications** -- in-popup toasts for operations (file send, errors, suggestions)
 - **Keyboard navigation** -- peer list supports arrow key navigation
 - **Platform-aware** -- detects macOS for platform-specific UI hints
+- **Side panel mode** -- opt-in toggle ("Open as side panel") that switches the UI from popup to Chrome side panel / Firefox sidebar; a single quick-settings row controls it on either browser
 
 ### Parity and backlog
 
@@ -320,7 +321,7 @@ Defined in `packages/shared/src/constants.ts`:
 | `RECONNECT_BASE_MS`     | `1000`                              | Reconnection backoff base                                 |
 | `RECONNECT_MAX_MS`      | `30000`                             | Reconnection backoff ceiling                              |
 | `ADMIN_URL`             | `https://login.tailscale.com/admin` | Tailscale admin console                                   |
-| `EXPECTED_HOST_VERSION` | `0.1.8`                             | Expected native host version (major.minor match required) |
+| `EXPECTED_HOST_VERSION` | `0.1.9`                             | Expected native host version (major.minor match required) |
 
 
 ---
@@ -553,11 +554,11 @@ The popup is a vanilla TypeScript UI (no framework) rendered into the extension 
 
 The native host binary auto-installs when run interactively in a terminal, or non-interactively via **`tailscale-browser-ext -install-now`** (used by the macOS Helper app):
 
-- Detects installed browsers (Chrome and/or Firefox)
+- Detects installed browsers and writes per-browser manifests for the whole Chromium family (Chrome stable/beta/canary/dev, Chromium, Brave, Edge, Vivaldi, Opera, Arc on macOS) plus Firefox
 - Copies itself to `~/.local/share/tailscale-browser-ext/` (Linux), `~/Library/Application Support/Tailscale/BrowserExt/` (macOS), or `%LOCALAPPDATA%\tailscale-browser-ext\` (Windows)
-- Writes native messaging manifest JSON files to browser-specific directories
-- Manual install: `./tailscale-browser-ext --install C<extensionID>` or `--install F<extensionID>`
-- Uninstall: `./tailscale-browser-ext --uninstall`
+- Reports per-browser install status so unsupported or missing browsers are skipped cleanly
+- Manual install: `./tailscale-browser-ext --install C<extensionID>` (Chromium-family) or `--install F<extensionID>` (Firefox)
+- Uninstall: `./tailscale-browser-ext --uninstall` removes manifests from every browser it installed into
 
 ### State Directory
 
@@ -652,7 +653,6 @@ tailchrome/
 |   +-- DOCUMENTATION.md              # This file
 |   +-- CONTRIBUTING.md
 |   +-- SOURCE_CODE_REVIEW.md         # Firefox AMO reviewer guide
-|   +-- STORE_LISTING.md              # Chrome/Firefox store descriptions
 |   +-- SECURITY.md
 |   +-- CODE_OF_CONDUCT.md
 |
@@ -776,19 +776,21 @@ Two jobs with **environment-gated approvals**:
 
 **Vitest** with Chrome API mocks (`packages/shared/src/__test__/chrome-mock.ts`).
 
-### Test Files (13 total)
+### Test Files
 
 **Background tests:**
 
 
-| Test File               | Covers                                                                                                         |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `background.test.ts`    | Service worker core: native message handling, popup communication, exit node restore, context menus, keepalive |
-| `native-host.test.ts`   | Connection lifecycle, reconnection with exponential backoff, error handling                                    |
-| `state-store.test.ts`   | State management: `update()`, `applyStatusUpdate()`, `subscribe()`, version incrementing                       |
-| `badge-manager.test.ts` | Icon/badge updates for all state combinations                                                                  |
-| `proxy-utils.test.ts`   | IP conversion, CIDR parsing, MagicDNS sanitization, subnet collection                                          |
-| `timer-service.test.ts` | Timer abstraction contract                                                                                     |
+| Test File                          | Covers                                                                                                         |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `background.test.ts`               | Service worker core: native message handling, popup communication, exit node restore, context menus, keepalive |
+| `native-host.test.ts`              | Connection lifecycle, reconnection with exponential backoff, error handling                                    |
+| `state-store.test.ts`              | State management: `update()`, `applyStatusUpdate()`, `subscribe()`, version incrementing                       |
+| `badge-manager.test.ts`            | Icon/badge updates for all state combinations                                                                  |
+| `proxy-utils.test.ts`              | IP conversion, CIDR parsing, MagicDNS sanitization, subnet collection                                          |
+| `timer-service.test.ts`            | Timer abstraction contract                                                                                     |
+| `ui-surface.test.ts`               | Side panel toggle plumbing: persistence, applyUiSurface, sidebar opener registration                           |
+| `format-bug-report-toast.test.ts`  | Bug-report toast formatting                                                                                    |
 
 
 **Proxy tests:**
@@ -804,19 +806,38 @@ Two jobs with **environment-gated approvals**:
 **Popup tests:**
 
 
-| Test File             | Covers                                              |
-| --------------------- | --------------------------------------------------- |
-| `popup.test.ts`       | View routing for all state combinations             |
-| `peer-item.test.ts`   | Peer component rendering and actions                |
-| `custom-urls.test.ts` | Custom URL storage                                  |
-| `utils.test.ts`       | HTML escaping, clipboard, toast, platform detection |
+| Test File                  | Covers                                                                       |
+| -------------------------- | ---------------------------------------------------------------------------- |
+| `popup.test.ts`            | View routing for all state combinations                                      |
+| `peer-item.test.ts`        | Peer component rendering and actions                                         |
+| `peer-filters.test.ts`     | Peer search, online/offline grouping                                         |
+| `custom-urls.test.ts`      | Custom URL storage                                                           |
+| `utils.test.ts`            | HTML escaping, clipboard, toast, platform detection, location helpers        |
+| `ui-surface-row.test.ts`   | "Open as side panel" quick-settings row                                      |
+| `views/exit-nodes.test.ts` | Exit node picker: search, Recommended row, Mullvad grouping, selection logic |
+| `types.test.ts`            | Shared type guards / fixture sanity                                          |
+
+
+**Native host tests (Go):**
+
+
+| Test File           | Covers                                                                                       |
+| ------------------- | -------------------------------------------------------------------------------------------- |
+| `install_test.go`   | Chromium-family manifest installation, allowed_origins formatting, uninstall cleanup         |
+| `taildrop_test.go`  | Chunked file send progress, transfer ID propagation                                          |
 
 
 ### Running Tests
 
 ```bash
-pnpm test              # Run all tests once
+pnpm test              # Run all unit tests once
+pnpm e2e:chrome        # Puppeteer end-to-end suite (Chrome)
+pnpm e2e:firefox       # Puppeteer end-to-end suite (Firefox)
+pnpm e2e:full          # Full Puppeteer suite, both browsers
+cd host && go test ./... # Native host Go tests
 ```
+
+The Puppeteer harness lives in `scripts/e2e/`; see [puppeteer-testing-suite.md](puppeteer-testing-suite.md) for layout, fixtures, and the smoke vs. full suites.
 
 ---
 
@@ -937,7 +958,7 @@ Full policy: [docs/privacy-policy.md](privacy-policy.md)
 - **Minimum Firefox version:** 140.0
 - **Source code disclosure:** `firefox-sources.zip` included with each release for AMO reviewer verification
 
-Full listing text: [STORE_LISTING.md](STORE_LISTING.md)
+Full listing text: [STORE_LISTING.md](../STORE_LISTING.md)
 
 ---
 
