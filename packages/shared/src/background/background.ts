@@ -12,6 +12,13 @@ import { BadgeManager } from "./badge-manager";
 import { DefaultTimerService, type TimerService } from "./timer-service";
 import { formatBugReportForToast } from "./format-bug-report-toast";
 import { applyUiSurface, readUiSurface, type BrowserKind } from "./ui-surface";
+import {
+  isAutoConnectHandled,
+  markAutoConnectHandled,
+  readAutoConnectPref,
+  shouldAutoConnect,
+  writeAutoConnectPref,
+} from "./auto-connect";
 
 export type { ProxyManager };
 
@@ -91,6 +98,15 @@ export function initBackground(
   });
 
   const store = new StateStore();
+
+  // Hydrate the auto-connect preference so the popup reflects it on first
+  // render. Failures here are non-fatal — the toggle just shows the default.
+  void readAutoConnectPref()
+    .then((value) => store.update({ autoConnectOnStart: value }))
+    .catch((err) => {
+      console.warn("[Background] readAutoConnectPref failed:", err);
+    });
+
   const badgeManager = new BadgeManager();
 
   // Connected popup ports
@@ -180,6 +196,8 @@ export function initBackground(
         // Mark as attempted if already has an exit node
         exitNodeRestoreAttempted = true;
       }
+
+      maybeAutoConnect(msg.status.backendState);
     }
 
     // Profiles result
@@ -327,6 +345,27 @@ export function initBackground(
     }
   }
 
+  // Fire `up` once per browser session when the pref is enabled and the node
+  // is in a state we can act on. The session flag (set by markAutoConnectHandled)
+  // ensures an explicit manual disconnect within the same browser session is
+  // respected even when the service worker cycles.
+  function maybeAutoConnect(backendState: TailscaleState["backendState"]): void {
+    if (!store.getState().autoConnectOnStart) return;
+    if (!shouldAutoConnect(backendState)) return;
+    void isAutoConnectHandled()
+      .then((handled) => {
+        if (handled) return;
+        return markAutoConnectHandled().then(() => {
+          if (!nativeHost.send({ cmd: "up" })) {
+            sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
+          }
+        });
+      })
+      .catch((err) => {
+        console.warn("[Background] auto-connect failed:", err);
+      });
+  }
+
   chrome.runtime.onConnect.addListener((port: chrome.runtime.Port) => {
     if (port.name !== "popup") return;
 
@@ -368,6 +407,11 @@ export function initBackground(
     switch (msg.type) {
       case "toggle": {
         if (state.backendState === "Running") {
+          // Treat manual disconnect as an explicit decision so a later SW
+          // restart doesn't trip auto-connect and undo it within the session.
+          void markAutoConnectHandled().catch((err) => {
+            console.warn("[Background] markAutoConnectHandled failed:", err);
+          });
           if (!nativeHost.send({ cmd: "down" })) {
             sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
           }
@@ -492,6 +536,14 @@ export function initBackground(
 
       case "set-advertise-routes": {
         nativeHost.send({ cmd: "set-prefs", prefs: { advertiseRoutes: msg.routes } });
+        break;
+      }
+
+      case "set-auto-connect-on-start": {
+        store.update({ autoConnectOnStart: msg.value });
+        void writeAutoConnectPref(msg.value).catch((err) => {
+          console.warn("[Background] writeAutoConnectPref failed:", err);
+        });
         break;
       }
 

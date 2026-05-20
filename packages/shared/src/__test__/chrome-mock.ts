@@ -72,6 +72,11 @@ const chromeMock = {
       set: (_items: Record<string, unknown>) => Promise.resolve(),
       remove: (_key: string) => Promise.resolve(),
     },
+    session: {
+      get: (_key: string) => Promise.resolve({} as Record<string, unknown>),
+      set: (_items: Record<string, unknown>) => Promise.resolve(),
+      remove: (_key: string) => Promise.resolve(),
+    },
     onChanged: {
       addListener: (fn: (changes: Record<string, chrome.storage.StorageChange>, area: string) => void) => {
         storageChangedListeners.push(fn);

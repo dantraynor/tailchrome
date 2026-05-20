@@ -28,6 +28,7 @@ const DEFAULT_STATE: TailscaleState = {
   supportsNetcheck: false,
   supportsPingPeer: false,
   reconnecting: false,
+  autoConnectOnStart: false,
 };
 
 export class StateStore {

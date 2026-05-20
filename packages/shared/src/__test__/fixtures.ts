@@ -27,6 +27,7 @@ export function baseState(overrides: Partial<TailscaleState> = {}): TailscaleSta
     supportsNetcheck: false,
     supportsPingPeer: false,
     reconnecting: false,
+    autoConnectOnStart: false,
     ...overrides,
   };
 }

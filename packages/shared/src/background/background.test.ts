@@ -83,6 +83,8 @@ describe("initBackground", () => {
     chrome.storage.local.get = vi.fn().mockResolvedValue({ profileId: "test-id" }) as unknown as typeof chrome.storage.local.get;
     chrome.storage.local.set = vi.fn().mockResolvedValue(undefined) as unknown as typeof chrome.storage.local.set;
     chrome.storage.local.remove = vi.fn().mockResolvedValue(undefined) as unknown as typeof chrome.storage.local.remove;
+    chrome.storage.session.get = vi.fn().mockResolvedValue({}) as unknown as typeof chrome.storage.session.get;
+    chrome.storage.session.set = vi.fn().mockResolvedValue(undefined) as unknown as typeof chrome.storage.session.set;
     chrome.tabs.create = vi.fn().mockResolvedValue(undefined) as unknown as typeof chrome.tabs.create;
   });
 
@@ -821,6 +823,196 @@ describe("initBackground", () => {
           proxyPort: null,
           proxyEnabled: false,
         })
+      );
+    });
+  });
+
+  describe("auto-connect on start", () => {
+    function stoppedStatus(): NativeReply {
+      return {
+        status: {
+          backendState: "Stopped",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: false,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      };
+    }
+
+    function statusWith(backendState: TailscaleState["backendState"]): NativeReply {
+      return {
+        status: {
+          backendState,
+          running: backendState === "Running",
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: backendState === "NeedsLogin",
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      };
+    }
+
+    it("sends `up` once when status is Stopped and pref is on", async () => {
+      (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+        profileId: "test-id",
+        autoConnectOnStart: true,
+      });
+
+      await setupBackground();
+      nativePort.postMessage.mockClear();
+
+      sendNativeMessage(stoppedStatus());
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "up" });
+      expect(chrome.storage.session.set).toHaveBeenCalledWith({
+        autoConnectHandled: true,
+      });
+    });
+
+    it("fires for NoState the same as Stopped", async () => {
+      (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+        profileId: "test-id",
+        autoConnectOnStart: true,
+      });
+
+      await setupBackground();
+      nativePort.postMessage.mockClear();
+
+      sendNativeMessage(statusWith("NoState"));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "up" });
+    });
+
+    it("does not send `up` when the session flag is already set", async () => {
+      (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+        profileId: "test-id",
+        autoConnectOnStart: true,
+      });
+      (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+        autoConnectHandled: true,
+      });
+
+      await setupBackground();
+      nativePort.postMessage.mockClear();
+
+      sendNativeMessage(stoppedStatus());
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "up" });
+    });
+
+    it("does not send `up` when the pref is off", async () => {
+      await setupBackground();
+      nativePort.postMessage.mockClear();
+
+      sendNativeMessage(stoppedStatus());
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "up" });
+      expect(chrome.storage.session.set).not.toHaveBeenCalled();
+    });
+
+    for (const skipState of [
+      "NeedsLogin",
+      "NeedsMachineAuth",
+      "InUseOtherUser",
+      "Starting",
+      "Running",
+    ] as const) {
+      it(`does not send \`up\` when status is ${skipState}`, async () => {
+        (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          profileId: "test-id",
+          autoConnectOnStart: true,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith(skipState));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "up" });
+      });
+    }
+
+    it("marks the session flag when the user manually disconnects from Running", async () => {
+      await setupBackground();
+      sendNativeMessage(statusWith("Running"));
+      nativePort.postMessage.mockClear();
+      (chrome.storage.session.set as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "toggle" });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "down" });
+      expect(chrome.storage.session.set).toHaveBeenCalledWith({
+        autoConnectHandled: true,
+      });
+    });
+
+    it("does not mark the session flag when manually connecting from Stopped", async () => {
+      await setupBackground();
+      (chrome.storage.session.set as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "toggle" });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(chrome.storage.session.set).not.toHaveBeenCalled();
+    });
+
+    it("set-auto-connect-on-start persists to storage and broadcasts state", async () => {
+      await setupBackground();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+
+      popupPort.onMessage._listeners[0]!({
+        type: "set-auto-connect-on-start",
+        value: true,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(chrome.storage.local.set).toHaveBeenCalledWith({
+        autoConnectOnStart: true,
+      });
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "state",
+        state: expect.objectContaining({ autoConnectOnStart: true }),
+      });
+    });
+
+    it("hydrates autoConnectOnStart from storage on startup", async () => {
+      (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+        profileId: "test-id",
+        autoConnectOnStart: true,
+      });
+
+      await setupBackground();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(proxyManager.apply).toHaveBeenCalledWith(
+        expect.objectContaining({ autoConnectOnStart: true }),
       );
     });
   });
