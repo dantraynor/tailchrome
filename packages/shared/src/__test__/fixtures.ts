@@ -20,6 +20,7 @@ export function baseState(overrides: Partial<TailscaleState> = {}): TailscaleSta
     currentProfile: null,
     profiles: [],
     exitNodeSuggestion: null,
+    domainSplit: { mode: "bypass", domains: [] },
     error: null,
     installError: false,
     hostVersion: null,

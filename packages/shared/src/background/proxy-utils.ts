@@ -68,6 +68,34 @@ export function sanitizeMagicDNSSuffix(suffix: string | null | undefined): strin
   return /^[a-zA-Z0-9.\-]+$/.test(stripped) ? stripped : "";
 }
 
+/**
+ * Normalize a user-entered domain for split-tunnel matching. Lowercases,
+ * trims whitespace, strips an optional scheme/path/port, and rejects any
+ * value containing characters outside the PAC-safe allowlist so the result
+ * can be embedded into the generated PAC script without escaping.
+ */
+export function sanitizeDomain(input: string | null | undefined): string | null {
+  if (!input) return null;
+  let value = input.trim().toLowerCase();
+  if (!value) return null;
+
+  const schemeMatch = value.match(/^[a-z][a-z0-9+\-.]*:\/\//);
+  if (schemeMatch) value = value.slice(schemeMatch[0].length);
+
+  const slashIdx = value.indexOf("/");
+  if (slashIdx >= 0) value = value.slice(0, slashIdx);
+
+  const colonIdx = value.indexOf(":");
+  if (colonIdx >= 0) value = value.slice(0, colonIdx);
+
+  value = value.replace(/\.$/, "").replace(/^\./, "");
+  if (!value) return null;
+  if (!/^[a-z0-9.\-]+$/.test(value)) return null;
+  if (value.includes("..")) return null;
+
+  return value;
+}
+
 /** Collect all subnet CIDRs from peers that are subnet routers. */
 export function collectSubnetCIDRs(peers: PeerInfo[]): string[] {
   const cidrs: string[] = [];

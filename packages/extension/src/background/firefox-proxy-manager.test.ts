@@ -134,6 +134,81 @@ describe("FirefoxProxyManager", () => {
     });
   });
 
+  describe("split tunneling rules", () => {
+    const withExit = (overrides: Record<string, unknown> = {}) =>
+      baseState({
+        exitNode: {
+          id: "exit1",
+          hostname: "exit",
+          location: null,
+          online: true,
+        },
+        ...overrides,
+      });
+    const resolveOf = (manager: FirefoxProxyManager) =>
+      (url: string) =>
+        (manager as unknown as { resolveProxy(url: string): { type: string } }).resolveProxy(url);
+
+    it("bypass mode: listed domain goes direct, others go through proxy", () => {
+      pm.apply(
+        withExit({
+          domainSplit: { mode: "bypass", domains: ["teams.microsoft.com"] },
+        }),
+      );
+      const resolve = resolveOf(pm);
+      expect(resolve("https://teams.microsoft.com/").type).toBe("direct");
+      expect(resolve("https://x.teams.microsoft.com/").type).toBe("direct");
+      expect(resolve("https://example.com/").type).toBe("socks");
+    });
+
+    it("only mode: listed domain goes through proxy, others go direct", () => {
+      pm.apply(
+        withExit({
+          domainSplit: { mode: "only", domains: ["work.example.com"] },
+        }),
+      );
+      const resolve = resolveOf(pm);
+      expect(resolve("https://work.example.com/").type).toBe("socks");
+      expect(resolve("https://google.com/").type).toBe("direct");
+    });
+
+    it("only mode still routes Tailscale-mandatory traffic through proxy", () => {
+      pm.apply(
+        withExit({
+          domainSplit: { mode: "only", domains: ["work.example.com"] },
+        }),
+      );
+      const resolve = resolveOf(pm);
+      expect(resolve("http://100.100.100.100/").type).toBe("socks");
+      expect(resolve("http://srv.example.ts.net/").type).toBe("socks");
+    });
+
+    it("rules are inert when no exit node is active", () => {
+      pm.apply(
+        baseState({
+          domainSplit: { mode: "bypass", domains: ["teams.microsoft.com"] },
+        }),
+      );
+      const resolve = resolveOf(pm);
+      expect(resolve("https://teams.microsoft.com/").type).toBe("direct");
+      expect(resolve("https://example.com/").type).toBe("direct");
+    });
+
+    it("ignores invalid domain entries", () => {
+      pm.apply(
+        withExit({
+          domainSplit: {
+            mode: "bypass",
+            domains: ['evil"); alert("xss', "ok.example.com"],
+          },
+        }),
+      );
+      const resolve = resolveOf(pm);
+      expect(resolve("https://ok.example.com/").type).toBe("direct");
+      expect(resolve("https://other.com/").type).toBe("socks");
+    });
+  });
+
   describe("listener wake flow", () => {
     it("defers to restore and reconnect promises during wake", async () => {
       pm.apply(baseState({ proxyPort: 3333 }));

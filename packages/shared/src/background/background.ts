@@ -12,6 +12,12 @@ import { BadgeManager } from "./badge-manager";
 import { DefaultTimerService, type TimerService } from "./timer-service";
 import { formatBugReportForToast } from "./format-bug-report-toast";
 import { applyUiSurface, readUiSurface, type BrowserKind } from "./ui-surface";
+import {
+  DOMAIN_SPLIT_STORAGE_KEY,
+  normalizeDomainSplit,
+  readDomainSplit,
+  writeDomainSplit,
+} from "./domain-split";
 
 export type { ProxyManager };
 
@@ -65,6 +71,18 @@ function isVersionMismatch(hostVersion: string | null): boolean {
 const NATIVE_HOST_UNREACHABLE =
   "Could not reach Tailscale service. Please check that the native host is installed.";
 
+function domainSplitEquals(
+  a: { mode: string; domains: string[] },
+  b: { mode: string; domains: string[] },
+): boolean {
+  if (a.mode !== b.mode) return false;
+  if (a.domains.length !== b.domains.length) return false;
+  for (let i = 0; i < a.domains.length; i++) {
+    if (a.domains[i] !== b.domains[i]) return false;
+  }
+  return true;
+}
+
 export function initBackground(
   proxyManager: ProxyManager,
   nativeHostId: string,
@@ -82,15 +100,37 @@ export function initBackground(
   void readUiSurface()
     .then((surface) => applyUiSurface(surface, browserKind))
     .catch(logUiSurfaceFailure);
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !("uiSurface" in changes)) return;
-    const next = changes["uiSurface"]?.newValue;
-    if (next === "popup" || next === "sidePanel") {
-      void applyUiSurface(next, browserKind).catch(logUiSurfaceFailure);
-    }
-  });
 
   const store = new StateStore();
+
+  void readDomainSplit()
+    .then((config) => {
+      if (!domainSplitEquals(store.getState().domainSplit, config)) {
+        store.update({ domainSplit: config });
+      }
+    })
+    .catch((err) => {
+      console.warn("[Background] readDomainSplit failed:", err);
+    });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if ("uiSurface" in changes) {
+      const next = changes["uiSurface"]?.newValue;
+      if (next === "popup" || next === "sidePanel") {
+        void applyUiSurface(next, browserKind).catch(logUiSurfaceFailure);
+      }
+    }
+    if (DOMAIN_SPLIT_STORAGE_KEY in changes) {
+      const next = normalizeDomainSplit(
+        changes[DOMAIN_SPLIT_STORAGE_KEY]?.newValue,
+      );
+      const current = store.getState().domainSplit;
+      if (!domainSplitEquals(current, next)) {
+        store.update({ domainSplit: next });
+      }
+    }
+  });
   const badgeManager = new BadgeManager();
 
   // Connected popup ports
@@ -492,6 +532,15 @@ export function initBackground(
 
       case "set-advertise-routes": {
         nativeHost.send({ cmd: "set-prefs", prefs: { advertiseRoutes: msg.routes } });
+        break;
+      }
+
+      case "set-domain-split": {
+        const next = normalizeDomainSplit(msg.config);
+        store.update({ domainSplit: next });
+        void writeDomainSplit(next).catch((err) => {
+          console.warn("[Background] writeDomainSplit failed:", err);
+        });
         break;
       }
 

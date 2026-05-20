@@ -1,4 +1,4 @@
-import type { TailscaleState } from "../../types";
+import type { DomainSplitConfig, DomainSplitMode, TailscaleState } from "../../types";
 import { ADMIN_URL, TAILCHROME_PROJECT_URL } from "../../constants";
 import { renderHeader } from "../components/header";
 import { renderPeerList, updatePeerList, filterPeers } from "../components/peer-list";
@@ -11,6 +11,7 @@ import { renderExitNodes } from "./exit-nodes";
 import { renderProfiles } from "./profiles";
 import { iconChevronRight } from "../icons";
 import { renderUiSurfaceRow } from "../components/ui-surface-row";
+import { sanitizeDomain } from "../../background/proxy-utils";
 
 type SubViewRenderer = (root: HTMLElement, state: TailscaleState, onBack: () => void) => void;
 
@@ -19,6 +20,9 @@ let peerSearchQuery = "";
 
 /** UI-only: whether the advertise-subnets editor (textarea + save) is visible. */
 let advertiseRoutesEditorOpen = false;
+
+/** UI-only: whether the split-tunneling editor is visible. */
+let splitTunnelingEditorOpen = false;
 
 /** UI-only: Advanced section (Run as Exit Node, local node page; peer SSH when expanded). */
 let advancedSectionOpen = false;
@@ -147,6 +151,8 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   exitRow.appendChild(exitValue);
   exitRow.addEventListener("click", () => openSubView(root, renderExitNodes));
   settings.appendChild(exitRow);
+
+  renderSplitTunnelingSection(settings, state);
 
   // Shields Up toggle
   const shieldsRow = document.createElement("div");
@@ -439,6 +445,140 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 // Track health key to detect changes during in-place updates
 let lastHealthKey = "";
 
+function formatDomainsValue(domains: string[]): string {
+  return domains.join("\n");
+}
+
+function parseDomainsInput(value: string): {
+  domains: string[];
+  invalid: string[];
+} {
+  const seen = new Set<string>();
+  const domains: string[] = [];
+  const invalid: string[] = [];
+  for (const raw of value.split(/[\s,]+/)) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const cleaned = sanitizeDomain(trimmed);
+    if (!cleaned) {
+      invalid.push(trimmed);
+      continue;
+    }
+    if (seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    domains.push(cleaned);
+  }
+  return { domains, invalid };
+}
+
+function setActiveMode(container: HTMLElement, mode: DomainSplitMode): void {
+  const buttons = container.querySelectorAll<HTMLButtonElement>(
+    ".split-tunneling-mode-btn",
+  );
+  for (const btn of buttons) {
+    const isActive = btn.dataset.mode === mode;
+    btn.dataset.active = isActive ? "true" : "false";
+    btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+  }
+}
+
+function activeModeFromSection(section: HTMLElement): DomainSplitMode {
+  const active = section.querySelector<HTMLButtonElement>(
+    '.split-tunneling-mode-btn[data-active="true"]',
+  );
+  return (active?.dataset.mode as DomainSplitMode | undefined) ?? "bypass";
+}
+
+function applyConfig(
+  section: HTMLElement,
+  config: DomainSplitConfig,
+): void {
+  sendMessage({ type: "set-domain-split", config });
+  const warning = section.querySelector<HTMLElement>(".split-tunneling-warning");
+  if (warning) warning.textContent = "";
+}
+
+function renderSplitTunnelingSection(
+  parent: HTMLElement,
+  state: TailscaleState,
+): void {
+  const headerRow = document.createElement("div");
+  headerRow.className = "setting-row";
+  const label = document.createElement("span");
+  label.className = "setting-label";
+  label.textContent = "Split tunneling";
+  headerRow.appendChild(label);
+
+  const expandToggle = createToggle(splitTunnelingEditorOpen, (checked) => {
+    splitTunnelingEditorOpen = checked;
+    editorSection.classList.toggle("hidden", !checked);
+  });
+  headerRow.appendChild(expandToggle);
+  parent.appendChild(headerRow);
+
+  const editorSection = document.createElement("div");
+  editorSection.className =
+    "setting-row setting-row--stacked split-tunneling-editor";
+  if (!splitTunnelingEditorOpen) editorSection.classList.add("hidden");
+
+  const modeRow = document.createElement("div");
+  modeRow.className = "split-tunneling-modes";
+  for (const [mode, text] of [
+    ["bypass", "Bypass"],
+    ["only", "Only"],
+  ] as const) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "split-tunneling-mode-btn";
+    btn.dataset.mode = mode;
+    btn.textContent = text;
+    btn.addEventListener("click", () => {
+      setActiveMode(modeRow, mode);
+      const latest = getLatestState();
+      const domains = latest?.domainSplit.domains ?? state.domainSplit.domains;
+      applyConfig(editorSection, { mode, domains });
+    });
+    modeRow.appendChild(btn);
+  }
+  setActiveMode(modeRow, state.domainSplit.mode);
+  editorSection.appendChild(modeRow);
+
+  const help = document.createElement("p");
+  help.className = "split-tunneling-help";
+  help.textContent =
+    "Applies when an exit node is active. One domain per line; subdomains are matched.";
+  editorSection.appendChild(help);
+
+  const ta = document.createElement("textarea");
+  ta.className = "split-tunneling-input";
+  ta.rows = 3;
+  ta.spellcheck = false;
+  ta.placeholder = "e.g. teams.microsoft.com\noutlook.office.com";
+  ta.value = formatDomainsValue(state.domainSplit.domains);
+  editorSection.appendChild(ta);
+
+  const warning = document.createElement("p");
+  warning.className = "split-tunneling-warning";
+  warning.setAttribute("role", "status");
+  editorSection.appendChild(warning);
+
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "btn btn-secondary split-tunneling-save";
+  saveBtn.textContent = "Save rules";
+  saveBtn.addEventListener("click", () => {
+    const parsed = parseDomainsInput(ta.value);
+    const mode = activeModeFromSection(editorSection);
+    applyConfig(editorSection, { mode, domains: parsed.domains });
+    if (parsed.invalid.length > 0) {
+      warning.textContent = `Ignored invalid: ${parsed.invalid.join(", ")}`;
+    }
+  });
+  editorSection.appendChild(saveBtn);
+
+  parent.appendChild(editorSection);
+}
+
 function fillFooterDiagnostics(diagRow: HTMLElement, state: TailscaleState): void {
   diagRow.replaceChildren();
   const diagLink = document.createElement("a");
@@ -623,6 +763,18 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
       if (routesTa.value !== next) {
         routesTa.value = next;
       }
+    }
+
+    const splitSection = view.querySelector<HTMLElement>(".split-tunneling-editor");
+    if (splitSection) {
+      const splitTa = splitSection.querySelector<HTMLTextAreaElement>(
+        ".split-tunneling-input",
+      );
+      if (splitTa && document.activeElement !== splitTa) {
+        const next = formatDomainsValue(state.domainSplit.domains);
+        if (splitTa.value !== next) splitTa.value = next;
+      }
+      setActiveMode(splitSection, state.domainSplit.mode);
     }
   }
 

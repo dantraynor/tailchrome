@@ -200,6 +200,104 @@ describe("ChromeProxyManager", () => {
       expect(route("http://172.32.0.1", "172.32.0.1")).toBe("DIRECT");
     });
   });
+
+  describe("split tunneling rules", () => {
+    const withExit = (overrides: Partial<TailscaleState> = {}) =>
+      baseState({
+        exitNode: {
+          id: "exit1",
+          hostname: "exit",
+          location: null,
+          online: true,
+        },
+        ...overrides,
+      });
+
+    it("bypass mode: listed domain goes DIRECT, others use exit node", () => {
+      const route = evalPAC(
+        pm,
+        withExit({
+          domainSplit: { mode: "bypass", domains: ["teams.microsoft.com"] },
+        }),
+      );
+      expect(route("https://teams.microsoft.com/", "teams.microsoft.com")).toBe(
+        "DIRECT",
+      );
+      expect(
+        route("https://x.teams.microsoft.com/", "x.teams.microsoft.com"),
+      ).toBe("DIRECT");
+      expect(route("https://example.com/", "example.com")).toBe(
+        "SOCKS5 127.0.0.1:1055",
+      );
+    });
+
+    it("only mode: listed domain uses exit node, others go DIRECT", () => {
+      const route = evalPAC(
+        pm,
+        withExit({
+          domainSplit: { mode: "only", domains: ["work.example.com"] },
+        }),
+      );
+      expect(route("https://work.example.com/", "work.example.com")).toBe(
+        "SOCKS5 127.0.0.1:1055",
+      );
+      expect(route("https://google.com/", "google.com")).toBe("DIRECT");
+    });
+
+    it("only mode: Tailscale-mandatory traffic still routes through proxy", () => {
+      const route = evalPAC(
+        pm,
+        withExit({
+          domainSplit: { mode: "only", domains: ["work.example.com"] },
+        }),
+      );
+      expect(route("http://100.100.100.100", "100.100.100.100")).toBe(
+        "SOCKS5 127.0.0.1:1055",
+      );
+      expect(
+        route("http://srv.example.ts.net", "srv.example.ts.net"),
+      ).toBe("SOCKS5 127.0.0.1:1055");
+    });
+
+    it("rules are inert when no exit node is active", () => {
+      const route = evalPAC(
+        pm,
+        baseState({
+          domainSplit: { mode: "bypass", domains: ["teams.microsoft.com"] },
+        }),
+      );
+      expect(route("https://teams.microsoft.com/", "teams.microsoft.com")).toBe(
+        "DIRECT",
+      );
+      expect(route("https://example.com/", "example.com")).toBe("DIRECT");
+    });
+
+    it("regenerates PAC when domainSplit changes", () => {
+      const spy = vi.spyOn(chrome.proxy.settings, "set");
+      pm.apply(withExit());
+      const callsBefore = spy.mock.calls.length;
+      pm.apply(
+        withExit({
+          domainSplit: { mode: "bypass", domains: ["teams.microsoft.com"] },
+        }),
+      );
+      expect(spy.mock.calls.length).toBeGreaterThan(callsBefore);
+    });
+
+    it("drops invalid domains before embedding in PAC", () => {
+      const pac = capturePAC(
+        pm,
+        withExit({
+          domainSplit: {
+            mode: "bypass",
+            domains: ['evil"); alert("xss', "ok.example.com"],
+          },
+        }),
+      )!;
+      expect(pac).not.toContain("evil");
+      expect(pac).toContain('"ok.example.com"');
+    });
+  });
 });
 
 function evalPAC(

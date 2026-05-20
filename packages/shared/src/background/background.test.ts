@@ -825,6 +825,137 @@ describe("initBackground", () => {
     });
   });
 
+  describe("domain split", () => {
+    it("restores saved domainSplit from storage on startup", async () => {
+      (chrome.storage.local.get as ReturnType<typeof vi.fn>) = vi
+        .fn()
+        .mockImplementation((key: string) => {
+          if (key === "domainSplitConfig") {
+            return Promise.resolve({
+              domainSplitConfig: {
+                mode: "only",
+                domains: ["teams.microsoft.com"],
+              },
+            });
+          }
+          return Promise.resolve({ profileId: "test-id" });
+        }) as unknown as typeof chrome.storage.local.get;
+
+      await setupBackground();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(proxyManager.apply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domainSplit: {
+            mode: "only",
+            domains: ["teams.microsoft.com"],
+          },
+        }),
+      );
+    });
+
+    it("updates state when domainSplit storage changes", async () => {
+      await setupBackground();
+      await vi.advanceTimersByTimeAsync(0);
+
+      const listeners = (chrome.storage.onChanged as unknown as {
+        _listeners: Array<
+          (changes: Record<string, { newValue?: unknown }>, area: string) => void
+        >;
+      })._listeners;
+      const listener = listeners[listeners.length - 1]!;
+
+      (proxyManager.apply as ReturnType<typeof vi.fn>).mockClear();
+      await listener(
+        {
+          domainSplitConfig: {
+            newValue: {
+              mode: "bypass",
+              domains: ["outlook.office.com"],
+            },
+          },
+        },
+        "local",
+      );
+
+      expect(proxyManager.apply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domainSplit: {
+            mode: "bypass",
+            domains: ["outlook.office.com"],
+          },
+        }),
+      );
+    });
+
+    it("ignores no-op storage changes", async () => {
+      (chrome.storage.local.get as ReturnType<typeof vi.fn>) = vi
+        .fn()
+        .mockImplementation((key: string) => {
+          if (key === "domainSplitConfig") {
+            return Promise.resolve({
+              domainSplitConfig: {
+                mode: "bypass",
+                domains: ["example.com"],
+              },
+            });
+          }
+          return Promise.resolve({ profileId: "test-id" });
+        }) as unknown as typeof chrome.storage.local.get;
+
+      await setupBackground();
+      await vi.advanceTimersByTimeAsync(0);
+
+      const listeners = (chrome.storage.onChanged as unknown as {
+        _listeners: Array<
+          (changes: Record<string, { newValue?: unknown }>, area: string) => void
+        >;
+      })._listeners;
+      const listener = listeners[listeners.length - 1]!;
+
+      (proxyManager.apply as ReturnType<typeof vi.fn>).mockClear();
+      await listener(
+        {
+          domainSplitConfig: {
+            newValue: { mode: "bypass", domains: ["example.com"] },
+          },
+        },
+        "local",
+      );
+      expect(proxyManager.apply).not.toHaveBeenCalled();
+    });
+
+    it("handles set-domain-split popup message", async () => {
+      await setupBackground();
+      await vi.advanceTimersByTimeAsync(0);
+      (chrome.storage.local.set as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({
+        type: "set-domain-split",
+        config: { mode: "only", domains: ["WORK.example.com", "bad domain"] },
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(proxyManager.apply).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domainSplit: {
+            mode: "only",
+            domains: ["work.example.com"],
+          },
+        }),
+      );
+      expect(chrome.storage.local.set).toHaveBeenCalledWith({
+        domainSplitConfig: {
+          mode: "only",
+          domains: ["work.example.com"],
+        },
+      });
+    });
+  });
+
   describe("uiSurface wiring", () => {
     beforeEach(() => {
       (chrome.sidePanel.setPanelBehavior as ReturnType<typeof vi.fn>).mockClear();
