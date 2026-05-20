@@ -108,6 +108,31 @@ export async function run({ openPopup }) {
         "Mode click kept stale saved domains instead of textarea contents",
       );
     }
+
+    // Regression: Only mode with an empty list must route the catch-all
+    // DIRECT, not silently fall through to "everything via exit node".
+    await page.$eval(
+      ".split-tunneling-input",
+      (el) => {
+        el.value = "";
+      },
+    );
+    await clickText(page, "Save rules", "button");
+    await waitForPacWithout(page, "work.example.com");
+    const pacEmptyOnly = await getPacScript(page);
+    const catchAllSection = pacEmptyOnly
+      .split("// No subnet routes")
+      .at(-1) ?? "";
+    if (!catchAllSection.includes('return "DIRECT"')) {
+      throw new Error(
+        "Only mode with empty list should route catch-all DIRECT",
+      );
+    }
+    if (/return proxy;\s*\n\s*}$/.test(pacEmptyOnly)) {
+      throw new Error(
+        "Only mode with empty list should not fall through to proxy",
+      );
+    }
   } finally {
     await page.close();
   }

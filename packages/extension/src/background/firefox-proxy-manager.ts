@@ -220,15 +220,16 @@ export class FirefoxProxyManager {
       }
     }
 
-    if (this.exitNodeActive && this.splitDomains.length > 0) {
-      const matched = this.matchSplitDomain(host);
-      if (this.splitMode === "bypass") {
-        return matched ? direct : proxy;
+    if (this.exitNodeActive) {
+      if (this.splitMode === "only") {
+        // Only mode: empty list means nothing leaves through the exit node.
+        return this.matchSplitDomain(host) ? proxy : direct;
       }
-      return matched ? proxy : direct;
+      if (this.splitDomains.length > 0 && this.matchSplitDomain(host)) {
+        return direct;
+      }
+      return proxy;
     }
-
-    if (this.exitNodeActive) return proxy;
 
     return direct;
   }

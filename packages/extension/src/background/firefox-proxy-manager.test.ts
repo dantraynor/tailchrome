@@ -172,6 +172,22 @@ describe("FirefoxProxyManager", () => {
       expect(resolve("https://google.com/").type).toBe("direct");
     });
 
+    it("only mode with empty list: catch-all is direct", () => {
+      pm.apply(withExit({ domainSplit: { mode: "only", domains: [] } }));
+      const resolve = resolveOf(pm);
+      expect(resolve("https://example.com/").type).toBe("direct");
+      expect(resolve("https://google.com/").type).toBe("direct");
+      // Tailscale-mandatory traffic still proxies.
+      expect(resolve("http://100.100.100.100/").type).toBe("socks");
+      expect(resolve("http://srv.example.ts.net/").type).toBe("socks");
+    });
+
+    it("bypass mode with empty list: catch-all is proxy", () => {
+      pm.apply(withExit({ domainSplit: { mode: "bypass", domains: [] } }));
+      const resolve = resolveOf(pm);
+      expect(resolve("https://example.com/").type).toBe("socks");
+    });
+
     it("only mode still routes Tailscale-mandatory traffic through proxy", () => {
       pm.apply(
         withExit({

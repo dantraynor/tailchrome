@@ -259,6 +259,32 @@ describe("ChromeProxyManager", () => {
       ).toBe("SOCKS5 127.0.0.1:1055");
     });
 
+    it("only mode with empty list: catch-all is DIRECT", () => {
+      const route = evalPAC(
+        pm,
+        withExit({ domainSplit: { mode: "only", domains: [] } }),
+      );
+      expect(route("https://example.com/", "example.com")).toBe("DIRECT");
+      expect(route("https://google.com/", "google.com")).toBe("DIRECT");
+      // Tailscale-mandatory traffic still proxies.
+      expect(route("http://100.100.100.100", "100.100.100.100")).toBe(
+        "SOCKS5 127.0.0.1:1055",
+      );
+      expect(
+        route("http://srv.example.ts.net", "srv.example.ts.net"),
+      ).toBe("SOCKS5 127.0.0.1:1055");
+    });
+
+    it("bypass mode with empty list: catch-all is full proxy (no rules to apply)", () => {
+      const route = evalPAC(
+        pm,
+        withExit({ domainSplit: { mode: "bypass", domains: [] } }),
+      );
+      expect(route("https://example.com/", "example.com")).toBe(
+        "SOCKS5 127.0.0.1:1055",
+      );
+    });
+
     it("rules are inert when no exit node is active", () => {
       const route = evalPAC(
         pm,

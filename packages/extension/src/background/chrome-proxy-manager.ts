@@ -106,21 +106,21 @@ export class ChromeProxyManager {
 
     const safeDNSSuffix = sanitizeMagicDNSSuffix(magicDNSSuffix);
 
-    const splitActive = exitNodeActive && splitDomains.length > 0;
-    const domainChecks = splitDomains
-      .map(
-        (d) =>
-          `(host === "${d}" || dnsDomainIs(host, ".${d}"))`,
-      )
-      .join(" || ");
+    const domainChecks =
+      splitDomains
+        .map((d) => `(host === "${d}" || dnsDomainIs(host, ".${d}"))`)
+        .join(" || ") || "false";
 
     let catchAll: string;
-    if (splitActive && splitMode === "bypass") {
-      catchAll = `  if (${domainChecks}) return "DIRECT";\n  return proxy;`;
-    } else if (splitActive && splitMode === "only") {
+    if (!exitNodeActive) {
+      catchAll = '  return "DIRECT";';
+    } else if (splitMode === "only") {
+      // Only mode: empty list means nothing should leave through the exit node.
       catchAll = `  if (${domainChecks}) return proxy;\n  return "DIRECT";`;
+    } else if (splitDomains.length > 0) {
+      catchAll = `  if (${domainChecks}) return "DIRECT";\n  return proxy;`;
     } else {
-      catchAll = exitNodeActive ? "  return proxy;" : '  return "DIRECT";';
+      catchAll = "  return proxy;";
     }
 
     return `function FindProxyForURL(url, host) {
