@@ -827,7 +827,7 @@ describe("initBackground", () => {
 
   describe("domain split", () => {
     it("restores saved domainSplit from storage on startup", async () => {
-      (chrome.storage.local.get as ReturnType<typeof vi.fn>) = vi
+      (chrome.storage.local.get as unknown as ReturnType<typeof vi.fn>) = vi
         .fn()
         .mockImplementation((key: string) => {
           if (key === "domainSplitConfig") {
@@ -839,7 +839,7 @@ describe("initBackground", () => {
             });
           }
           return Promise.resolve({ profileId: "test-id" });
-        }) as unknown as typeof chrome.storage.local.get;
+        });
 
       await setupBackground();
       await vi.advanceTimersByTimeAsync(0);
@@ -889,7 +889,7 @@ describe("initBackground", () => {
     });
 
     it("ignores no-op storage changes", async () => {
-      (chrome.storage.local.get as ReturnType<typeof vi.fn>) = vi
+      (chrome.storage.local.get as unknown as ReturnType<typeof vi.fn>) = vi
         .fn()
         .mockImplementation((key: string) => {
           if (key === "domainSplitConfig") {
@@ -901,7 +901,7 @@ describe("initBackground", () => {
             });
           }
           return Promise.resolve({ profileId: "test-id" });
-        }) as unknown as typeof chrome.storage.local.get;
+        });
 
       await setupBackground();
       await vi.advanceTimersByTimeAsync(0);
