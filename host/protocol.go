@@ -68,6 +68,7 @@ type StatusUpdate struct {
 	SelfNode       *PeerInfo  `json:"selfNode,omitempty"`
 	NeedsLogin     bool       `json:"needsLogin"`
 	BrowseToURL    string     `json:"browseToURL,omitempty"`
+	AuthURL        string     `json:"authURL,omitempty"`
 	ExitNode       *PeerInfo  `json:"exitNode,omitempty"`
 	Peers          []PeerInfo `json:"peers"`
 	Prefs          *PrefsView `json:"prefs,omitempty"`

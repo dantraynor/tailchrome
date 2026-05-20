@@ -567,6 +567,289 @@ describe("initBackground", () => {
       });
     });
 
+    it("handles login with tailscale.com URL", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://tailscale.com/a/xyz",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(chrome.tabs.create).toHaveBeenCalledWith({
+        url: "https://tailscale.com/a/xyz",
+      });
+    });
+
+    it("handles login with controlplane URL", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://controlplane.tailscale.com/a/xyz",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(chrome.tabs.create).toHaveBeenCalledWith({
+        url: "https://controlplane.tailscale.com/a/xyz",
+      });
+    });
+
+    it("does not open arbitrary tailscale subdomain login URLs", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://example.tailscale.com/a/xyz",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+    });
+
+    it("requests a fresh login URL when none is available", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+    });
+
+    it("does not send duplicate login requests while waiting for a URL", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(nativePort.postMessage).toHaveBeenCalledTimes(1);
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "toast",
+        message: "Still waiting for Tailscale to return a login URL.",
+        level: "info",
+        persistent: false,
+      });
+    });
+
+    it("clears pending login request after timeout", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "toast",
+        message: "Still waiting for a Tailscale login URL. Please try again.",
+        level: "error",
+        persistent: false,
+      });
+
+      nativePort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+    });
+
+    it("opens fresh login URL returned after login request", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://login.tailscale.com/a/refreshed",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+
+      expect(chrome.tabs.create).toHaveBeenCalledWith({
+        url: "https://login.tailscale.com/a/refreshed",
+      });
+    });
+
+    it("shows toast when refreshed login URL is invalid", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://evil.com/phish",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "toast",
+        message: "Could not open the login URL Tailscale returned.",
+        level: "error",
+        persistent: false,
+      });
+    });
+
     it("rejects login with invalid URL", async () => {
       await setupBackground();
       sendNativeMessage({
@@ -588,11 +871,69 @@ describe("initBackground", () => {
 
       const tabCreateSpy = chrome.tabs.create as ReturnType<typeof vi.fn>;
       tabCreateSpy.mockClear();
+      nativePort.postMessage.mockClear();
 
       const popupPort = createPopupPort();
       connectListeners[0]!(popupPort);
       popupPort.onMessage._listeners[0]!({ type: "login" });
 
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+    });
+
+    it("shows login error toast from native host", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      sendNativeMessage({
+        error: { cmd: "login", message: "failed to start login: no control connection" },
+      });
+
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "toast",
+        message: "failed to start login: no control connection",
+        level: "error",
+        persistent: false,
+      });
+
+      const tabCreateSpy = chrome.tabs.create as ReturnType<typeof vi.fn>;
+      tabCreateSpy.mockClear();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://login.tailscale.com/a/late",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
       expect(chrome.tabs.create).not.toHaveBeenCalled();
     });
 

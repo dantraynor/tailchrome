@@ -12,6 +12,7 @@ export type BackendState =
 
 export type NativeRequest =
   | { cmd: "init"; initID: string }
+  | { cmd: "login" }
   | { cmd: "up" }
   | { cmd: "down" }
   | { cmd: "get-status" }
@@ -69,6 +70,7 @@ export interface StatusUpdate {
   selfNode: SelfNode | null;
   needsLogin: boolean;
   browseToURL: string;
+  authURL?: string;
   exitNode: ExitNodeInfo | null;
   peers: PeerInfo[];
   prefs: TailscalePrefs | null;

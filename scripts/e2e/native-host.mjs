@@ -146,6 +146,16 @@ function mockSource(baseUrl) {
         return c.status ? { status: c.status } : null;
       case "list-profiles":
         return { profiles: c.profiles ?? defaultProfiles() };
+      case "login":
+        if (c.loginError) {
+          return {
+            error: {
+              cmd: "login",
+              message: c.loginError,
+            },
+          };
+        }
+        return c.loginStatus ? { status: c.loginStatus } : null;
       case "suggest-exit-node":
         if (c.suggestExitNodeError) {
           return {

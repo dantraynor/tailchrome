@@ -76,7 +76,7 @@ export class StateStore {
       })),
       exitNode: status.exitNode ?? null,
       magicDNSSuffix: status.magicDNSSuffix,
-      browseToURL: status.browseToURL,
+      browseToURL: status.browseToURL || status.authURL || null,
       prefs: status.prefs,
       health: status.health ?? [],
       error: status.error,
