@@ -534,9 +534,7 @@ function renderSplitTunnelingSection(
     btn.textContent = text;
     btn.addEventListener("click", () => {
       setActiveMode(modeRow, mode);
-      const latest = getLatestState();
-      const domains = latest?.domainSplit.domains ?? state.domainSplit.domains;
-      applyConfig(editorSection, { mode, domains });
+      commit();
     });
     modeRow.appendChild(btn);
   }
@@ -562,18 +560,21 @@ function renderSplitTunnelingSection(
   warning.setAttribute("role", "status");
   editorSection.appendChild(warning);
 
+  const commit = (): void => {
+    const parsed = parseDomainsInput(ta.value);
+    const mode = activeModeFromSection(editorSection);
+    applyConfig(editorSection, { mode, domains: parsed.domains });
+    warning.textContent =
+      parsed.invalid.length > 0
+        ? `Ignored invalid: ${parsed.invalid.join(", ")}`
+        : "";
+  };
+
   const saveBtn = document.createElement("button");
   saveBtn.type = "button";
   saveBtn.className = "btn btn-secondary split-tunneling-save";
   saveBtn.textContent = "Save rules";
-  saveBtn.addEventListener("click", () => {
-    const parsed = parseDomainsInput(ta.value);
-    const mode = activeModeFromSection(editorSection);
-    applyConfig(editorSection, { mode, domains: parsed.domains });
-    if (parsed.invalid.length > 0) {
-      warning.textContent = `Ignored invalid: ${parsed.invalid.join(", ")}`;
-    }
-  });
+  saveBtn.addEventListener("click", commit);
   editorSection.appendChild(saveBtn);
 
   parent.appendChild(editorSection);

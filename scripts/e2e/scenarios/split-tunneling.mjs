@@ -50,6 +50,16 @@ async function waitForPacContains(page, fragment) {
   throw new Error(`PAC script never contained: ${fragment}`);
 }
 
+async function waitForPacWithout(page, fragment) {
+  const start = Date.now();
+  while (Date.now() - start < 5_000) {
+    const data = await getPacScript(page);
+    if (!data.includes(fragment)) return data;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`PAC script still contained: ${fragment}`);
+}
+
 export async function run({ openPopup }) {
   const page = await openPopup();
   try {
@@ -73,6 +83,30 @@ export async function run({ openPopup }) {
     }
     if (!pac.includes("SOCKS5 127.0.0.1:1055")) {
       throw new Error("Proxy still expected for unlisted hosts");
+    }
+
+    // Regression: typing new domains and clicking a mode button (without
+    // clicking Save) must commit both the new mode AND the typed domains,
+    // not the previously-saved domain list.
+    await page.$eval(
+      ".split-tunneling-input",
+      (el, value) => {
+        el.value = value;
+      },
+      "work.example.com",
+    );
+    await page.click('.split-tunneling-mode-btn[data-mode="only"]');
+    await waitForPacWithout(page, "teams.microsoft.com");
+    const pacAfterMode = await getPacScript(page);
+    if (!pacAfterMode.includes("work.example.com")) {
+      throw new Error(
+        "Mode click dropped the unsaved textarea entry (regression)",
+      );
+    }
+    if (pacAfterMode.includes("outlook.office.com")) {
+      throw new Error(
+        "Mode click kept stale saved domains instead of textarea contents",
+      );
     }
   } finally {
     await page.close();
