@@ -49,6 +49,7 @@ type ProcRunningReply struct {
 	Error            string `json:"error,omitempty"`
 	SupportsNetcheck bool `json:"supportsNetcheck,omitempty"`
 	SupportsPingPeer bool `json:"supportsPingPeer,omitempty"`
+	SupportsLogin    bool `json:"supportsLogin,omitempty"`
 }
 
 // InitReply is the response to an "init" command.

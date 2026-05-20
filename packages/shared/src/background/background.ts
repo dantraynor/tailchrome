@@ -33,16 +33,16 @@ export interface InitBackgroundOptions {
 
 const LOGIN_OPEN_TIMEOUT_MS = 30_000;
 const LOGIN_OPEN_TIMEOUT_NAME = "login-open-timeout";
-const ALLOWED_LOGIN_HOSTS = new Set([
-  "login.tailscale.com",
-  "controlplane.tailscale.com",
-  "tailscale.com",
+const ALLOWED_LOGIN_ORIGINS = new Set([
+  "https://login.tailscale.com",
+  "https://controlplane.tailscale.com",
+  "https://tailscale.com",
 ]);
 
 function isValidLoginURL(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:" && ALLOWED_LOGIN_HOSTS.has(parsed.hostname);
+    return ALLOWED_LOGIN_ORIGINS.has(parsed.origin);
   } catch {
     return false;
   }
@@ -150,6 +150,7 @@ export function initBackground(
           hostVersionMismatch,
           supportsNetcheck: false,
           supportsPingPeer: false,
+          supportsLogin: false,
         });
       } else {
         store.update({
@@ -159,6 +160,7 @@ export function initBackground(
           hostVersionMismatch,
           supportsNetcheck: msg.procRunning.supportsNetcheck === true,
           supportsPingPeer: msg.procRunning.supportsPingPeer === true,
+          supportsLogin: msg.procRunning.supportsLogin === true,
         });
       }
     }
@@ -322,6 +324,7 @@ export function initBackground(
             hostVersionMismatch: false,
             supportsNetcheck: false,
             supportsPingPeer: false,
+            supportsLogin: false,
           }),
     });
   }
@@ -443,6 +446,11 @@ export function initBackground(
         }
         if (state.browseToURL && isValidLoginURL(state.browseToURL)) {
           chrome.tabs.create({ url: state.browseToURL });
+        } else if (!state.supportsLogin) {
+          sendToastToPopup(
+            "Please update the native helper to request a fresh Tailscale login URL.",
+            "error",
+          );
         } else if (!nativeHost.send({ cmd: "login" })) {
           clearPendingLoginOpen();
           sendToastToPopup(

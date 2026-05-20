@@ -205,6 +205,7 @@ export function makeControl(overrides = {}) {
     hostVersion: "0.1.9",
     supportsNetcheck: true,
     supportsPingPeer: true,
+    supportsLogin: true,
     status,
     profiles: makeProfiles(),
     exitNodeSuggestion: {

@@ -101,6 +101,17 @@ describe("initBackground", () => {
     nativePort.onMessage._listeners[0]!(msg);
   }
 
+  function advertiseLoginSupport() {
+    sendNativeMessage({
+      procRunning: {
+        port: 1055,
+        pid: 1234,
+        version: "0.1.9",
+        supportsLogin: true,
+      },
+    });
+  }
+
   it("returns proxy manager handle", async () => {
     const handle = await setupBackground();
     expect(handle.proxyManager).toBe(proxyManager);
@@ -131,6 +142,7 @@ describe("initBackground", () => {
           proxyEnabled: true,
           supportsNetcheck: false,
           supportsPingPeer: false,
+          supportsLogin: false,
         })
       );
     });
@@ -154,6 +166,17 @@ describe("initBackground", () => {
 
       expect(proxyManager.apply).toHaveBeenCalledWith(
         expect.objectContaining({ supportsPingPeer: true })
+      );
+    });
+
+    it("sets supportsLogin when procRunning advertises it", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, supportsLogin: true },
+      });
+
+      expect(proxyManager.apply).toHaveBeenCalledWith(
+        expect.objectContaining({ supportsLogin: true })
       );
     });
 
@@ -625,6 +648,7 @@ describe("initBackground", () => {
 
     it("does not open arbitrary tailscale subdomain login URLs", async () => {
       await setupBackground();
+      advertiseLoginSupport();
       sendNativeMessage({
         status: {
           backendState: "NeedsLogin",
@@ -651,8 +675,38 @@ describe("initBackground", () => {
       expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
     });
 
+    it("does not allow alternate login URL ports", async () => {
+      await setupBackground();
+      advertiseLoginSupport();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://login.tailscale.com:8443/a/xyz",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+    });
+
     it("requests a fresh login URL when none is available", async () => {
       await setupBackground();
+      advertiseLoginSupport();
       sendNativeMessage({
         status: {
           backendState: "NeedsLogin",
@@ -679,8 +733,46 @@ describe("initBackground", () => {
       expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
     });
 
+    it("does not send login command when native helper lacks login support", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, version: "0.1.9" },
+      });
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(nativePort.postMessage).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "toast",
+        message: "Please update the native helper to request a fresh Tailscale login URL.",
+        level: "error",
+        persistent: false,
+      });
+    });
+
     it("does not send duplicate login requests while waiting for a URL", async () => {
       await setupBackground();
+      advertiseLoginSupport();
       sendNativeMessage({
         status: {
           backendState: "NeedsLogin",
@@ -717,6 +809,7 @@ describe("initBackground", () => {
 
     it("clears pending login request after timeout", async () => {
       await setupBackground();
+      advertiseLoginSupport();
       sendNativeMessage({
         status: {
           backendState: "NeedsLogin",
@@ -756,6 +849,7 @@ describe("initBackground", () => {
 
     it("opens fresh login URL returned after login request", async () => {
       await setupBackground();
+      advertiseLoginSupport();
       sendNativeMessage({
         status: {
           backendState: "NeedsLogin",
@@ -802,6 +896,7 @@ describe("initBackground", () => {
 
     it("shows toast when refreshed login URL is invalid", async () => {
       await setupBackground();
+      advertiseLoginSupport();
       sendNativeMessage({
         status: {
           backendState: "NeedsLogin",
@@ -852,6 +947,7 @@ describe("initBackground", () => {
 
     it("rejects login with invalid URL", async () => {
       await setupBackground();
+      advertiseLoginSupport();
       sendNativeMessage({
         status: {
           backendState: "NeedsLogin",
@@ -883,6 +979,7 @@ describe("initBackground", () => {
 
     it("shows login error toast from native host", async () => {
       await setupBackground();
+      advertiseLoginSupport();
       sendNativeMessage({
         status: {
           backendState: "NeedsLogin",

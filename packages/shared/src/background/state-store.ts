@@ -27,6 +27,7 @@ const DEFAULT_STATE: TailscaleState = {
   hostVersionMismatch: false,
   supportsNetcheck: false,
   supportsPingPeer: false,
+  supportsLogin: false,
   reconnecting: false,
 };
 

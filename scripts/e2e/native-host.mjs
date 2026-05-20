@@ -239,6 +239,7 @@ function mockSource(baseUrl) {
             error: c.startupError,
             supportsNetcheck: c.supportsNetcheck !== false,
             supportsPingPeer: c.supportsPingPeer !== false,
+            supportsLogin: c.supportsLogin !== false,
           },
         });
       });
