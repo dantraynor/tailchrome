@@ -153,6 +153,13 @@ export interface ProfileInfo {
   name: string;
 }
 
+export type DomainSplitMode = "bypass" | "only";
+
+export interface DomainSplitConfig {
+  mode: DomainSplitMode;
+  domains: string[];
+}
+
 export interface ProfilesResult {
   current: ProfileInfo;
   profiles: ProfileInfo[];
@@ -199,6 +206,8 @@ export interface TailscaleState {
   profiles: ProfileInfo[];
 
   exitNodeSuggestion: ExitNodeSuggestion | null;
+
+  domainSplit: DomainSplitConfig;
 
   error: string | null;
   installError: boolean;
@@ -261,6 +270,7 @@ export type BackgroundMessage =
       chunkCount?: number;
     }
   | { type: "suggest-exit-node" }
+  | { type: "set-domain-split"; config: DomainSplitConfig }
   | { type: "open-admin" }
   | { type: "open-web-client" };
 

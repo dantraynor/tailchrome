@@ -21,6 +21,7 @@ const DEFAULT_STATE: TailscaleState = {
   currentProfile: null,
   profiles: [],
   exitNodeSuggestion: null,
+  domainSplit: { mode: "bypass", domains: [] },
   error: null,
   installError: false,
   hostVersion: null,
