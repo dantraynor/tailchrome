@@ -884,6 +884,37 @@ describe("initBackground", () => {
       });
     });
 
+    it("sends `up` if status arrives before the pref finishes hydrating", async () => {
+      let resolveAutoConnectPref!: (value: Record<string, unknown>) => void;
+      const autoConnectPref = new Promise<Record<string, unknown>>((resolve) => {
+        resolveAutoConnectPref = resolve;
+      });
+      (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockImplementation(
+        (key: string) => {
+          if (key === "autoConnectOnStart") return autoConnectPref;
+          if (key === "profileId") {
+            return Promise.resolve({ profileId: "test-id" });
+          }
+          return Promise.resolve({});
+        },
+      );
+
+      await setupBackground();
+      nativePort.postMessage.mockClear();
+
+      sendNativeMessage(stoppedStatus());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "up" });
+
+      resolveAutoConnectPref({ autoConnectOnStart: true });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "up" });
+      expect(chrome.storage.session.set).toHaveBeenCalledWith({
+        autoConnectHandled: true,
+      });
+    });
+
     it("fires for NoState the same as Stopped", async () => {
       (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
         profileId: "test-id",

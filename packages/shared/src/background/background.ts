@@ -98,15 +98,6 @@ export function initBackground(
   });
 
   const store = new StateStore();
-
-  // Hydrate the auto-connect preference so the popup reflects it on first
-  // render. Failures here are non-fatal — the toggle just shows the default.
-  void readAutoConnectPref()
-    .then((value) => store.update({ autoConnectOnStart: value }))
-    .catch((err) => {
-      console.warn("[Background] readAutoConnectPref failed:", err);
-    });
-
   const badgeManager = new BadgeManager();
 
   // Connected popup ports
@@ -114,6 +105,21 @@ export function initBackground(
 
   // Track whether we've attempted to restore exit node for this connection
   let exitNodeRestoreAttempted = false;
+  let latestBackendState: TailscaleState["backendState"] | null = null;
+
+  // Hydrate the auto-connect preference so the popup reflects it on first
+  // render. If the first native status arrived before storage resolved, re-run
+  // the auto-connect decision against that real status rather than the default.
+  void readAutoConnectPref()
+    .then((value) => {
+      store.update({ autoConnectOnStart: value });
+      if (value && latestBackendState !== null) {
+        maybeAutoConnect(latestBackendState);
+      }
+    })
+    .catch((err) => {
+      console.warn("[Background] readAutoConnectPref failed:", err);
+    });
 
   store.subscribe((state: TailscaleState) => {
     proxyManager.apply(state);
@@ -171,6 +177,7 @@ export function initBackground(
 
     // Status update
     if (msg.status) {
+      latestBackendState = msg.status.backendState;
       store.applyStatusUpdate(msg.status);
 
       // Restore saved exit node after reconnection
