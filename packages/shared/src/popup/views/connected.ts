@@ -188,6 +188,22 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   dnsRow.appendChild(dnsToggle);
   settings.appendChild(dnsRow);
 
+  // Auto-connect on start toggle
+  const autoConnectRow = document.createElement("div");
+  autoConnectRow.className = "setting-row";
+
+  const autoConnectLabel = document.createElement("span");
+  autoConnectLabel.className = "setting-label";
+  autoConnectLabel.textContent = "Auto-connect on start";
+  autoConnectRow.appendChild(autoConnectLabel);
+
+  const autoConnectToggle = createToggle(state.autoConnectOnStart, (checked) => {
+    sendMessage({ type: "set-auto-connect-on-start", value: checked });
+  });
+  autoConnectToggle.querySelector("input")?.classList.add("quick-settings-pref");
+  autoConnectRow.appendChild(autoConnectToggle);
+  settings.appendChild(autoConnectRow);
+
   const advancedPanel = document.createElement("div");
   advancedPanel.className = "advanced-settings-panel";
   if (!advancedSectionOpen) {
@@ -743,7 +759,7 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     const prefInputs = quickSettings.querySelectorAll<HTMLInputElement>(
       "input.quick-settings-pref",
     );
-    if (prefInputs.length >= 3) {
+    if (prefInputs.length >= 4) {
       const shieldsUp = state.prefs?.shieldsUp ?? false;
       if (prefInputs[0]!.checked !== shieldsUp) {
         prefInputs[0]!.checked = shieldsUp;
@@ -752,9 +768,12 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
       if (prefInputs[1]!.checked !== corpDNS) {
         prefInputs[1]!.checked = corpDNS;
       }
+      if (prefInputs[2]!.checked !== state.autoConnectOnStart) {
+        prefInputs[2]!.checked = state.autoConnectOnStart;
+      }
       const advertisingExit = state.prefs?.advertiseExitNode ?? false;
-      if (prefInputs[2]!.checked !== advertisingExit) {
-        prefInputs[2]!.checked = advertisingExit;
+      if (prefInputs[3]!.checked !== advertisingExit) {
+        prefInputs[3]!.checked = advertisingExit;
       }
     }
 

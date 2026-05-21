@@ -29,6 +29,7 @@ export function baseState(overrides: Partial<TailscaleState> = {}): TailscaleSta
     supportsPingPeer: false,
     supportsLogin: false,
     reconnecting: false,
+    autoConnectOnStart: false,
     ...overrides,
   };
 }

@@ -225,6 +225,8 @@ export interface TailscaleState {
   supportsLogin: boolean;
   /** True when the native host disconnected and reconnection is being attempted. */
   reconnecting: boolean;
+  /** Opt-in: send `up` automatically on extension startup when the node is Stopped/NoState. */
+  autoConnectOnStart: boolean;
 }
 
 // Messages from background to popup
@@ -278,7 +280,8 @@ export type BackgroundMessage =
   | { type: "suggest-exit-node" }
   | { type: "set-domain-split"; config: DomainSplitConfig }
   | { type: "open-admin" }
-  | { type: "open-web-client" };
+  | { type: "open-web-client" }
+  | { type: "set-auto-connect-on-start"; value: boolean };
 
 // === Proxy manager interface ===
 
