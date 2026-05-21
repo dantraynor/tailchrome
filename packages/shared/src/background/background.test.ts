@@ -1261,6 +1261,73 @@ describe("initBackground", () => {
         })
       );
     });
+
+    it("clears pending login request when disconnected", async () => {
+      await setupBackground();
+      advertiseLoginSupport();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+      nativePort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+
+      nativePort.onDisconnect._listeners[0]!(nativePort);
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(popupPort.postMessage).not.toHaveBeenCalledWith({
+        type: "toast",
+        message: "Still waiting for a Tailscale login URL. Please try again.",
+        level: "error",
+        persistent: false,
+      });
+
+      nativePort.postMessage.mockClear();
+      sendNativeMessage({
+        procRunning: {
+          port: 1055,
+          pid: 1234,
+          version: "0.1.9",
+          supportsLogin: true,
+        },
+      });
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+    });
   });
 
   describe("uiSurface wiring", () => {

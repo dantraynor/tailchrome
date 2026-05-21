@@ -308,6 +308,7 @@ export function initBackground(
   function handleNativeStateChange(connected: boolean): void {
     if (!connected) {
       exitNodeRestoreAttempted = false;
+      clearPendingLoginOpen();
     }
     store.update({
       hostConnected: connected,
