@@ -173,12 +173,17 @@ func (h *Host) buildStatusUpdate(st *ipnstate.Status) *StatusUpdate {
 	if state == "" {
 		state = st.BackendState
 	}
+	authURL := st.AuthURL
+	if browseToURL == "" {
+		browseToURL = authURL
+	}
 
 	update := &StatusUpdate{
 		BackendState: state,
 		Running:      state == "Running",
 		NeedsLogin:   state == "NeedsLogin" || state == "NeedsMachineAuth",
 		BrowseToURL:  browseToURL,
+		AuthURL:      authURL,
 		Prefs:        prefs,
 		Health:       health,
 		Peers:        []PeerInfo{},

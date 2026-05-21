@@ -1,9 +1,14 @@
-import type { TailscaleState } from "@tailchrome/shared/types";
+import type {
+  DomainSplitConfig,
+  DomainSplitMode,
+  TailscaleState,
+} from "@tailchrome/shared/types";
 import { TAILSCALE_SERVICE_IP } from "@tailchrome/shared/constants";
 import {
   parseCIDR,
   ipToNum,
   sanitizeMagicDNSSuffix,
+  sanitizeDomain,
   collectSubnetCIDRs,
   shouldProxyState,
   CGNAT_NETWORK,
@@ -50,6 +55,8 @@ interface StoredProxyConfig {
   magicDNSSuffix: string;
   exitNodeActive: boolean;
   subnetRanges: Array<{ network: number; mask: number }>;
+  splitMode: DomainSplitMode;
+  splitDomains: string[];
 }
 
 export class FirefoxProxyManager {
@@ -57,6 +64,8 @@ export class FirefoxProxyManager {
   private magicDNSSuffix = "";
   private exitNodeActive = false;
   private subnetRanges: Array<{ network: number; mask: number }> = [];
+  private splitMode: DomainSplitMode = "bypass";
+  private splitDomains: string[] = [];
   private restorePromise: Promise<void> | null = null;
   private reconnectPromise: Promise<void> | null = null;
   private reconnectResolve: (() => void) | null = null;
@@ -97,6 +106,8 @@ export class FirefoxProxyManager {
     this.subnetRanges = collectSubnetCIDRs(state.peers)
       .map((cidr) => parseCIDR(cidr))
       .filter((r): r is { network: number; mask: number } => r !== null);
+    this.splitMode = state.domainSplit.mode;
+    this.splitDomains = sanitizeSplitDomains(state.domainSplit);
     this.restorePromise = null;
 
     if (this.reconnectResolve) {
@@ -119,6 +130,8 @@ export class FirefoxProxyManager {
     this.magicDNSSuffix = "";
     this.exitNodeActive = false;
     this.subnetRanges = [];
+    this.splitMode = "bypass";
+    this.splitDomains = [];
 
     if (this.reconnectResolve) {
       this.reconnectResolve();
@@ -138,6 +151,10 @@ export class FirefoxProxyManager {
       this.magicDNSSuffix = config.magicDNSSuffix;
       this.exitNodeActive = config.exitNodeActive;
       this.subnetRanges = config.subnetRanges;
+      this.splitMode = config.splitMode ?? "bypass";
+      this.splitDomains = Array.isArray(config.splitDomains)
+        ? config.splitDomains
+        : [];
       this.reconnectPromise = new Promise<void>((resolve) => {
         this.reconnectResolve = resolve;
       });
@@ -155,6 +172,8 @@ export class FirefoxProxyManager {
       magicDNSSuffix: this.magicDNSSuffix,
       exitNodeActive: this.exitNodeActive,
       subnetRanges: this.subnetRanges,
+      splitMode: this.splitMode,
+      splitDomains: this.splitDomains,
     };
     await browser.storage.session.set({ [STORAGE_KEY]: config });
   }
@@ -201,8 +220,36 @@ export class FirefoxProxyManager {
       }
     }
 
-    if (this.exitNodeActive) return proxy;
+    if (this.exitNodeActive) {
+      if (this.splitMode === "only") {
+        // Only mode: empty list means nothing leaves through the exit node.
+        return this.matchSplitDomain(host) ? proxy : direct;
+      }
+      if (this.splitDomains.length > 0 && this.matchSplitDomain(host)) {
+        return direct;
+      }
+      return proxy;
+    }
 
     return direct;
   }
+
+  private matchSplitDomain(host: string): boolean {
+    for (const d of this.splitDomains) {
+      if (host === d || host.endsWith(`.${d}`)) return true;
+    }
+    return false;
+  }
+}
+
+function sanitizeSplitDomains(config: DomainSplitConfig): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of config.domains) {
+    const cleaned = sanitizeDomain(raw);
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+  }
+  return out;
 }

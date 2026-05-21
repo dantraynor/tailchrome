@@ -140,6 +140,8 @@ func (h *Host) handleRequest(req Request) {
 	switch req.Cmd {
 	case "init":
 		h.handleInit(req)
+	case "login":
+		h.handleLogin()
 	case "up":
 		h.handleUp()
 	case "down":
@@ -264,6 +266,19 @@ func (h *Host) handleInit(req Request) {
 		Cmd:  "init",
 		Init: &InitReply{},
 	})
+}
+
+// handleLogin requests or resumes an interactive Tailscale login flow.
+func (h *Host) handleLogin() {
+	if err := h.requireInit("login"); err != nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := h.lc.StartLoginInteractive(ctx); err != nil {
+		h.sendError("login", fmt.Sprintf("failed to start login: %v", err))
+	}
 }
 
 // handleUp sets WantRunning=true to bring Tailscale up.

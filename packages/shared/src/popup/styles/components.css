@@ -632,6 +632,76 @@ button.setting-row {
   display: none;
 }
 
+.split-tunneling-editor.hidden {
+  display: none;
+}
+
+.split-tunneling-modes {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 1px;
+  padding: 2px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.split-tunneling-mode-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: calc(var(--radius-sm) - 2px);
+  cursor: pointer;
+}
+
+.split-tunneling-mode-btn:hover {
+  color: var(--text-primary);
+}
+
+.split-tunneling-mode-btn[data-active="true"] {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.split-tunneling-help {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+.split-tunneling-input {
+  width: 100%;
+  min-height: 4.5rem;
+  padding: var(--space-xs) var(--space-sm);
+  font-family: var(--font-family);
+  font-size: var(--font-size-xs);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  resize: vertical;
+}
+
+.split-tunneling-warning {
+  margin: 0;
+  min-height: 1em;
+  font-size: var(--font-size-xs);
+  color: var(--ts-orange);
+}
+
+.split-tunneling-warning:empty {
+  display: none;
+}
+
+.split-tunneling-save {
+  align-self: flex-start;
+}
+
 .advanced-settings-panel {
   display: flex;
   flex-direction: column;

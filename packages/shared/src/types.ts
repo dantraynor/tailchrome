@@ -12,6 +12,7 @@ export type BackendState =
 
 export type NativeRequest =
   | { cmd: "init"; initID: string }
+  | { cmd: "login" }
   | { cmd: "up" }
   | { cmd: "down" }
   | { cmd: "get-status" }
@@ -48,6 +49,8 @@ export interface NativeReply {
     supportsNetcheck?: boolean;
     /** When true, the native host handles `ping-peer` (omitted on older helpers). */
     supportsPingPeer?: boolean;
+    /** When true, the native host handles the `login` command (omitted on older helpers). */
+    supportsLogin?: boolean;
   };
   init?: { error?: string };
   pong?: Record<string, never>;
@@ -69,6 +72,7 @@ export interface StatusUpdate {
   selfNode: SelfNode | null;
   needsLogin: boolean;
   browseToURL: string;
+  authURL?: string;
   exitNode: ExitNodeInfo | null;
   peers: PeerInfo[];
   prefs: TailscalePrefs | null;
@@ -153,6 +157,13 @@ export interface ProfileInfo {
   name: string;
 }
 
+export type DomainSplitMode = "bypass" | "only";
+
+export interface DomainSplitConfig {
+  mode: DomainSplitMode;
+  domains: string[];
+}
+
 export interface ProfilesResult {
   current: ProfileInfo;
   profiles: ProfileInfo[];
@@ -200,6 +211,8 @@ export interface TailscaleState {
 
   exitNodeSuggestion: ExitNodeSuggestion | null;
 
+  domainSplit: DomainSplitConfig;
+
   error: string | null;
   installError: boolean;
   hostVersion: string | null;
@@ -208,6 +221,8 @@ export interface TailscaleState {
   supportsNetcheck: boolean;
   /** True when the connected native helper advertises `supportsPingPeer` in procRunning. */
   supportsPingPeer: boolean;
+  /** True when the connected native helper advertises the `login` command in procRunning. */
+  supportsLogin: boolean;
   /** True when the native host disconnected and reconnection is being attempted. */
   reconnecting: boolean;
   /** Opt-in: send `up` automatically on extension startup when the node is Stopped/NoState. */
@@ -263,6 +278,7 @@ export type BackgroundMessage =
       chunkCount?: number;
     }
   | { type: "suggest-exit-node" }
+  | { type: "set-domain-split"; config: DomainSplitConfig }
   | { type: "open-admin" }
   | { type: "open-web-client" }
   | { type: "set-auto-connect-on-start"; value: boolean };

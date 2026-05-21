@@ -96,6 +96,7 @@ func main() {
 				Error:            errString(err),
 				SupportsNetcheck: false,
 				SupportsPingPeer: true,
+				SupportsLogin:    true,
 			},
 		})
 		log.Fatalf("failed to start proxy: %v", err)
@@ -109,6 +110,7 @@ func main() {
 			Version:          version,
 			SupportsNetcheck: false,
 			SupportsPingPeer: true,
+			SupportsLogin:    true,
 		},
 	})
 
