@@ -12,6 +12,7 @@ export type BackendState =
 
 export type NativeRequest =
   | { cmd: "init"; initID: string }
+  | { cmd: "login" }
   | { cmd: "up" }
   | { cmd: "down" }
   | { cmd: "get-status" }
@@ -48,6 +49,8 @@ export interface NativeReply {
     supportsNetcheck?: boolean;
     /** When true, the native host handles `ping-peer` (omitted on older helpers). */
     supportsPingPeer?: boolean;
+    /** When true, the native host handles the `login` command (omitted on older helpers). */
+    supportsLogin?: boolean;
   };
   init?: { error?: string };
   pong?: Record<string, never>;
@@ -69,6 +72,7 @@ export interface StatusUpdate {
   selfNode: SelfNode | null;
   needsLogin: boolean;
   browseToURL: string;
+  authURL?: string;
   exitNode: ExitNodeInfo | null;
   peers: PeerInfo[];
   prefs: TailscalePrefs | null;
@@ -217,6 +221,8 @@ export interface TailscaleState {
   supportsNetcheck: boolean;
   /** True when the connected native helper advertises `supportsPingPeer` in procRunning. */
   supportsPingPeer: boolean;
+  /** True when the connected native helper advertises the `login` command in procRunning. */
+  supportsLogin: boolean;
   /** True when the native host disconnected and reconnection is being attempted. */
   reconnecting: boolean;
 }

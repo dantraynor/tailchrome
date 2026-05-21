@@ -28,6 +28,7 @@ const DEFAULT_STATE: TailscaleState = {
   hostVersionMismatch: false,
   supportsNetcheck: false,
   supportsPingPeer: false,
+  supportsLogin: false,
   reconnecting: false,
 };
 
@@ -77,7 +78,7 @@ export class StateStore {
       })),
       exitNode: status.exitNode ?? null,
       magicDNSSuffix: status.magicDNSSuffix,
-      browseToURL: status.browseToURL,
+      browseToURL: status.browseToURL || status.authURL || null,
       prefs: status.prefs,
       health: status.health ?? [],
       error: status.error,

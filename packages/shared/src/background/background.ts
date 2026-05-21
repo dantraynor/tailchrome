@@ -37,20 +37,26 @@ export interface InitBackgroundOptions {
   browserKind?: BrowserKind;
 }
 
-const ALLOWED_LOGIN_ORIGINS = [
+const LOGIN_OPEN_TIMEOUT_MS = 30_000;
+const LOGIN_OPEN_TIMEOUT_NAME = "login-open-timeout";
+const ALLOWED_LOGIN_ORIGINS = new Set([
   "https://login.tailscale.com",
   "https://controlplane.tailscale.com",
-];
+  "https://tailscale.com",
+]);
 
 function isValidLoginURL(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return ALLOWED_LOGIN_ORIGINS.some(
-      (origin) => parsed.origin === origin
-    );
+    return ALLOWED_LOGIN_ORIGINS.has(parsed.origin);
   } catch {
     return false;
   }
+}
+
+function loginURLFromStatus(status: NativeReply["status"]): string | null {
+  if (!status) return null;
+  return status.browseToURL || status.authURL || null;
 }
 
 /**
@@ -138,6 +144,28 @@ export function initBackground(
 
   // Track whether we've attempted to restore exit node for this connection
   let exitNodeRestoreAttempted = false;
+  let pendingLoginOpen = false;
+
+  function clearPendingLoginOpen(): void {
+    pendingLoginOpen = false;
+    timerService.clear(LOGIN_OPEN_TIMEOUT_NAME);
+  }
+
+  function startPendingLoginOpen(): void {
+    pendingLoginOpen = true;
+    timerService.setTimeout(
+      LOGIN_OPEN_TIMEOUT_NAME,
+      () => {
+        if (!pendingLoginOpen) return;
+        pendingLoginOpen = false;
+        sendToastToPopup(
+          "Still waiting for a Tailscale login URL. Please try again.",
+          "error",
+        );
+      },
+      LOGIN_OPEN_TIMEOUT_MS,
+    );
+  }
 
   store.subscribe((state: TailscaleState) => {
     proxyManager.apply(state);
@@ -162,6 +190,7 @@ export function initBackground(
           hostVersionMismatch,
           supportsNetcheck: false,
           supportsPingPeer: false,
+          supportsLogin: false,
         });
       } else {
         store.update({
@@ -171,6 +200,7 @@ export function initBackground(
           hostVersionMismatch,
           supportsNetcheck: msg.procRunning.supportsNetcheck === true,
           supportsPingPeer: msg.procRunning.supportsPingPeer === true,
+          supportsLogin: msg.procRunning.supportsLogin === true,
         });
       }
     }
@@ -196,6 +226,21 @@ export function initBackground(
     // Status update
     if (msg.status) {
       store.applyStatusUpdate(msg.status);
+      const loginURL = loginURLFromStatus(msg.status);
+      if (pendingLoginOpen) {
+        if (loginURL && isValidLoginURL(loginURL)) {
+          clearPendingLoginOpen();
+          chrome.tabs.create({ url: loginURL });
+        } else if (loginURL) {
+          clearPendingLoginOpen();
+          sendToastToPopup(
+            "Could not open the login URL Tailscale returned.",
+            "error",
+          );
+        } else if (msg.status.backendState === "Running") {
+          clearPendingLoginOpen();
+        }
+      }
 
       // Restore saved exit node after reconnection
       if (
@@ -286,6 +331,9 @@ export function initBackground(
           `[Background] Native error for cmd="${msg.error.cmd}":`,
           msg.error.message
         );
+        if (msg.error.cmd === "login") {
+          clearPendingLoginOpen();
+        }
         store.update({
           error: msg.error.message,
           ...(msg.error.cmd === "set-exit-node"
@@ -300,6 +348,7 @@ export function initBackground(
   function handleNativeStateChange(connected: boolean): void {
     if (!connected) {
       exitNodeRestoreAttempted = false;
+      clearPendingLoginOpen();
     }
     store.update({
       hostConnected: connected,
@@ -316,6 +365,7 @@ export function initBackground(
             hostVersionMismatch: false,
             supportsNetcheck: false,
             supportsPingPeer: false,
+            supportsLogin: false,
           }),
     });
   }
@@ -431,8 +481,25 @@ export function initBackground(
       }
 
       case "login": {
+        if (pendingLoginOpen) {
+          sendToastToPopup("Still waiting for Tailscale to return a login URL.", "info");
+          break;
+        }
         if (state.browseToURL && isValidLoginURL(state.browseToURL)) {
           chrome.tabs.create({ url: state.browseToURL });
+        } else if (!state.supportsLogin) {
+          sendToastToPopup(
+            "Please update the native helper to request a fresh Tailscale login URL.",
+            "error",
+          );
+        } else if (!nativeHost.send({ cmd: "login" })) {
+          clearPendingLoginOpen();
+          sendToastToPopup(
+            "Could not request a Tailscale login URL. Please check that the native host is installed.",
+            "error",
+          );
+        } else {
+          startPendingLoginOpen();
         }
         break;
       }

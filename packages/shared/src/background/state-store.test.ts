@@ -280,5 +280,29 @@ describe("StateStore", () => {
         expect.objectContaining({ backendState: "NeedsLogin" })
       );
     });
+
+    it("falls back to authURL when browseToURL is empty", () => {
+      const store = new StateStore();
+
+      store.applyStatusUpdate({
+        backendState: "NeedsLogin",
+        running: false,
+        tailnet: null,
+        magicDNSSuffix: "",
+        selfNode: null,
+        needsLogin: true,
+        browseToURL: "",
+        authURL: "https://login.tailscale.com/a/from-status",
+        exitNode: null,
+        peers: [],
+        prefs: null,
+        health: [],
+        error: null,
+      });
+
+      expect(store.getState().browseToURL).toBe(
+        "https://login.tailscale.com/a/from-status"
+      );
+    });
   });
 });

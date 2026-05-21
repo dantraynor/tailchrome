@@ -49,6 +49,7 @@ type ProcRunningReply struct {
 	Error            string `json:"error,omitempty"`
 	SupportsNetcheck bool `json:"supportsNetcheck,omitempty"`
 	SupportsPingPeer bool `json:"supportsPingPeer,omitempty"`
+	SupportsLogin    bool `json:"supportsLogin,omitempty"`
 }
 
 // InitReply is the response to an "init" command.
@@ -68,6 +69,7 @@ type StatusUpdate struct {
 	SelfNode       *PeerInfo  `json:"selfNode,omitempty"`
 	NeedsLogin     bool       `json:"needsLogin"`
 	BrowseToURL    string     `json:"browseToURL,omitempty"`
+	AuthURL        string     `json:"authURL,omitempty"`
 	ExitNode       *PeerInfo  `json:"exitNode,omitempty"`
 	Peers          []PeerInfo `json:"peers"`
 	Prefs          *PrefsView `json:"prefs,omitempty"`

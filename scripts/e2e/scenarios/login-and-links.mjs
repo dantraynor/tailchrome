@@ -1,4 +1,10 @@
-import { clickText, clickToggleForLabel, expectText, waitForPopup } from "../assertions.mjs";
+import {
+  clickText,
+  clickToggleForLabel,
+  expectText,
+  waitForPopup,
+  waitForRequest,
+} from "../assertions.mjs";
 import { makeControl, makeNeedsLoginState } from "../fixtures.mjs";
 
 export const suite = "full";
@@ -40,6 +46,30 @@ export const cases = [
           .targets()
           .some((target) => target.url().startsWith("https://example.com/phishing"));
         if (opened) throw new Error("Invalid login URL was opened");
+      } finally {
+        await page.close();
+      }
+    },
+  },
+  {
+    name: "login requests fresh URL when current state has none",
+    control: () =>
+      makeControl({
+        status: makeNeedsLoginState({ browseToURL: "" }),
+        loginStatus: makeNeedsLoginState({
+          browseToURL: "https://login.tailscale.com/a/refreshed",
+        }),
+      }),
+    run: async ({ browser, openPopup, nativeHost }) => {
+      const page = await openPopup();
+      try {
+        await waitForPopup(page);
+        const targetPromise = browser.waitForTarget((target) =>
+          target.url().startsWith("https://login.tailscale.com/a/refreshed"),
+        );
+        await clickText(page, "Log In", "button");
+        await waitForRequest(nativeHost, "login");
+        await targetPromise;
       } finally {
         await page.close();
       }
