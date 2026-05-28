@@ -6,7 +6,7 @@
 
 **Tech Stack:** Go 1.25.5 (host), platform build tags (`install_linux.go`, `install_darwin.go`, `install_windows.go`), standard library `testing` package.
 
-**Spec:** `docs/superpowers/specs/2026-05-05-chromium-family-native-messaging-design.md`
+**Spec:** `docs/design/specs/2026-05-05-chromium-family-native-messaging-design.md`
 
 **Build invariant:** Every task ends with a green build on Linux, macOS, and Windows. To enforce this, Task 1 introduces the new abstractions alongside the old ones (both compile); Task 2 swaps callers and removes the old ones in a single atomic change.
 
