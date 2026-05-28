@@ -26,11 +26,8 @@ export function createNativeHost(_browserName, control, { enabled = true } = {})
       baseUrl = await startServer();
       const targetDir = join(root, "extension");
       cpSync(extensionDir, targetDir, { recursive: true });
-      patchBackground(targetDir, baseUrl);
+      patchBackground(targetDir, baseUrl, control ?? {});
       return targetDir;
-    },
-    updateControl(nextControl) {
-      control = nextControl;
     },
     clearRequests() {
       requests.length = 0;
@@ -58,12 +55,6 @@ export function createNativeHost(_browserName, control, { enabled = true } = {})
           return;
         }
 
-        if (req.method === "GET" && req.url === "/control") {
-          res.setHeader("content-type", "application/json");
-          res.end(JSON.stringify(control ?? {}));
-          return;
-        }
-
         if (req.method === "POST" && req.url === "/request") {
           const chunks = [];
           for await (const chunk of req) chunks.push(chunk);
@@ -86,27 +77,27 @@ export function createNativeHost(_browserName, control, { enabled = true } = {})
   }
 }
 
-function patchBackground(extensionDir, baseUrl) {
+function patchBackground(extensionDir, baseUrl, initialControl) {
   const backgroundPath = join(extensionDir, "background.js");
   if (!existsSync(backgroundPath)) {
     throw new Error(`background.js not found in ${extensionDir}`);
   }
 
   const original = readFileSync(backgroundPath, "utf8");
-  const patched = `${mockSource(baseUrl)}\n${original}`;
+  const patched = `${mockSource(baseUrl, initialControl)}\n${original}`;
   copyFileSync(backgroundPath, join(extensionDir, "background.original.js"));
   writeFileSync(backgroundPath, patched);
 }
 
-function mockSource(baseUrl) {
+function mockSource(baseUrl, initialControl) {
   return `
 (() => {
   const baseUrl = ${JSON.stringify(baseUrl)};
-
-  async function control() {
-    const res = await fetch(baseUrl + "/control");
-    return res.json();
-  }
+  // Control object is inlined at extension-patch time. Both the startup
+  // dispatch and request replies are served from this snapshot so the popup
+  // never races against a fetch round-trip and the message sequence is
+  // deterministic for every scenario.
+  const control = ${JSON.stringify(initialControl)};
 
   async function logRequest(msg) {
     await fetch(baseUrl + "/request", {
@@ -213,9 +204,9 @@ function mockSource(baseUrl) {
       onDisconnect,
       postMessage(msg) {
         void logRequest(msg);
-        void control().then((c) => {
-          const reply = replyForRequest(msg, c);
-          if (reply) queueMicrotask(() => onMessage.dispatch(reply));
+        queueMicrotask(() => {
+          const reply = replyForRequest(msg, control);
+          if (reply) onMessage.dispatch(reply);
         });
       },
       disconnect() {
@@ -223,25 +214,27 @@ function mockSource(baseUrl) {
       },
     };
 
-    void control().then((c) => {
-      queueMicrotask(() => {
-        if (c.connectError) {
-          onMessage.dispatch({
-            error: { cmd: "connect", message: c.connectError },
-          });
-          return;
-        }
+    // Dispatch procRunning synchronously from the inlined snapshot so it
+    // reaches the background before the popup connects. The fetch
+    // round-trip used previously raced with openPopup and left the popup
+    // stuck on the skeleton view.
+    queueMicrotask(() => {
+      if (control.connectError) {
         onMessage.dispatch({
-          procRunning: {
-            port: c.proxyPort ?? 1055,
-            pid: 1,
-            version: c.hostVersion ?? "0.1.9",
-            error: c.startupError,
-            supportsNetcheck: c.supportsNetcheck !== false,
-            supportsPingPeer: c.supportsPingPeer !== false,
-            supportsLogin: c.supportsLogin !== false,
-          },
+          error: { cmd: "connect", message: control.connectError },
         });
+        return;
+      }
+      onMessage.dispatch({
+        procRunning: {
+          port: control.proxyPort ?? 1055,
+          pid: 1,
+          version: control.hostVersion ?? "0.1.10",
+          error: control.startupError,
+          supportsNetcheck: control.supportsNetcheck !== false,
+          supportsPingPeer: control.supportsPingPeer !== false,
+          supportsLogin: control.supportsLogin !== false,
+        },
       });
     });
 

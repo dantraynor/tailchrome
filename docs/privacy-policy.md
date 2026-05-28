@@ -1,10 +1,10 @@
 # Tailchrome Privacy Policy
 
-Last updated: 2026-04-06
+Last updated: 2026-05-28
 
 ## Summary
 
-Tailchrome does not include analytics, advertising trackers, or data brokers. The extension does transmit user data when it is necessary to connect Firefox to the user's Tailscale network through the local native helper.
+Tailchrome does not include analytics, advertising trackers, or data brokers. The extension does transmit user data when it is necessary to connect the browser to the user's Tailscale network through the local native helper.
 
 ## Data Stored In The Browser
 
@@ -13,6 +13,9 @@ Tailchrome stores the following data locally in browser storage:
 - `profileId`: a generated identifier used to keep one Tailscale node per browser profile.
 - `lastExitNodeID`: the most recently selected exit node so it can be restored after reconnect.
 - `customUrls`: per-device custom open targets configured by the user.
+- `domainSplitConfig`: split-tunneling mode and domain list configured by the user.
+- `autoConnectOnStart`: the user's auto-connect preference.
+- `autoConnectHandled` in session storage: a per-session flag used to avoid reconnecting automatically after an explicit manual disconnect.
 - `proxyConfig` in Firefox session storage: the active proxy port, MagicDNS suffix, exit-node state, and subnet ranges needed to restore routing after the Firefox background context is suspended.
 
 This data stays on the local device unless the user exports or syncs their browser profile separately.
@@ -43,6 +46,8 @@ Tailchrome does not send product analytics, crash telemetry, advertising identif
 Users can:
 
 - disable Tailchrome from the extension popup,
+- turn off auto-connect on start,
+- clear split-tunneling domains,
 - clear custom peer URLs from the popup,
 - remove exit-node selection,
 - log out of Tailscale, and

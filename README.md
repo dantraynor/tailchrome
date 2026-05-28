@@ -16,10 +16,12 @@ Tailchrome runs a full Tailscale node per browser profile, without touching syst
 
 - **Per-profile isolation** — each browser profile gets its own independent Tailscale node and identity
 - **Exit nodes** — route all browser traffic through any exit node on your tailnet, with a "Best available" recommendation that picks a nearby Mullvad location when one is available
+- **Split-tunneling** — pick domains that bypass your exit node (handy for sites that flag VPN traffic), or restrict the exit node to only the domains you list
 - **MagicDNS** — access devices by name, not IP
 - **Subnet routing** — reach resources behind subnet routers
 - **Profiles** — create and switch between multiple Tailscale identities
 - **Side panel** — opt in to keep the UI docked while you browse (Chrome side panel, Firefox sidebar)
+- **Auto-connect on start** — optional toggle that brings the tailnet up when the browser launches
 - **Shields Up** — block incoming connections for extra security
 
 ## How it works

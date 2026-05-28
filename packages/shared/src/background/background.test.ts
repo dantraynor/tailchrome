@@ -108,7 +108,7 @@ describe("initBackground", () => {
       procRunning: {
         port: 1055,
         pid: 1234,
-        version: "0.1.9",
+        version: "0.1.10",
         supportsLogin: true,
       },
     });
@@ -738,7 +738,7 @@ describe("initBackground", () => {
     it("does not send login command when native helper lacks login support", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.1.9" },
+        procRunning: { port: 1055, pid: 1234, version: "0.1.10" },
       });
       sendNativeMessage({
         status: {
@@ -1306,7 +1306,7 @@ describe("initBackground", () => {
         procRunning: {
           port: 1055,
           pid: 1234,
-          version: "0.1.9",
+          version: "0.1.10",
           supportsLogin: true,
         },
       });

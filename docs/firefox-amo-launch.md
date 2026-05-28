@@ -32,7 +32,8 @@ Features:
 - per-profile Tailscale identity
 - MagicDNS and tailnet IP access
 - subnet routing
-- exit nodes
+- exit nodes, including split-tunneling domain rules
+- optional auto-connect on browser start
 - Taildrop
 - multiple profiles
 
@@ -42,7 +43,7 @@ Tailchrome requires a separate native helper downloaded from GitHub Releases. Th
 
 - Required categories: `browsingActivity`, `websiteContent`
 - No analytics or advertising trackers
-- Data is transmitted only as needed to log in to Tailscale, proxy traffic onto the user's tailnet, and complete user-initiated actions such as Taildrop
+- Data is transmitted only as needed to log in to Tailscale, proxy traffic onto the user's tailnet, apply exit-node/split-tunneling choices, and complete user-initiated actions such as Taildrop
 
 ## Media Assets
 
