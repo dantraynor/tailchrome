@@ -18,14 +18,8 @@ packaging/macos/**/_CodeSignature/
 Thumbs.db
 
 # IDE
-.cursor/
 .vscode/
 .idea/
-
-# persistmem
-CLAUDE.md
-.claude/
-docs/superpowers/
 
 # Editor swap files
 *.swp
@@ -37,5 +31,3 @@ docs/superpowers/
 
 # Tooling
 .context/
-.playwright-mcp/
-.omc/

@@ -34,7 +34,7 @@ interface ToastOptions {
   persistent?: boolean;
   /** When not persistent, remove after this many ms (default 2500). */
   dismissMs?: number;
-  /** Preserve line breaks (e.g. diagnostics reference + URL). */
+  /** Preserve line breaks in multi-line toast bodies. */
   multiline?: boolean;
 }
 

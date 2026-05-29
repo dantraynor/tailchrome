@@ -2,13 +2,13 @@
 
 > Access your Tailscale network directly from your browser. No system VPN required.
 
-**Version:** 0.1.9 (native host) | Manifest V3  
-**Browsers:** Chrome, Firefox  
-**Platforms:** macOS (amd64, arm64), Linux (amd64), Windows (amd64)  
-**License:** MIT  
-**Website:** [tesseras.org/tailchrome](https://tesseras.org/)  
-**Chrome Web Store:** [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)  
-**Firefox Add-ons:** [Firefox Add-ons (AMO)](https://addons.mozilla.org/firefox/addon/tailchrome/)  
+**Version:** 0.1.10 (native host) | Manifest V3
+**Browsers:** Chrome, Firefox
+**Platforms:** macOS (amd64, arm64), Linux (amd64), Windows (amd64)
+**License:** MIT
+**Website:** [tesseras.org/tailchrome](https://tesseras.org/)
+**Chrome Web Store:** [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
+**Firefox Add-ons:** [Firefox Add-ons (AMO)](https://addons.mozilla.org/firefox/addon/tailchrome/)
 **Privacy Policy:** [privacy-policy.md](privacy-policy.md)
 
 ---
@@ -112,6 +112,7 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 - **Tailnet access** -- browse devices on your tailnet by IP or MagicDNS name, directly from the browser
 - **Per-profile isolation** -- each browser profile gets its own independent Tailscale node and identity
 - **Exit nodes** -- route all browser traffic through any exit node on your tailnet, with a "Best available" Recommended row in the picker that picks a nearby Mullvad location when one is available
+- **Split-tunneling** -- per-profile domain rules (Bypass / Only) that exempt specific domains from the exit node or restrict the exit node to a chosen domain set; rules are suffix-matched and applied after Tailscale-mandatory routes (MagicDNS, 100.64.0.0/10, subnet routes) so tailnet traffic is never affected
 - **MagicDNS** -- resolve tailnet device names automatically
 - **Subnet routing** -- access resources behind subnet routers (auto-detected from peer info)
 - **Allow LAN access** -- when using an exit node, optionally allow local network access
@@ -147,6 +148,7 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 - **Keyboard navigation** -- peer list supports arrow key navigation
 - **Platform-aware** -- detects macOS for platform-specific UI hints
 - **Side panel mode** -- opt-in toggle ("Open as side panel") that switches the UI from popup to Chrome side panel / Firefox sidebar; a single quick-settings row controls it on either browser
+- **Auto-connect on start** -- opt-in quick-settings toggle that brings the tailnet up on the first status after init when the backend is `Stopped`/`NoState`; a session-scoped flag preserves an explicit disconnect across service-worker restarts within the same browser session
 
 ### Parity and backlog
 
@@ -164,6 +166,7 @@ Communication uses the Chrome native messaging wire format: a **4-byte little-en
 | Command             | Fields                                          | Description                                      |
 | ------------------- | ----------------------------------------------- | ------------------------------------------------ |
 | `init`              | `initID: string`                                | Initialize tsnet.Server for browser profile UUID |
+| `login`             | --                                              | Request a fresh Tailscale login URL              |
 | `up`                | --                                              | Set `WantRunning=true`                           |
 | `down`              | --                                              | Set `WantRunning=false`                          |
 | `get-status`        | --                                              | Request full status update                       |
@@ -186,7 +189,7 @@ Communication uses the Chrome native messaging wire format: a **4-byte little-en
 
 | Reply Field          | When Sent                           | Payload                                         |
 | -------------------- | ----------------------------------- | ----------------------------------------------- |
-| `procRunning`        | Immediately on host startup         | `{ port, pid, version, supportsNetcheck?, supportsPingPeer?, error? }` |
+| `procRunning`        | Immediately on host startup         | `{ port, pid, version, supportsNetcheck?, supportsPingPeer?, supportsLogin?, error? }` |
 | `init`               | After `init` command                | `{ error? }`                                    |
 | `pong`               | After `ping`                        | `{}`                                            |
 | `status`             | After state changes or `get-status` | Full `StatusUpdate` object                      |
@@ -209,6 +212,7 @@ interface StatusUpdate {
   selfNode: SelfNode | null;
   needsLogin: boolean;
   browseToURL: string;              // Login URL from control plane
+  authURL?: string;                 // Alternate login URL surfaced by the host
   exitNode: ExitNodeInfo | null;
   peers: PeerInfo[];
   prefs: TailscalePrefs | null;
@@ -216,6 +220,8 @@ interface StatusUpdate {
   error: string | null;
 }
 ```
+
+When `NeedsLogin` is active, the extension opens a validated `browseToURL` immediately when available. If the URL is missing and the helper advertises `supportsLogin`, the extension sends `login`, waits for a fresh `browseToURL` or `authURL`, validates the URL, and then opens it.
 
 Each `PeerInfo` includes: `id`, `hostname`, `dnsName`, `tailscaleIPs[]`, `os`, `online`, `active`, `exitNode`, `exitNodeOption`, `isSubnetRouter`, `subnets[]`, `tags[]`, `rxBytes`, `txBytes`, `lastSeen`, `lastHandshake`, `location?`, `taildropTarget`, `sshHost`, `userId`, `userName`, `userLoginName`, `userProfilePicURL`.
 
@@ -241,14 +247,16 @@ The shared package contains all the platform-agnostic logic. The extension packa
 `**packages/shared/src/background/`**
 
 
-| File               | Lines | Purpose                                                                                                         |
-| ------------------ | ----- | --------------------------------------------------------------------------------------------------------------- |
-| `background.ts`    | 522   | Core service worker: native host management, popup communication, state subscriptions, context menus, keepalive |
-| `native-host.ts`   | 164   | `NativeHostConnection` class with exponential backoff reconnection (1s-30s), profile UUID generation            |
-| `state-store.ts`   | 87    | Redux-like `StateStore` with `subscribe()`, `update()`, `applyStatusUpdate()`                                   |
-| `badge-manager.ts` | 105   | Extension icon/badge updates for online, offline, warning, and exit-node states                                 |
-| `proxy-utils.ts`   | 89    | IP-to-number conversion, CIDR parsing, MagicDNS suffix sanitization, subnet collection, `shouldProxyState()`    |
-| `timer-service.ts` | 54    | Abstract `TimerService` interface; `DefaultTimerService` wraps native `setInterval`/`clearInterval`             |
+| File                | Lines | Purpose                                                                                                         |
+| ------------------- | ----- | --------------------------------------------------------------------------------------------------------------- |
+| `background.ts`     | 734   | Core service worker: native host management, popup communication, state subscriptions, context menus, keepalive |
+| `native-host.ts`    | 164   | `NativeHostConnection` class with exponential backoff reconnection (1s-30s), profile UUID generation            |
+| `state-store.ts`    | 111   | Redux-like `StateStore` with `subscribe()`, `update()`, `applyStatusUpdate()`                                  |
+| `badge-manager.ts`  | 105   | Extension icon/badge updates for online, offline, warning, and exit-node states                                |
+| `proxy-utils.ts`    | 117   | IP/CIDR helpers, MagicDNS suffix sanitization, split-domain sanitization, subnet collection, proxy decisions    |
+| `domain-split.ts`   | 51    | Split-tunneling config storage and normalization                                                               |
+| `auto-connect.ts`   | 39    | Auto-connect preference and per-session handled flag                                                           |
+| `timer-service.ts`  | 54    | Abstract `TimerService` interface; `DefaultTimerService` wraps native `setInterval`/`clearInterval`            |
 
 
 `**packages/shared/src/popup/`**
@@ -256,25 +264,25 @@ The shared package contains all the platform-agnostic logic. The extension packa
 
 | File             | Lines | Purpose                                                                         |
 | ---------------- | ----- | ------------------------------------------------------------------------------- |
-| `popup.ts`       | 182   | Popup initialization, view routing based on state, sub-view management          |
-| `utils.ts`       | 155   | HTML escaping, clipboard, toast notifications, keyboard nav, platform detection |
-| `custom-urls.ts` | 49    | Per-device custom port/URL storage using `chrome.storage.local`                 |
+| `popup.ts`       | 177   | Popup initialization, view routing based on state, sub-view management          |
+| `utils.ts`       | 222   | HTML escaping, clipboard, toast notifications, keyboard nav, platform detection |
+| `custom-urls.ts` | 52    | Per-device custom port/URL storage using `chrome.storage.local`                 |
 | `icons.ts`       | --    | SVG icon definitions (Tailscale logo, chevrons, warning, lock, plug, etc.)      |
 
 
 `**packages/shared/src/popup/views/**`
 
 
-| File                 | Lines | Purpose                                                                            |
-| -------------------- | ----- | ---------------------------------------------------------------------------------- |
-| `connected.ts`       | 425   | Main connected view: status bar, quick settings, peer search/list, footer          |
-| `exit-nodes.ts`      | 322   | Exit node picker: search, suggested node, country flags, online/offline indicators |
-| `profiles.ts`        | 132   | Profile switcher: create, switch, delete actions                                   |
-| `disconnected.ts`    | 142   | Error recovery view with context-specific hints                                    |
-| `needs-login.ts`     | 54    | Login prompt when `backendState === "NeedsLogin"`                                  |
-| `needs-install.ts`   | 10    | Native host installation guide                                                     |
-| `needs-update.ts`    | 10    | Host version mismatch guide                                                        |
-| `install-helpers.ts` | --    | Shared helpers for install/update views                                            |
+| File                 | Lines | Purpose                                                                                     |
+| -------------------- | ----- | ------------------------------------------------------------------------------------------- |
+| `connected.ts`       | 810   | Main connected view: status bar, quick settings, split tunneling, peer search/list, footer  |
+| `exit-nodes.ts`      | 708   | Exit node picker: search, recommended node, country flags, online/offline indicators        |
+| `profiles.ts`        | 128   | Profile switcher: create, switch, delete actions                                            |
+| `disconnected.ts`    | 143   | Error recovery view with context-specific hints                                             |
+| `needs-login.ts`     | 55    | Login prompt when `backendState === "NeedsLogin"`                                          |
+| `needs-install.ts`   | 9     | Native host installation guide                                                              |
+| `needs-update.ts`    | 9     | Host version mismatch guide                                                                 |
+| `install-helpers.ts` | --    | Shared helpers for install/update views                                                     |
 
 
 `**packages/shared/src/popup/components/**`
@@ -282,11 +290,11 @@ The shared package contains all the platform-agnostic logic. The extension packa
 
 | File                 | Lines | Purpose                                                               |
 | -------------------- | ----- | --------------------------------------------------------------------- |
-| `peer-list.ts`       | 160   | Peer list with online/offline grouping, incremental DOM updates       |
-| `peer-item.ts`       | 322   | Peer row: copy IP/DNS, open web UI, SSH, file send, custom URL editor |
-| `header.ts`          | 73    | Logo + toggle switch component                                        |
-| `health-warnings.ts` | 89    | Collapsible health warning banner                                     |
-| `toggle-switch.ts`   | 36    | Reusable toggle component                                             |
+| `peer-list.ts`       | 187   | Peer list with online/offline grouping, incremental DOM updates       |
+| `peer-item.ts`       | 416   | Peer row: copy IP/DNS, open web UI, SSH, file send, custom URL editor |
+| `header.ts`          | 72    | Logo + toggle switch component                                        |
+| `health-warnings.ts` | 88    | Collapsible health warning banner                                     |
+| `toggle-switch.ts`   | 35    | Reusable toggle component                                             |
 
 
 `**packages/extension/src/background/**`
@@ -321,7 +329,7 @@ Defined in `packages/shared/src/constants.ts`:
 | `RECONNECT_BASE_MS`     | `1000`                              | Reconnection backoff base                                 |
 | `RECONNECT_MAX_MS`      | `30000`                             | Reconnection backoff ceiling                              |
 | `ADMIN_URL`             | `https://login.tailscale.com/admin` | Tailscale admin console                                   |
-| `EXPECTED_HOST_VERSION` | `0.1.9`                             | Expected native host version (major.minor match required) |
+| `EXPECTED_HOST_VERSION` | `0.1.10`                            | Expected native host version (major.minor match required) |
 
 
 ---
@@ -790,7 +798,6 @@ Two jobs with **environment-gated approvals**:
 | `proxy-utils.test.ts`              | IP conversion, CIDR parsing, MagicDNS sanitization, subnet collection                                          |
 | `timer-service.test.ts`            | Timer abstraction contract                                                                                     |
 | `ui-surface.test.ts`               | Side panel toggle plumbing: persistence, applyUiSurface, sidebar opener registration                           |
-| `format-bug-report-toast.test.ts`  | Bug-report toast formatting                                                                                    |
 
 
 **Proxy tests:**
@@ -870,12 +877,15 @@ The Puppeteer harness lives in `scripts/e2e/`; see [puppeteer-testing-suite.md](
 ### Browser Storage Keys
 
 
-| Key              | Storage                                  | Purpose                                         |
-| ---------------- | ---------------------------------------- | ----------------------------------------------- |
-| `profileId`      | `chrome.storage.local`                   | Browser profile UUID for tsnet isolation        |
-| `lastExitNodeID` | `chrome.storage.local`                   | Persist exit node selection across reconnects   |
-| `customUrls`     | `chrome.storage.local`                   | Per-device custom open targets                  |
-| `proxyConfig`    | `browser.storage.session` (Firefox only) | Proxy state for surviving background suspension |
+| Key                   | Storage                                  | Purpose                                                                 |
+| --------------------- | ---------------------------------------- | ----------------------------------------------------------------------- |
+| `profileId`           | `chrome.storage.local`                   | Browser profile UUID for tsnet isolation                                |
+| `lastExitNodeID`      | `chrome.storage.local`                   | Persist exit node selection across reconnects                           |
+| `customUrls`          | `chrome.storage.local`                   | Per-device custom open targets                                          |
+| `domainSplitConfig`   | `chrome.storage.local`                   | Split-tunneling mode (`bypass`/`only`) and domain list                  |
+| `autoConnectOnStart`  | `chrome.storage.local`                   | Opt-in preference for auto-connecting the tailnet on browser start      |
+| `autoConnectHandled`  | `chrome.storage.session`                 | Per-session flag that prevents auto-connect from overriding an explicit manual disconnect |
+| `proxyConfig`         | `browser.storage.session` (Firefox only) | Proxy state for surviving background suspension                         |
 
 
 ---
@@ -884,10 +894,11 @@ The Puppeteer harness lives in `scripts/e2e/`; see [puppeteer-testing-suite.md](
 
 ### Login URL Validation
 
-Login URLs from the native host (`browseToURL`) are validated against an allowlist before opening:
+Login URLs from the native host (`browseToURL` or `authURL`) are validated against an allowlist before opening:
 
 - `https://login.tailscale.com`
 - `https://controlplane.tailscale.com`
+- `https://tailscale.com`
 
 ### Host Version Checking
 
@@ -914,13 +925,16 @@ Native messaging is restricted to the declared extension IDs in the native host 
 ### Data Stored Locally
 
 
-| Data                                      | Where                   | Purpose                                  |
-| ----------------------------------------- | ----------------------- | ---------------------------------------- |
-| `profileId`                               | Browser local storage   | Per-profile Tailscale node isolation     |
-| `lastExitNodeID`                          | Browser local storage   | Exit node restoration                    |
-| `customUrls`                              | Browser local storage   | Custom per-device URLs                   |
-| `proxyConfig`                             | Firefox session storage | Proxy state restoration after suspension |
-| `~/.config/tailscale-browser-ext/<UUID>/` | Filesystem              | tsnet state directory (keys, config)     |
+| Data                                      | Where                   | Purpose                                                            |
+| ----------------------------------------- | ----------------------- | ------------------------------------------------------------------ |
+| `profileId`                               | Browser local storage   | Per-profile Tailscale node isolation                               |
+| `lastExitNodeID`                          | Browser local storage   | Exit node restoration                                              |
+| `customUrls`                              | Browser local storage   | Custom per-device URLs                                             |
+| `domainSplitConfig`                       | Browser local storage   | Split-tunneling mode and domain list (entered by the user)         |
+| `autoConnectOnStart`                      | Browser local storage   | "Auto-connect on start" preference (off by default)                |
+| `autoConnectHandled`                      | Browser session storage | Per-session flag to honor an explicit manual disconnect            |
+| `proxyConfig`                             | Firefox session storage | Proxy state restoration after suspension                           |
+| `~/.config/tailscale-browser-ext/<UUID>/` | Filesystem              | tsnet state directory (keys, config)                               |
 
 
 ### Data Transmitted
@@ -995,5 +1009,3 @@ Key dependencies in `host/go.mod`:
 | `tailscale.com`     | v1.94.2 | tsnet, local client, IPN, socks5, proxymux, web client |
 | `golang.org/x/term` | v0.38.0 | Terminal detection for auto-install                    |
 | `golang.org/x/sys`  | v0.40.0 | System calls                                           |
-
-

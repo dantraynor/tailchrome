@@ -4,7 +4,10 @@ export async function waitForPopup(page) {
   await page.waitForFunction(
     () => {
       const root = document.querySelector("#root");
-      return root && !root.querySelector(".spinner") && root.children.length > 0;
+      if (!root) return false;
+      if (root.querySelector(".spinner")) return false;
+      if (root.querySelector(".skeleton")) return false;
+      return root.children.length > 0;
     },
     { timeout: 10_000 },
   );
