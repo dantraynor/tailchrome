@@ -768,12 +768,6 @@ button.setting-row {
   color: var(--text-tertiary);
 }
 
-.footer-diagnostics {
-  width: 100%;
-  text-align: center;
-  font-size: var(--font-size-xs);
-}
-
 .footer-github-cta {
   width: 100%;
   margin-top: var(--space-sm);

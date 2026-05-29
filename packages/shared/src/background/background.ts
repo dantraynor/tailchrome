@@ -16,7 +16,6 @@ import { StateStore } from "./state-store";
 import { NativeHostConnection } from "./native-host";
 import { BadgeManager } from "./badge-manager";
 import { DefaultTimerService, type TimerService } from "./timer-service";
-import { formatBugReportForToast } from "./format-bug-report-toast";
 import { applyUiSurface, readUiSurface, type BrowserKind } from "./ui-surface";
 import {
   isAutoConnectHandled,
@@ -351,15 +350,10 @@ export function initBackground(
     }
 
     if (msg.diagnostic) {
-      // Diagnostics upload includes a reference users may need to copy; keep until another toast.
-      if (msg.diagnostic.title === "Bug report") {
-        sendToastToPopup(formatBugReportForToast(msg.diagnostic.body), "info", true, undefined, true);
-      } else {
-        const body = msg.diagnostic.body.replace(/\n/g, " · ");
-        const text = `${msg.diagnostic.title}: ${body}`;
-        // Ping and other diagnostics: ephemeral, longer read time than default toasts.
-        sendToastToPopup(text, "info", false, 7000);
-      }
+      const body = msg.diagnostic.body.replace(/\n/g, " · ");
+      const text = `${msg.diagnostic.title}: ${body}`;
+      // Ping/netcheck diagnostics: ephemeral, longer read time than default toasts.
+      sendToastToPopup(text, "info", false, 7000);
     }
 
     // Error from native host
@@ -673,11 +667,6 @@ export function initBackground(
 
       case "ping-peer": {
         nativeHost.send({ cmd: "ping-peer", nodeID: msg.nodeID });
-        break;
-      }
-
-      case "bug-report": {
-        nativeHost.send({ cmd: "bug-report", note: msg.note });
         break;
       }
 

@@ -416,11 +416,6 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
     footer.appendChild(hostVer);
   }
 
-  const diagRow = document.createElement("div");
-  diagRow.className = "footer-diagnostics";
-  fillFooterDiagnostics(diagRow, state);
-  footer.appendChild(diagRow);
-
   const showAdminLink = !isCustomControlURL(state.prefs?.controlURL);
 
   const logoutLink = document.createElement("a");
@@ -619,20 +614,6 @@ function renderSplitTunnelingSection(
   editorSection.appendChild(saveBtn);
 
   parent.appendChild(editorSection);
-}
-
-function fillFooterDiagnostics(diagRow: HTMLElement, state: TailscaleState): void {
-  diagRow.replaceChildren();
-  const diagLink = document.createElement("a");
-  diagLink.className = "footer-link";
-  diagLink.href = "#";
-  diagLink.textContent = "Diagnostics";
-  diagLink.title = "Send anonymized diagnostics to Tailscale";
-  diagLink.addEventListener("click", (e) => {
-    e.preventDefault();
-    sendMessage({ type: "bug-report" });
-  });
-  diagRow.appendChild(diagLink);
 }
 
 /**

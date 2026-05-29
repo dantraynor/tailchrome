@@ -43,7 +43,7 @@ The fake host should support:
 
 - Startup replies: `procRunning`, including `port`, `version`, `supportsNetcheck`, and `supportsPingPeer`.
 - Init flow: respond to `init`, then support `get-status` and `list-profiles`.
-- Command recording: `up`, `down`, `set-exit-node`, `set-prefs`, `switch-profile`, `new-profile`, `delete-profile`, `send-file`, `suggest-exit-node`, `ping-peer`, `bug-report`, `netcheck`, `logout`.
+- Command recording: `up`, `down`, `set-exit-node`, `set-prefs`, `switch-profile`, `new-profile`, `delete-profile`, `send-file`, `suggest-exit-node`, `ping-peer`, `netcheck`, `logout`.
 - Scripted pushes: status changes, profile changes, exit node suggestions, file progress, diagnostic replies, and errors.
 - Failure modes: host absent, install error, version mismatch, disconnect/reconnect, delayed replies.
 
@@ -181,8 +181,6 @@ These should mirror `packages/shared/src/__test__/fixtures.ts`, with richer defa
 
 `diagnostics.mjs`
 
-- Bug report footer sends `bug-report`.
-- Bug report diagnostic reply renders persistent multiline toast.
 - Ping diagnostic reply renders ephemeral toast.
 - Netcheck command sends `netcheck` when exposed in UI.
 - Native generic errors show error toasts.

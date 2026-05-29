@@ -22,6 +22,8 @@ Required so the extension can route tailnet traffic, subnet traffic, and exit-no
 
 Required because Firefox proxy resolution runs against requested URLs and Tailchrome must decide whether a request should go direct or through the local proxy for any destination. Tailchrome only proxies requests when they match tailnet IPs, MagicDNS names, advertised subnet CIDRs, or the user has explicitly enabled an exit node.
 
+When an exit node is enabled, Tailchrome can also apply user-configured split-tunneling rules. These rules either bypass the exit node for listed domains or restrict exit-node routing to listed domains only; tailnet IPs, MagicDNS names, and subnet routes remain routed through the helper.
+
 ### `nativeMessaging`
 
 Required to communicate with the local helper that runs the Tailscale node for the current browser profile. Without native messaging the extension cannot log in, discover peers, or proxy tailnet traffic.
@@ -33,6 +35,9 @@ Required to keep stable per-profile state and user preferences:
 - `profileId`
 - `lastExitNodeID`
 - `customUrls`
+- `domainSplitConfig`
+- `autoConnectOnStart`
+- session-only `autoConnectHandled`
 - Firefox session-only `proxyConfig` restore state
 
 ### `contextMenus`
@@ -60,6 +65,8 @@ The extension requires the separate native helper to demonstrate full functional
 2. Download the helper binary from the matching GitHub Release asset for the current OS.
 3. Run the helper once to install the native messaging manifest.
 4. Re-open the extension popup and sign in using the disposable reviewer account provided with the submission.
+
+The popup includes optional split-tunneling controls under the Exit Node row and an optional "Auto-connect on start" toggle in quick settings. Both settings are off or empty by default and are stored locally.
 
 Provide the following reviewer-only materials at submission time:
 

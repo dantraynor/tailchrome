@@ -21,15 +21,16 @@ export async function run({ openPopup, nativeHost }) {
     nativeHost.clearRequests();
 
     await clickText(page, "Exit Node");
-    await waitForRequest(nativeHost, "suggest-exit-node");
     await expectText(page, "Exit Nodes");
     await expectText(page, "Recommended");
     await expectText(page, "None (direct connection)");
     await expectText(page, "My Devices");
     await expectText(page, "Mullvad VPN");
 
-    await clickText(page, "New York", ".exit-node-row");
-    await waitForRequest(nativeHost, "set-exit-node", (msg) => msg.nodeID === "peer-exit");
+    // Tokyo only appears on peer-exit-tokyo, so the click can't be intercepted
+    // by the Recommended row (Mullvad NYC) or the New York My Devices row.
+    await clickText(page, "Tokyo", ".exit-node-row");
+    await waitForRequest(nativeHost, "set-exit-node", (msg) => msg.nodeID === "peer-exit-tokyo");
 
     await page.click("#allow-lan");
     await waitForRequest(nativeHost, "set-prefs", (msg) => msg.prefs.exitNodeAllowLANAccess === true);

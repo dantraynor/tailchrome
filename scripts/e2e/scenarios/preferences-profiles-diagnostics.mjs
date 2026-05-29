@@ -61,7 +61,7 @@ export const cases = [
     run,
   },
   {
-    name: "diagnostics and logout commands",
+    name: "logout command",
     control,
     run: async ({ openPopup, nativeHost }) => {
       const page = await openPopup();
@@ -69,9 +69,6 @@ export const cases = [
         await waitForPopup(page);
         await expectText(page, "example.ts.net");
         nativeHost.clearRequests();
-        await clickText(page, "Diagnostics", "a");
-        await waitForRequest(nativeHost, "bug-report");
-        await expectText(page, "BUG-12345");
 
         await clickText(page, "Logout", "a");
         await waitForRequest(nativeHost, "logout");

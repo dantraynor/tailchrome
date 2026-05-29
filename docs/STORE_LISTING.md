@@ -14,9 +14,11 @@ Tailchrome connects your browser to your Tailscale tailnet without installing a 
 - Access devices on your tailnet by name or IP, directly from the browser
 - Per-profile isolation: each Chrome profile gets its own Tailscale identity
 - Exit nodes: route browser traffic through any exit node on your tailnet, with a "Best available" recommendation that picks a nearby Mullvad location when available
+- Split-tunneling: choose domains that bypass your exit node (useful for sites that flag VPN traffic), or restrict the exit node to a specific set of domains
 - MagicDNS: reach your devices by hostname
 - Subnet routing: access resources behind subnet routers
 - Side panel mode: opt-in toggle keeps the Tailchrome UI docked next to your tabs instead of dismissing on click-away
+- Auto-connect on start: optional toggle that brings your tailnet up automatically when the browser launches
 - No system networking changes: only browser traffic is affected
 - Shields Up mode for extra security
 - Works in Chrome and other Chromium-family browsers (Brave, Edge, Vivaldi, Opera; Arc on macOS)
@@ -53,9 +55,11 @@ Tailchrome connects Firefox to your Tailscale tailnet without a system VPN. Each
 - Browse devices on your tailnet by name or IP
 - Per-profile Tailscale isolation
 - Exit nodes for routing through your tailnet, with a "Best available" recommendation that prefers nearby Mullvad locations when available
+- Split-tunneling: choose domains that bypass an exit node, or restrict the exit node to specific domains only
 - MagicDNS hostname resolution
 - Subnet routing support
 - Optional sidebar mode keeps Tailchrome docked while you browse
+- Auto-connect on start: optional toggle to bring the tailnet up automatically on browser launch
 - Zero system networking changes
 - Shields Up mode
 
@@ -78,7 +82,8 @@ For creating store screenshots, capture these states at 360px width:
 
 1. **Connected view** - Show the main popup with a connected tailnet, green status dot, IP address, and a few online peers
 2. **Exit node picker** - Show the exit node selection with suggested node and a few options with country flags
-3. **Peer actions** - Show an expanded peer item with Copy IP, Copy DNS, Open, SSH buttons
-4. **Quick Setup** - Show the install stepper with "Download for macOS" button and step 2 instructions
-5. **Profile switcher** - Show multiple profiles with Active badge
-6. **Dark mode** - Repeat screenshot 1 in dark mode to show theme support
+3. **Split-tunneling** - Show the expanded split-tunneling editor under the Exit Node row with the mode selector and a few example domains in the textarea
+4. **Peer actions** - Show an expanded peer item with Copy IP, Copy DNS, Open, SSH buttons
+5. **Quick Setup** - Show the install stepper with "Download for macOS" button and step 2 instructions
+6. **Profile switcher** - Show multiple profiles with Active badge
+7. **Dark mode** - Repeat screenshot 1 in dark mode to show theme support
