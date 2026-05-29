@@ -166,13 +166,6 @@ function mockSource(baseUrl, initialControl) {
             body: "pong from " + request.nodeID,
           },
         };
-      case "bug-report":
-        return {
-          diagnostic: {
-            title: "Bug report",
-            body: "BUG-12345\\nThanks for helping improve Tailchrome.",
-          },
-        };
       case "netcheck":
         return {
           diagnostic: {

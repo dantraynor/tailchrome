@@ -798,7 +798,6 @@ Two jobs with **environment-gated approvals**:
 | `proxy-utils.test.ts`              | IP conversion, CIDR parsing, MagicDNS sanitization, subnet collection                                          |
 | `timer-service.test.ts`            | Timer abstraction contract                                                                                     |
 | `ui-surface.test.ts`               | Side panel toggle plumbing: persistence, applyUiSurface, sidebar opener registration                           |
-| `format-bug-report-toast.test.ts`  | Bug-report toast formatting                                                                                    |
 
 
 **Proxy tests:**

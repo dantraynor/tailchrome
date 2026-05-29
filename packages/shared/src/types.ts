@@ -36,7 +36,6 @@ export type NativeRequest =
   | { cmd: "suggest-exit-node" }
   | { cmd: "logout" }
   | { cmd: "ping-peer"; nodeID: string }
-  | { cmd: "bug-report"; note?: string }
   | { cmd: "netcheck" };
 
 export interface NativeReply {
@@ -262,7 +261,6 @@ export type BackgroundMessage =
   | SetPrefMessage
   | { type: "set-advertise-routes"; routes: string[] }
   | { type: "ping-peer"; nodeID: string }
-  | { type: "bug-report"; note?: string }
   | { type: "netcheck" }
   | { type: "switch-profile"; profileID: string }
   | { type: "new-profile" }
