@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ProxyManager, TailscaleState, NativeReply } from "../types";
-import { initBackground } from "./background";
+import { initBackground, isValidLoginURL } from "./background";
 
 type MessageListener = (msg: unknown) => void;
 type DisconnectListener = (port: unknown) => void;
@@ -52,6 +52,50 @@ function createPopupPort(): MockPopupPort {
     },
   };
 }
+
+describe("isValidLoginURL", () => {
+  it("accepts default Tailscale login URLs without a custom coordination server", () => {
+    expect(
+      isValidLoginURL("https://login.tailscale.com/a/xyz", ""),
+    ).toBe(true);
+    expect(
+      isValidLoginURL("https://controlplane.tailscale.com/a/xyz", null),
+    ).toBe(true);
+  });
+
+  it("rejects stale Tailscale login URLs when a custom coordination server is set", () => {
+    expect(
+      isValidLoginURL(
+        "https://login.tailscale.com/a/xyz",
+        "https://headscale.example.com",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts delegated HTTPS login URLs for a custom coordination server", () => {
+    expect(
+      isValidLoginURL(
+        "https://auth.example.net/login",
+        "https://headscale.example.com",
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts delegated HTTP login URLs only for HTTP custom coordination servers", () => {
+    expect(
+      isValidLoginURL(
+        "http://auth.example.net/login",
+        "http://headscale.test:8080",
+      ),
+    ).toBe(true);
+    expect(
+      isValidLoginURL(
+        "http://auth.example.net/login",
+        "https://headscale.example.com",
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("initBackground", () => {
   let proxyManager: ProxyManager;
@@ -108,8 +152,19 @@ describe("initBackground", () => {
       procRunning: {
         port: 1055,
         pid: 1234,
-        version: "0.1.9",
+        version: "0.1.11",
         supportsLogin: true,
+      },
+    });
+  }
+
+  function advertiseCustomControlURLSupport() {
+    sendNativeMessage({
+      procRunning: {
+        port: 1055,
+        pid: 1234,
+        version: "0.1.11",
+        supportsCustomControlURL: true,
       },
     });
   }
@@ -179,6 +234,28 @@ describe("initBackground", () => {
 
       expect(proxyManager.apply).toHaveBeenCalledWith(
         expect.objectContaining({ supportsLogin: true })
+      );
+    });
+
+    it("sets supportsCustomControlURL when procRunning advertises it", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, supportsCustomControlURL: true },
+      });
+
+      expect(proxyManager.apply).toHaveBeenCalledWith(
+        expect.objectContaining({ supportsCustomControlURL: true })
+      );
+    });
+
+    it("defaults supportsCustomControlURL to false on older helpers", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234 },
+      });
+
+      expect(proxyManager.apply).toHaveBeenCalledWith(
+        expect.objectContaining({ supportsCustomControlURL: false })
       );
     });
 
@@ -738,7 +815,7 @@ describe("initBackground", () => {
     it("does not send login command when native helper lacks login support", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.1.9" },
+        procRunning: { port: 1055, pid: 1234, version: "0.1.11" },
       });
       sendNativeMessage({
         status: {
@@ -979,6 +1056,157 @@ describe("initBackground", () => {
       expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
     });
 
+    it("opens login URL from the configured custom coordination server origin", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://hs.example.com/register/abcdef",
+          exitNode: null,
+          peers: [],
+          prefs: {
+            controlURL: "https://hs.example.com",
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+            advertiseExitNode: false,
+          },
+          health: [],
+          error: null,
+        },
+      });
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(chrome.tabs.create).toHaveBeenCalledWith({
+        url: "https://hs.example.com/register/abcdef",
+      });
+    });
+
+    it("opens delegated HTTPS login URLs when a custom coordination server is set", async () => {
+      await setupBackground();
+      advertiseLoginSupport();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://auth.example.net/login",
+          exitNode: null,
+          peers: [],
+          prefs: {
+            controlURL: "https://hs.example.com",
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+            advertiseExitNode: false,
+          },
+          health: [],
+          error: null,
+        },
+      });
+
+      (chrome.tabs.create as ReturnType<typeof vi.fn>).mockClear();
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(chrome.tabs.create).toHaveBeenCalledWith({
+        url: "https://auth.example.net/login",
+      });
+      expect(nativePort.postMessage).not.toHaveBeenCalled();
+    });
+
+    it("rejects non-HTTPS delegated login URLs for HTTPS custom coordination servers", async () => {
+      await setupBackground();
+      advertiseLoginSupport();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "http://auth.example.net/login",
+          exitNode: null,
+          peers: [],
+          prefs: {
+            controlURL: "https://hs.example.com",
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+            advertiseExitNode: false,
+          },
+          health: [],
+          error: null,
+        },
+      });
+
+      (chrome.tabs.create as ReturnType<typeof vi.fn>).mockClear();
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+    });
+
+    it("requests a fresh login URL instead of opening a stale default URL after switching custom servers", async () => {
+      await setupBackground();
+      advertiseLoginSupport();
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://login.tailscale.com/a/stale",
+          exitNode: null,
+          peers: [],
+          prefs: {
+            controlURL: "https://hs.example.com",
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+            advertiseExitNode: false,
+          },
+          health: [],
+          error: null,
+        },
+      });
+
+      (chrome.tabs.create as ReturnType<typeof vi.fn>).mockClear();
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+    });
+
     it("shows login error toast from native host", async () => {
       await setupBackground();
       advertiseLoginSupport();
@@ -1062,6 +1290,66 @@ describe("initBackground", () => {
       expect(nativePort.postMessage).toHaveBeenCalledWith({
         cmd: "set-prefs",
         prefs: { exitNodeAllowLANAccess: true },
+      });
+    });
+
+    it("forwards controlURL set-pref to native host", async () => {
+      await setupBackground();
+      advertiseCustomControlURLSupport();
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({
+        type: "set-pref",
+        key: "controlURL",
+        value: "https://hs.example.com",
+      });
+
+      expect(nativePort.postMessage).toHaveBeenCalledWith({
+        cmd: "set-prefs",
+        prefs: { controlURL: "https://hs.example.com" },
+      });
+    });
+
+    it("forwards empty controlURL (revert to default) to native host", async () => {
+      await setupBackground();
+      advertiseCustomControlURLSupport();
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({
+        type: "set-pref",
+        key: "controlURL",
+        value: "",
+      });
+
+      expect(nativePort.postMessage).toHaveBeenCalledWith({
+        cmd: "set-prefs",
+        prefs: { controlURL: "" },
+      });
+    });
+
+    it("rejects controlURL set-pref when native helper lacks support", async () => {
+      await setupBackground();
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({
+        type: "set-pref",
+        key: "controlURL",
+        value: "https://hs.example.com",
+      });
+
+      expect(nativePort.postMessage).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "toast",
+        message: "Please update the native helper to change the coordination server.",
+        level: "error",
+        persistent: false,
       });
     });
 
@@ -1306,7 +1594,7 @@ describe("initBackground", () => {
         procRunning: {
           port: 1055,
           pid: 1234,
-          version: "0.1.9",
+          version: "0.1.11",
           supportsLogin: true,
         },
       });

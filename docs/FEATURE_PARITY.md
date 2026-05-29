@@ -2,7 +2,7 @@
 
 > Comparison of the Tailchrome browser extension against the native Tailscale desktop/mobile clients (macOS, Windows, Linux, iOS, Android).
 
-Last updated: 2026-04-06
+Last updated: 2026-05-26
 
 ---
 
@@ -30,7 +30,7 @@ Last updated: 2026-04-06
 | Multiple profiles / accounts  | Yes           | Yes        | Create, switch, delete profiles                                                                                                                                                                                                                                            |
 | Per-device identity           | Yes           | Yes        | Each browser profile gets its own isolated Tailscale node via `tsnet`                                                                                                                                                                                                      |
 | Machine key re-authentication | Yes           | No         | Extension shows `NeedsMachineAuth` state but cannot trigger re-auth; user must use admin console                                                                                                                                                                           |
-| Custom control server URL     | Yes           | No         | Host `PrefsView` includes `controlURL` but the extension UI does not expose it; hardcoded to default Tailscale control plane                                                                                                                                               |
+| Custom control server URL     | Yes           | Yes        | Advanced quick setting "Coordination server" accepts an `https://` URL (e.g. Headscale). Saving sends `ControlURL` through `set-prefs`, which triggers a logout + re-login against the new server. Leave blank to revert to Tailscale's default. Admin Console footer link is hidden while a custom server is configured.        |
 | Auto-start on boot            | Yes           | N/A        | Extension activates when browser launches; native host is started on demand by the browser                                                                                                                                                                                 |
 | Auto-connect on start         | Yes           | Yes        | Opt-in **Auto-connect on start** toggle in quick settings (off by default). When on, the extension sends `up` once per browser session if the first status after `init` reports `Stopped`/`NoState`; skipped for `NeedsLogin`/`NeedsMachineAuth`. A manual disconnect within the same session is respected even if the service worker restarts. Last exit node is restored separately when the node reaches `Running`. |
 
@@ -180,7 +180,7 @@ Last updated: 2026-04-06
 | Category          | Missing Features                                                                      |
 | ----------------- | ------------------------------------------------------------------------------------- |
 | **File transfer** | Receiving files (Taildrop inbound), large files (>~750 KB)                            |
-| **Networking**    | Advertise subnet routes, split DNS, custom DNS nameservers, custom control server URL |
+| **Networking**    | Advertise subnet routes, split DNS, custom DNS nameservers                             |
 | **Security**      | Network lock, key signing/rotation, key expiry display                                |
 | **Services**      | Tailscale Serve, Tailscale Funnel, SSH server                                         |
 | **Diagnostics**   | `netcheck`, `ping` peers, bug reports                                                 |

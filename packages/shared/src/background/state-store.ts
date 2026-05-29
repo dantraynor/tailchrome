@@ -29,6 +29,7 @@ const DEFAULT_STATE: TailscaleState = {
   supportsNetcheck: false,
   supportsPingPeer: false,
   supportsLogin: false,
+  supportsCustomControlURL: false,
   reconnecting: false,
   autoConnectOnStart: false,
 };

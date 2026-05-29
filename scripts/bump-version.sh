@@ -3,7 +3,7 @@ set -euo pipefail
 
 if [ $# -ne 1 ]; then
   echo "Usage: $0 <version>"
-  echo "Example: $0 0.2.0"
+  echo "Example: $0 0.1.11"
   exit 1
 fi
 
@@ -11,7 +11,7 @@ VERSION="$1"
 
 # Validate version format
 if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-  echo "Error: version must be in semver format (e.g. 0.2.0)"
+  echo "Error: version must be in semver format (e.g. 0.1.11)"
   exit 1
 fi
 

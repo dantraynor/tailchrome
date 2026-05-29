@@ -235,11 +235,12 @@ function mockSource(baseUrl) {
           procRunning: {
             port: c.proxyPort ?? 1055,
             pid: 1,
-            version: c.hostVersion ?? "0.1.9",
+            version: c.hostVersion ?? "0.1.11",
             error: c.startupError,
             supportsNetcheck: c.supportsNetcheck !== false,
             supportsPingPeer: c.supportsPingPeer !== false,
             supportsLogin: c.supportsLogin !== false,
+            supportsCustomControlURL: c.supportsCustomControlURL !== false,
           },
         });
       });

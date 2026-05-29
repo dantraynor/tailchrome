@@ -28,6 +28,7 @@ export function baseState(overrides: Partial<TailscaleState> = {}): TailscaleSta
     supportsNetcheck: false,
     supportsPingPeer: false,
     supportsLogin: false,
+    supportsCustomControlURL: false,
     reconnecting: false,
     autoConnectOnStart: false,
     ...overrides,

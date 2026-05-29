@@ -43,13 +43,14 @@ type Reply struct {
 // ProcRunningReply is sent immediately after the host starts to inform the
 // extension of the proxy port and process ID.
 type ProcRunningReply struct {
-	Port             int    `json:"port"`
-	PID              int    `json:"pid"`
-	Version          string `json:"version"`
-	Error            string `json:"error,omitempty"`
-	SupportsNetcheck bool `json:"supportsNetcheck,omitempty"`
-	SupportsPingPeer bool `json:"supportsPingPeer,omitempty"`
-	SupportsLogin    bool `json:"supportsLogin,omitempty"`
+	Port                     int    `json:"port"`
+	PID                      int    `json:"pid"`
+	Version                  string `json:"version"`
+	Error                    string `json:"error,omitempty"`
+	SupportsNetcheck         bool   `json:"supportsNetcheck,omitempty"`
+	SupportsPingPeer         bool   `json:"supportsPingPeer,omitempty"`
+	SupportsLogin            bool   `json:"supportsLogin,omitempty"`
+	SupportsCustomControlURL bool   `json:"supportsCustomControlURL,omitempty"`
 }
 
 // InitReply is the response to an "init" command.

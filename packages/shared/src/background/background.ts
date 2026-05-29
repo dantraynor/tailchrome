@@ -5,7 +5,13 @@ import type {
   PopupMessage,
   ProxyManager,
 } from "../types";
-import { KEEPALIVE_INTERVAL_MS, ADMIN_URL, TAILSCALE_SERVICE_IP, EXPECTED_HOST_VERSION } from "../constants";
+import {
+  KEEPALIVE_INTERVAL_MS,
+  ADMIN_URL,
+  TAILSCALE_SERVICE_IP,
+  EXPECTED_HOST_VERSION,
+  isCustomControlURL,
+} from "../constants";
 import { StateStore } from "./state-store";
 import { NativeHostConnection } from "./native-host";
 import { BadgeManager } from "./badge-manager";
@@ -46,19 +52,37 @@ export interface InitBackgroundOptions {
 
 const LOGIN_OPEN_TIMEOUT_MS = 30_000;
 const LOGIN_OPEN_TIMEOUT_NAME = "login-open-timeout";
-const ALLOWED_LOGIN_ORIGINS = new Set([
+const DEFAULT_LOGIN_ORIGINS: readonly string[] = [
   "https://login.tailscale.com",
   "https://controlplane.tailscale.com",
   "https://tailscale.com",
-]);
+];
 
-function isValidLoginURL(url: string): boolean {
+/**
+ * Returns true if `url` is a login URL we'll open in a tab. Always accepts the
+ * Tailscale-managed origins when using the default coordination server. For
+ * custom coordination servers, allow delegated HTTPS auth URLs while rejecting
+ * stale Tailscale-managed login URLs from a previous default-server status.
+ */
+export function isValidLoginURL(url: string, controlURL?: string | null): boolean {
+  let parsed: URL;
   try {
-    const parsed = new URL(url);
-    return ALLOWED_LOGIN_ORIGINS.has(parsed.origin);
+    parsed = new URL(url);
   } catch {
     return false;
   }
+  if (isCustomControlURL(controlURL)) {
+    if (DEFAULT_LOGIN_ORIGINS.includes(parsed.origin)) return false;
+    if (parsed.protocol === "https:") return true;
+    try {
+      const controlProtocol = new URL(controlURL!).protocol;
+      return controlProtocol === "http:" && parsed.protocol === "http:";
+    } catch {
+      return false;
+    }
+  }
+  if (DEFAULT_LOGIN_ORIGINS.includes(parsed.origin)) return true;
+  return false;
 }
 
 function loginURLFromStatus(status: NativeReply["status"]): string | null {
@@ -213,6 +237,7 @@ export function initBackground(
           supportsNetcheck: false,
           supportsPingPeer: false,
           supportsLogin: false,
+          supportsCustomControlURL: false,
         });
       } else {
         store.update({
@@ -223,6 +248,7 @@ export function initBackground(
           supportsNetcheck: msg.procRunning.supportsNetcheck === true,
           supportsPingPeer: msg.procRunning.supportsPingPeer === true,
           supportsLogin: msg.procRunning.supportsLogin === true,
+          supportsCustomControlURL: msg.procRunning.supportsCustomControlURL === true,
         });
       }
     }
@@ -251,7 +277,8 @@ export function initBackground(
       store.applyStatusUpdate(msg.status);
       const loginURL = loginURLFromStatus(msg.status);
       if (pendingLoginOpen) {
-        if (loginURL && isValidLoginURL(loginURL)) {
+        const allowedControlURL = msg.status.prefs?.controlURL ?? null;
+        if (loginURL && isValidLoginURL(loginURL, allowedControlURL)) {
           clearPendingLoginOpen();
           chrome.tabs.create({ url: loginURL });
         } else if (loginURL) {
@@ -391,6 +418,7 @@ export function initBackground(
             supportsNetcheck: false,
             supportsPingPeer: false,
             supportsLogin: false,
+            supportsCustomControlURL: false,
           }),
     });
   }
@@ -536,7 +564,10 @@ export function initBackground(
           sendToastToPopup("Still waiting for Tailscale to return a login URL.", "info");
           break;
         }
-        if (state.browseToURL && isValidLoginURL(state.browseToURL)) {
+        if (
+          state.browseToURL &&
+          isValidLoginURL(state.browseToURL, state.prefs?.controlURL ?? null)
+        ) {
           chrome.tabs.create({ url: state.browseToURL });
         } else if (!state.supportsLogin) {
           sendToastToPopup(
@@ -585,6 +616,13 @@ export function initBackground(
       }
 
       case "set-pref": {
+        if (msg.key === "controlURL" && !state.supportsCustomControlURL) {
+          sendToastToPopup(
+            "Please update the native helper to change the coordination server.",
+            "error",
+          );
+          break;
+        }
         nativeHost.send({
           cmd: "set-prefs",
           prefs: { [msg.key]: msg.value },

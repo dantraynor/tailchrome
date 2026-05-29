@@ -202,10 +202,11 @@ export function makeControl(overrides = {}) {
   const status = overrides.status ?? makeRunningState();
   return {
     proxyPort: 1055,
-    hostVersion: "0.1.9",
+    hostVersion: "0.1.11",
     supportsNetcheck: true,
     supportsPingPeer: true,
     supportsLogin: true,
+    supportsCustomControlURL: true,
     status,
     profiles: makeProfiles(),
     exitNodeSuggestion: {
