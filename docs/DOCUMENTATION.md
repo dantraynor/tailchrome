@@ -972,7 +972,7 @@ Full policy: [docs/privacy-policy.md](privacy-policy.md)
 - **Minimum Firefox version:** 140.0
 - **Source code disclosure:** `firefox-sources.zip` included with each release for AMO reviewer verification
 
-Full listing text: [STORE_LISTING.md](../STORE_LISTING.md)
+Full listing text: [STORE_LISTING.md](STORE_LISTING.md)
 
 ---
 
