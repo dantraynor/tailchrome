@@ -1,15 +1,12 @@
 import type { TailscaleState } from "../../types";
 import {
-  createCoordinationServerRow,
-  updateCoordinationServerRow,
+  appendCoordinationServerSettings,
+  rerenderPreservingCoordEdit,
 } from "../components/coordination-server-row";
 import { renderHeader } from "../components/header";
 import { renderUiSurfaceFooter } from "../components/ui-surface-row";
 import { iconPlug, iconWarning } from "../icons";
 import { sendMessage } from "../popup";
-
-/** UI-only: whether the coordination-server editor on the disconnected screen is expanded. */
-let disconnectedCoordOpen = false;
 
 /**
  * Renders the disconnected view.
@@ -147,14 +144,7 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
   view.appendChild(content);
 
   if (state) {
-    const settings = document.createElement("div");
-    settings.className = "quick-settings";
-    const coordRow = createCoordinationServerRow(state, disconnectedCoordOpen, (open) => {
-      disconnectedCoordOpen = open;
-    });
-    settings.appendChild(coordRow.header);
-    settings.appendChild(coordRow.editor);
-    view.appendChild(settings);
+    appendCoordinationServerSettings(view, state);
   }
 
   renderUiSurfaceFooter(view);
@@ -162,18 +152,10 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
 }
 
 /**
- * Patches the disconnected view when the coordination server editor is active.
- * Falls back to a full render otherwise so state-specific messaging stays fresh.
+ * In-place update path for the disconnected view. Re-renders so all
+ * state-dependent messaging (spinner, error hints, retry) stays fresh, while
+ * preserving an in-progress coordination-server edit (value, focus, caret).
  */
 export function updateDisconnected(root: HTMLElement, state: TailscaleState): void {
-  const coordInput = root.querySelector<HTMLInputElement>(".coordination-server-input");
-  if (document.activeElement !== coordInput) {
-    renderDisconnected(root, state);
-    return;
-  }
-
-  const view = root.querySelector(".view");
-  if (!view || !updateCoordinationServerRow(view, state)) {
-    renderDisconnected(root, state);
-  }
+  rerenderPreservingCoordEdit(root, state, renderDisconnected);
 }

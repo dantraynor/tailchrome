@@ -10,7 +10,9 @@ import {
   ADMIN_URL,
   TAILSCALE_SERVICE_IP,
   EXPECTED_HOST_VERSION,
+  DEFAULT_LOGIN_ORIGINS,
   isCustomControlURL,
+  isValidControlURL,
 } from "../constants";
 import { StateStore } from "./state-store";
 import { NativeHostConnection } from "./native-host";
@@ -51,11 +53,6 @@ export interface InitBackgroundOptions {
 
 const LOGIN_OPEN_TIMEOUT_MS = 30_000;
 const LOGIN_OPEN_TIMEOUT_NAME = "login-open-timeout";
-const DEFAULT_LOGIN_ORIGINS: readonly string[] = [
-  "https://login.tailscale.com",
-  "https://controlplane.tailscale.com",
-  "https://tailscale.com",
-];
 
 /**
  * Returns true if `url` is a login URL we'll open in a tab. Always accepts the
@@ -87,6 +84,27 @@ export function isValidLoginURL(url: string, controlURL?: string | null): boolea
 function loginURLFromStatus(status: NativeReply["status"]): string | null {
   if (!status) return null;
   return status.browseToURL || status.authURL || null;
+}
+
+/**
+ * Coarse, origin-level check for whether saving `next` actually changes the
+ * coordination server vs the currently-cached `current`. Used only to decide
+ * when to drop switch-scoped cached state; the native host stays the authority
+ * on the real change. All default-server synonyms collapse to the same key.
+ */
+function controlServerChanged(
+  next: string,
+  current: string | undefined | null,
+): boolean {
+  const key = (url: string | undefined | null): string => {
+    if (!url || !isCustomControlURL(url)) return "";
+    try {
+      return new URL(url).origin.toLowerCase();
+    } catch {
+      return url.trim().toLowerCase();
+    }
+  };
+  return key(next) !== key(current);
 }
 
 /**
@@ -280,6 +298,11 @@ export function initBackground(
         if (loginURL && isValidLoginURL(loginURL, allowedControlURL)) {
           clearPendingLoginOpen();
           chrome.tabs.create({ url: loginURL });
+        } else if (loginURL && isCustomControlURL(allowedControlURL)) {
+          // A stale Tailscale-default login URL can briefly linger right after
+          // switching to a custom server. Stay pending and wait for the fresh
+          // URL the host is about to emit rather than giving up; the pending
+          // timeout bounds the wait.
         } else if (loginURL) {
           clearPendingLoginOpen();
           sendToastToPopup(
@@ -610,12 +633,33 @@ export function initBackground(
       }
 
       case "set-pref": {
-        if (msg.key === "controlURL" && !state.supportsCustomControlURL) {
-          sendToastToPopup(
-            "Please update the native helper to change the coordination server.",
-            "error",
-          );
-          break;
+        if (msg.key === "controlURL") {
+          // Reverting to the default server ("") is always allowed; only
+          // switching to a custom server requires native-helper support.
+          if (!state.supportsCustomControlURL && msg.value !== "") {
+            sendToastToPopup(
+              "Please update the native helper to change the coordination server.",
+              "error",
+            );
+            break;
+          }
+          // Validate at the trust boundary, not only on the popup's Save button.
+          if (msg.value !== "" && !isValidControlURL(msg.value)) {
+            sendToastToPopup(
+              "Enter a valid coordination server URL (http:// or https://).",
+              "error",
+            );
+            break;
+          }
+          // Switching coordination servers invalidates state scoped to the old
+          // tailnet: the cached login URL (stale until the host replies) and the
+          // saved exit-node ID (a node absent from the new tailnet). Drop both so
+          // an immediate Log In fetches a fresh URL and a later restart doesn't
+          // restore an invalid exit node on the new server.
+          if (controlServerChanged(msg.value, state.prefs?.controlURL)) {
+            store.update({ browseToURL: "" });
+            void chrome.storage.local.remove("lastExitNodeID");
+          }
         }
         nativeHost.send({
           cmd: "set-prefs",

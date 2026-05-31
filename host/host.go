@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/netip"
 	"net/url"
 	"os"
@@ -161,6 +162,18 @@ func controlURLForPrefs(raw string) string {
 	return trimmed
 }
 
+// isValidControlURL reports whether a non-empty custom control URL is a
+// well-formed http/https URL with a host. Validation lives here at the trust
+// boundary (not only in the popup) so any caller of set-prefs is guarded.
+func isValidControlURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	return (scheme == "http" || scheme == "https") && u.Host != ""
+}
+
 func controlURLCompareKey(raw string) string {
 	trimmed := strings.TrimSpace(raw)
 	if isDefaultControlURL(trimmed) {
@@ -210,7 +223,9 @@ func normalizedURLHost(u *url.URL) string {
 	if port == "" || (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
 		return host
 	}
-	return host + ":" + port
+	// JoinHostPort re-adds brackets for IPv6 literals so distinct hosts don't
+	// collapse to the same key (e.g. "[::1]:8443" vs "::1:8443").
+	return net.JoinHostPort(host, port)
 }
 
 // handleRequest dispatches a request to the appropriate handler based on the cmd field.
@@ -570,8 +585,13 @@ func (h *Host) handleSetPrefs(req Request) {
 
 	mp := &ipn.MaskedPrefs{}
 	if partial.ControlURL != nil {
+		normalized := controlURLForPrefs(*partial.ControlURL)
+		if normalized != "" && !isValidControlURL(normalized) {
+			h.sendError("set-prefs", fmt.Sprintf("invalid control server URL: %q", normalized))
+			return
+		}
 		mp.ControlURLSet = true
-		mp.Prefs.ControlURL = controlURLForPrefs(*partial.ControlURL)
+		mp.Prefs.ControlURL = normalized
 	}
 	if partial.ExitNodeID != nil {
 		mp.ExitNodeIDSet = true
@@ -655,6 +675,12 @@ func (h *Host) handleSetPrefs(req Request) {
 	}
 
 	if controlURLChanged {
+		// Exit-node selection and node identity are scoped to the previous
+		// tailnet; clear them so a now-invalid ExitNodeID (a StableNodeID from
+		// the old control server) isn't carried onto the new one.
+		updatedPrefs.ExitNodeID = ""
+		updatedPrefs.ExitNodeIP = netip.Addr{}
+
 		h.clearCachedStatus(updatedPrefs)
 
 		// Explicitly log out so the previous control plane's node key and
@@ -670,6 +696,7 @@ func (h *Host) handleSetPrefs(req Request) {
 			rollbackErr := h.lc.Start(rollbackCtx, ipn.Options{UpdatePrefs: currentPrefs})
 			rollbackCancel()
 			if rollbackErr != nil {
+				h.clearCachedStatus(currentPrefs)
 				h.sendError("set-prefs", fmt.Sprintf("failed to logout before changing control URL: %v; also failed to restore previous control URL: %v", err, rollbackErr))
 				return
 			}
@@ -690,13 +717,16 @@ func (h *Host) handleSetPrefs(req Request) {
 			rollbackErr := h.lc.Start(rollbackCtx, ipn.Options{UpdatePrefs: currentPrefs})
 			rollbackCancel()
 			if rollbackErr != nil {
+				h.clearCachedStatus(currentPrefs)
 				h.sendError("set-prefs", fmt.Sprintf("failed to restart with updated control URL: %v; also failed to restore previous control URL: %v", err, rollbackErr))
 				return
 			}
 
 			h.clearCachedStatus(currentPrefs)
 			h.handleGetStatus()
-			h.sendError("set-prefs", fmt.Sprintf("failed to restart with updated control URL: %v; restored previous control URL", err))
+			// The logout above already discarded the previous session, so the
+			// prefs are restored but the node is signed out and must log in again.
+			h.sendError("set-prefs", fmt.Sprintf("failed to switch control server: %v; reverted to your previous server, but you have been signed out and must log in again", err))
 			return
 		}
 		restartCancel()

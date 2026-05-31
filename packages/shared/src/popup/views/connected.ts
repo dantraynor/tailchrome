@@ -36,6 +36,19 @@ let advancedSectionOpen = false;
 
 const PEER_SEARCH_THRESHOLD = 6;
 
+/** Footer "Admin Console" link (shown only for the default Tailscale server). */
+function createAdminLink(): HTMLAnchorElement {
+  const adminLink = document.createElement("a");
+  adminLink.className = "footer-link footer-link--admin";
+  adminLink.textContent = "Admin Console";
+  adminLink.href = "#";
+  adminLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    chrome.tabs.create({ url: ADMIN_URL });
+  });
+  return adminLink;
+}
+
 function openSubView(root: HTMLElement, renderFn: SubViewRenderer): void {
   const currentState = getLatestState();
   if (!currentState) return;
@@ -428,14 +441,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   });
 
   if (showAdminLink) {
-    const adminLink = document.createElement("a");
-    adminLink.className = "footer-link footer-link--admin";
-    adminLink.textContent = "Admin Console";
-    adminLink.href = "#";
-    adminLink.addEventListener("click", (e) => {
-      e.preventDefault();
-      chrome.tabs.create({ url: ADMIN_URL });
-    });
+    const adminLink = createAdminLink();
 
     const sep1 = document.createElement("span");
     sep1.className = "footer-sep";
@@ -662,13 +668,24 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     return;
   }
 
-  // Admin Console footer link presence depends on whether the configured
-  // control URL is custom. Switching servers should add/remove the link.
-  const hasAdminLink = view.querySelector(".footer-link--admin") !== null;
+  // The Admin Console footer link is shown only for the default server. Patch
+  // it in place (instead of a full re-render) so switching servers can't
+  // clobber a focused coordination-server input mid-edit.
+  const adminLinkEl = view.querySelector(".footer-link--admin");
   const shouldHaveAdminLink = !isCustomControlURL(state.prefs?.controlURL);
-  if (hasAdminLink !== shouldHaveAdminLink) {
-    renderConnected(root, state);
-    return;
+  if (shouldHaveAdminLink && !adminLinkEl) {
+    const footer = view.querySelector(".footer");
+    const logout = footer?.querySelector(".footer-link--danger") ?? null;
+    if (footer && logout) {
+      const sep = document.createElement("span");
+      sep.className = "footer-sep";
+      footer.insertBefore(createAdminLink(), logout);
+      footer.insertBefore(sep, logout);
+    }
+  } else if (!shouldHaveAdminLink && adminLinkEl) {
+    const sep = adminLinkEl.nextElementSibling;
+    if (sep && sep.classList.contains("footer-sep")) sep.remove();
+    adminLinkEl.remove();
   }
 
   const tailnetEl = view.querySelector(".status-bar-tailnet");

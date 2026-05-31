@@ -240,7 +240,7 @@ describe("initBackground", () => {
     it("sets supportsCustomControlURL when procRunning advertises it", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, supportsCustomControlURL: true },
+        procRunning: { port: 1055, pid: 1234, version: "0.1.11", supportsCustomControlURL: true },
       });
 
       expect(proxyManager.apply).toHaveBeenCalledWith(
@@ -1351,6 +1351,248 @@ describe("initBackground", () => {
         level: "error",
         persistent: false,
       });
+    });
+
+    it("allows reverting controlURL to default even when the helper lacks support", async () => {
+      await setupBackground();
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({
+        type: "set-pref",
+        key: "controlURL",
+        value: "",
+      });
+
+      expect(nativePort.postMessage).toHaveBeenCalledWith({
+        cmd: "set-prefs",
+        prefs: { controlURL: "" },
+      });
+    });
+
+    it("rejects a malformed controlURL at the background boundary", async () => {
+      await setupBackground();
+      advertiseCustomControlURLSupport();
+      nativePort.postMessage.mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({
+        type: "set-pref",
+        key: "controlURL",
+        value: "not a url",
+      });
+
+      expect(nativePort.postMessage).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "toast",
+        message: "Enter a valid coordination server URL (http:// or https://).",
+        level: "error",
+        persistent: false,
+      });
+    });
+
+    it("keeps waiting for a fresh login URL when a stale default URL arrives for a custom server", async () => {
+      await setupBackground();
+      advertiseLoginSupport();
+
+      // No browseToURL yet, so the login click asks the host and goes pending.
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+
+      (chrome.tabs.create as ReturnType<typeof vi.fn>).mockClear();
+
+      const customPrefs = {
+        controlURL: "https://hs.example.com",
+        exitNodeID: "",
+        exitNodeAllowLANAccess: false,
+        corpDNS: true,
+        shieldsUp: false,
+        advertiseExitNode: false,
+      };
+
+      // A stale Tailscale-default login URL must not be opened or error out…
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://login.tailscale.com/a/stale",
+          exitNode: null,
+          peers: [],
+          prefs: customPrefs,
+          health: [],
+          error: null,
+        },
+      });
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+
+      // …and the next, valid custom-origin URL opens (proving we stayed pending).
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://hs.example.com/register/fresh",
+          exitNode: null,
+          peers: [],
+          prefs: customPrefs,
+          health: [],
+          error: null,
+        },
+      });
+      expect(chrome.tabs.create).toHaveBeenCalledWith({
+        url: "https://hs.example.com/register/fresh",
+      });
+    });
+
+    it("does not open the stale login URL after switching coordination servers", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: {
+          port: 1055,
+          pid: 1234,
+          version: "0.1.11",
+          supportsLogin: true,
+          supportsCustomControlURL: true,
+        },
+      });
+      // Seed a default-server login URL into state (controlURL still default).
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "https://login.tailscale.com/a/old",
+          exitNode: null,
+          peers: [],
+          prefs: {
+            controlURL: "",
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+            advertiseExitNode: false,
+          },
+          health: [],
+          error: null,
+        },
+      });
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({
+        type: "set-pref",
+        key: "controlURL",
+        value: "https://hs.example.com",
+      });
+
+      (chrome.tabs.create as ReturnType<typeof vi.fn>).mockClear();
+      nativePort.postMessage.mockClear();
+
+      // Clicking Log In before the host replies must not open the stale default
+      // URL; it should request a fresh one for the new server instead.
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+    });
+
+    it("clears the saved exit node when the coordination server changes", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, version: "0.1.11", supportsCustomControlURL: true },
+      });
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: {
+            controlURL: "",
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+            advertiseExitNode: false,
+          },
+          health: [],
+          error: null,
+        },
+      });
+
+      (chrome.storage.local.remove as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({
+        type: "set-pref",
+        key: "controlURL",
+        value: "https://hs.example.com",
+      });
+
+      expect(chrome.storage.local.remove).toHaveBeenCalledWith("lastExitNodeID");
+    });
+
+    it("keeps the saved exit node when re-saving the same coordination server", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, version: "0.1.11", supportsCustomControlURL: true },
+      });
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: {
+            controlURL: "https://hs.example.com",
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+            advertiseExitNode: false,
+          },
+          health: [],
+          error: null,
+        },
+      });
+
+      (chrome.storage.local.remove as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({
+        type: "set-pref",
+        key: "controlURL",
+        value: "https://hs.example.com",
+      });
+
+      expect(chrome.storage.local.remove).not.toHaveBeenCalled();
     });
 
     it("handles switch-profile message", async () => {

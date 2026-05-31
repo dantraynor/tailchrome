@@ -2,14 +2,11 @@ import type { TailscaleState } from "../../types";
 import { renderHeader } from "../components/header";
 import { renderUiSurfaceFooter } from "../components/ui-surface-row";
 import {
-  createCoordinationServerRow,
-  updateCoordinationServerRow,
+  appendCoordinationServerSettings,
+  rerenderPreservingCoordEdit,
 } from "../components/coordination-server-row";
 import { sendMessage } from "../popup";
 import { iconLock } from "../icons";
-
-/** UI-only: whether the coordination-server editor on the login screen is expanded. */
-let needsLoginCoordOpen = false;
 
 /**
  * Renders the login-required view.
@@ -60,14 +57,7 @@ export function renderNeedsLogin(root: HTMLElement, state: TailscaleState): void
   // Coordination server editor — lets users point at a custom control plane
   // (e.g. Headscale) before pressing Log In, since once we click Log In we
   // open a URL whose origin must match the currently-configured server.
-  const settings = document.createElement("div");
-  settings.className = "quick-settings";
-  const coordRow = createCoordinationServerRow(state, needsLoginCoordOpen, (open) => {
-    needsLoginCoordOpen = open;
-  });
-  settings.appendChild(coordRow.header);
-  settings.appendChild(coordRow.editor);
-  view.appendChild(settings);
+  appendCoordinationServerSettings(view, state);
 
   renderUiSurfaceFooter(view);
 
@@ -75,18 +65,10 @@ export function renderNeedsLogin(root: HTMLElement, state: TailscaleState): void
 }
 
 /**
- * Patches the needs-login view in place. Used when the popup stays on this
- * view across status updates so a partially-typed coordination URL is not
- * discarded by a full re-render.
+ * In-place update path for the needs-login view. Re-renders the view while
+ * preserving an in-progress coordination-server edit (value, focus, caret), so
+ * a partially-typed URL is not discarded by a status update.
  */
 export function updateNeedsLogin(root: HTMLElement, state: TailscaleState): void {
-  const view = root.querySelector(".view");
-  if (!view) {
-    renderNeedsLogin(root, state);
-    return;
-  }
-
-  if (!updateCoordinationServerRow(view, state)) {
-    renderNeedsLogin(root, state);
-  }
+  rerenderPreservingCoordEdit(root, state, renderNeedsLogin);
 }

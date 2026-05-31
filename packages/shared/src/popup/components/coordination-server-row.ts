@@ -52,6 +52,9 @@ export function createCoordinationServerRow(
   input.className = "coordination-server-input";
   input.placeholder = DEFAULT_CONTROL_URL;
   input.value = state.prefs?.controlURL ?? "";
+  // `dirty` tracks whether the value holds unsaved user edits, so a routine
+  // status update never clobbers what the user is typing (see `update`).
+  input.dataset["dirty"] = "false";
   input.spellcheck = false;
   input.autocapitalize = "off";
   editor.appendChild(input);
@@ -70,7 +73,10 @@ export function createCoordinationServerRow(
     error.textContent = "";
   }
 
-  input.addEventListener("input", clearValidationError);
+  input.addEventListener("input", () => {
+    input.dataset["dirty"] = "true";
+    clearValidationError();
+  });
 
   const save = document.createElement("button");
   save.type = "button";
@@ -88,13 +94,14 @@ export function createCoordinationServerRow(
         error.textContent = "Enter a valid URL (e.g. https://headscale.example.com).";
         return;
       }
-      if (parsed.protocol !== "https:") {
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
         error.hidden = false;
-        error.textContent = "Coordination server URL must use https://.";
+        error.textContent = "Coordination server URL must use http:// or https://.";
         return;
       }
     }
     clearValidationError();
+    input.dataset["dirty"] = "false";
     sendMessage({ type: "set-pref", key: "controlURL", value: raw });
   });
   editor.appendChild(save);
@@ -115,10 +122,14 @@ export function createCoordinationServerRow(
     update(next: TailscaleState): void {
       applyCapability(next.supportsCustomControlURL);
       const desired = next.prefs?.controlURL ?? "";
-      if (document.activeElement !== input && input.value !== desired) {
-        input.value = desired;
+      // Never overwrite a focused input or one holding unsaved edits, so an
+      // in-progress (or invalid, error-flagged) value survives status updates.
+      if (document.activeElement === input) return;
+      if (input.value === desired) {
+        input.dataset["dirty"] = "false";
         clearValidationError();
-      } else if (input.value === desired) {
+      } else if (input.dataset["dirty"] !== "true") {
+        input.value = desired;
         clearValidationError();
       }
     },
@@ -137,4 +148,79 @@ export function updateCoordinationServerRow(
   if (!row) return false;
   row.update(state);
   return true;
+}
+
+/**
+ * Shared open-state for the coordination editor on the standalone screens
+ * (disconnected / needs-login), where it sits in its own `.quick-settings`
+ * block. (The connected view embeds the editor inside its Advanced section and
+ * tracks that independently.)
+ */
+let standaloneEditorOpen = false;
+
+/**
+ * Mounts the coordination-server editor, wrapped in a `.quick-settings` block,
+ * into a standalone view. Used by the disconnected and needs-login views so the
+ * markup and open-state handling live in one place.
+ */
+export function appendCoordinationServerSettings(
+  view: HTMLElement,
+  state: TailscaleState,
+): void {
+  const settings = document.createElement("div");
+  settings.className = "quick-settings";
+  const row = createCoordinationServerRow(state, standaloneEditorOpen, (open) => {
+    standaloneEditorOpen = open;
+  });
+  settings.appendChild(row.header);
+  settings.appendChild(row.editor);
+  view.appendChild(settings);
+}
+
+interface CoordEditState {
+  value: string;
+  dirty: boolean;
+  selStart: number | null;
+  selEnd: number | null;
+}
+
+function readFocusedCoordEdit(root: ParentNode): CoordEditState | null {
+  const input = root.querySelector<HTMLInputElement>(".coordination-server-input");
+  if (!input || document.activeElement !== input) return null;
+  return {
+    value: input.value,
+    dirty: input.dataset["dirty"] === "true",
+    selStart: input.selectionStart,
+    selEnd: input.selectionEnd,
+  };
+}
+
+function restoreCoordEdit(root: ParentNode, edit: CoordEditState): void {
+  const input = root.querySelector<HTMLInputElement>(".coordination-server-input");
+  if (!input) return;
+  input.value = edit.value;
+  input.dataset["dirty"] = edit.dirty ? "true" : "false";
+  input.focus();
+  try {
+    input.setSelectionRange(edit.selStart, edit.selEnd);
+  } catch {
+    // Some environments reject setSelectionRange on url inputs; ignore.
+  }
+}
+
+/**
+ * In-place update path for the standalone views: re-renders the whole view so
+ * all state-dependent content stays fresh, while preserving an in-progress edit
+ * in the coordination-server input (value, dirty flag, focus, and caret). This
+ * keeps the disconnected and needs-login views consistent and avoids leaving
+ * the rest of the view stale while the input is focused.
+ */
+export function rerenderPreservingCoordEdit(
+  root: HTMLElement,
+  state: TailscaleState,
+  render: (root: HTMLElement, state: TailscaleState) => void,
+): void {
+  const edit = readFocusedCoordEdit(root);
+  render(root, state);
+  if (edit) restoreCoordEdit(root, edit);
 }
