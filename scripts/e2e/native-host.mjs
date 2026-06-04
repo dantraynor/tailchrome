@@ -222,7 +222,7 @@ function mockSource(baseUrl, initialControl) {
         procRunning: {
           port: control.proxyPort ?? 1055,
           pid: 1,
-          version: control.hostVersion ?? "0.1.10",
+          version: control.hostVersion ?? "0.1.11",
           error: control.startupError,
           supportsNetcheck: control.supportsNetcheck !== false,
           supportsPingPeer: control.supportsPingPeer !== false,
