@@ -1456,6 +1456,53 @@ describe("initBackground", () => {
       });
     });
 
+    it("errors instead of spinning when an invalid custom login URL arrives", async () => {
+      await setupBackground();
+      advertiseLoginSupport();
+
+      // No browseToURL yet, so the login click asks the host and goes pending.
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+      popupPort.postMessage.mockClear();
+
+      // A custom-origin login URL that is not openable (mixed-content http on an
+      // https control server) is genuinely invalid — not a stale default that
+      // will be superseded — so it must surface an error rather than stay
+      // pending until the timeout.
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "http://hs.example.com/register",
+          exitNode: null,
+          peers: [],
+          prefs: {
+            controlURL: "https://hs.example.com",
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+            advertiseExitNode: false,
+          },
+          health: [],
+          error: null,
+        },
+      });
+
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith({
+        type: "toast",
+        message: "Could not open the login URL Tailscale returned.",
+        level: "error",
+        persistent: false,
+      });
+    });
+
     it("does not open the stale login URL after switching coordination servers", async () => {
       await setupBackground();
       sendNativeMessage({
@@ -1550,7 +1597,102 @@ describe("initBackground", () => {
         value: "https://hs.example.com",
       });
 
+      // Saved node is kept until the host actually confirms the new server, so
+      // a rolled-back switch can't lose it.
+      expect(chrome.storage.local.remove).not.toHaveBeenCalled();
+
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: {
+            controlURL: "https://hs.example.com",
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+            advertiseExitNode: false,
+          },
+          health: [],
+          error: null,
+        },
+      });
+
       expect(chrome.storage.local.remove).toHaveBeenCalledWith("lastExitNodeID");
+    });
+
+    it("keeps the saved exit node when the host rolls a server switch back", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, version: "0.1.11", supportsCustomControlURL: true },
+      });
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: {
+            controlURL: "",
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+            advertiseExitNode: false,
+          },
+          health: [],
+          error: null,
+        },
+      });
+
+      (chrome.storage.local.remove as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({
+        type: "set-pref",
+        key: "controlURL",
+        value: "https://hs.example.com",
+      });
+
+      // Host rejects/rolls back: the next status still reports the old server.
+      sendNativeMessage({
+        status: {
+          backendState: "NeedsLogin",
+          running: false,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: true,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: {
+            controlURL: "",
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+            advertiseExitNode: false,
+          },
+          health: [],
+          error: null,
+        },
+      });
+
+      expect(chrome.storage.local.remove).not.toHaveBeenCalled();
     });
 
     it("keeps the saved exit node when re-saving the same coordination server", async () => {
