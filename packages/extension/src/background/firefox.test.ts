@@ -75,7 +75,9 @@ describe("startFirefoxBackground", () => {
       restoreFromStorage: mocks.restoreFromStorage,
     };
     mocks.FirefoxProxyManager.mockReset();
-    mocks.FirefoxProxyManager.mockImplementation(() => mocks.proxyManagerInstance);
+    mocks.FirefoxProxyManager.mockImplementation(function () {
+      return mocks.proxyManagerInstance;
+    });
     mocks.initBackground.mockReturnValue({
       proxyManager: mocks.proxyManagerInstance,
       reconnect: vi.fn(),
