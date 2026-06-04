@@ -218,17 +218,28 @@ func installBinary() (string, error) {
 	}
 	defer src.Close()
 
-	dst, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+	if err := replaceBinary(destPath, src, 0755); err != nil {
+		return "", err
+	}
+
+	return destPath, nil
+}
+
+// copyFile writes src to destPath, creating or truncating it. It opens the
+// destination before reading src, so if the open fails (for example, a Windows
+// sharing violation when destPath is a running executable) it returns without
+// consuming src, letting a caller retry the same reader against another path.
+func copyFile(destPath string, src io.Reader, perm os.FileMode) error {
+	dst, err := os.OpenFile(destPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
-		return "", fmt.Errorf("failed to create destination binary: %w", err)
+		return fmt.Errorf("failed to create destination binary: %w", err)
 	}
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, src); err != nil {
-		return "", fmt.Errorf("failed to copy binary: %w", err)
+		return fmt.Errorf("failed to copy binary: %w", err)
 	}
-
-	return destPath, nil
+	return nil
 }
 
 // writeManifest writes a native messaging host manifest JSON file.

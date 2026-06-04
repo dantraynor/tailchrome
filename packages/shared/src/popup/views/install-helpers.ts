@@ -213,6 +213,18 @@ export function renderInstallFlow(
     step2.content.appendChild(step2.label);
     step2.content.appendChild(body);
     step2.content.appendChild(hint);
+
+    // When updating, the previous helper may still be running and connected, so
+    // the popup can keep showing "Update Available" until the browser respawns
+    // the host. Tell the user how to force that.
+    if (opts.mode === "update") {
+      const restartHint = document.createElement("div");
+      restartHint.className = "install-step-hint";
+      restartHint.textContent =
+        'If it still says "Update Available" after that, fully quit your browser (not just the window) and reopen it.';
+      step2.content.appendChild(restartHint);
+    }
+
     steps.appendChild(step2.root);
   } else {
     // macOS / Linux: need terminal
