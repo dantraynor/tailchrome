@@ -169,6 +169,47 @@ func TestUninstallIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestReplaceBinaryCreatesWhenAbsent(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "tailscale-browser-ext")
+	if err := replaceBinary(dest, strings.NewReader("NEW"), 0o755); err != nil {
+		t.Fatalf("replaceBinary returned error: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read dest: %v", err)
+	}
+	if string(got) != "NEW" {
+		t.Errorf("dest content = %q, want %q", got, "NEW")
+	}
+	info, err := os.Stat(dest)
+	if err != nil {
+		t.Fatalf("stat dest: %v", err)
+	}
+	if info.Mode().Perm()&0o100 == 0 {
+		t.Errorf("dest is not owner-executable: mode=%v", info.Mode().Perm())
+	}
+}
+
+func TestReplaceBinaryOverwritesAndTruncates(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "tailscale-browser-ext")
+	// Seed with longer content so a non-truncating write would leave a tail.
+	if err := os.WriteFile(dest, []byte("OLDOLDOLD"), 0o755); err != nil {
+		t.Fatalf("seed dest: %v", err)
+	}
+	if err := replaceBinary(dest, strings.NewReader("NEW"), 0o755); err != nil {
+		t.Fatalf("replaceBinary returned error: %v", err)
+	}
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read dest: %v", err)
+	}
+	if string(got) != "NEW" {
+		t.Errorf("dest content = %q, want %q (old content not fully replaced)", got, "NEW")
+	}
+}
+
 func TestInstallChromiumFamilyParentExistedTrueWhenDirPresent(t *testing.T) {
 	setupTempHome(t)
 	dirs := chromiumManifestDirs()
