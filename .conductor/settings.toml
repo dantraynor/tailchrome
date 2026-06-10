@@ -1,0 +1,17 @@
+#:schema https://conductor.build/schemas/settings.repo.schema.json
+
+[scripts]
+# Same install CI uses; the extension's postinstall (wxt prepare) generates the
+# .wxt/ types that typecheck needs.
+setup = "pnpm install --frozen-lockfile"
+# WXT watch mode for Chrome. Load packages/extension/.output/chrome-mv3-dev/ as an
+# unpacked extension. The dev server takes the first open port in 3000-3010, so
+# parallel workspaces don't collide.
+run = "make dev"
+run_mode = "concurrent"
+# Drop generated build output only. node_modules, the pnpm store, the Go module
+# cache, and ~/.cache/puppeteer are shared or cheap and must be left alone.
+archive = "rm -rf packages/extension/.output packages/extension/.wxt dist"
+
+[prompts]
+general = "CI runs pnpm validate:ids, pnpm typecheck, pnpm test, pnpm build:chrome, and pnpm review:firefox on every PR, plus make host when host/ or the Makefile changes. Run the relevant ones before opening a PR."
