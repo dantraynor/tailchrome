@@ -1,5 +1,5 @@
 import type { PeerInfo } from "../../types";
-import { copyToClipboard, formatBytes, showToast } from "../utils";
+import { copyToClipboard, formatBytes, machineName, showToast } from "../utils";
 import { sendMessage } from "../popup";
 import { getCustomUrl, setCustomUrl, clearCustomUrl, resolveOpenUrl } from "../custom-urls";
 import { iconForOS } from "../icons";
@@ -50,7 +50,7 @@ export function peerDisplayKey(peer: PeerInfo): string {
  */
 export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void {
   const nameEl = container.querySelector(".peer-name");
-  if (nameEl) nameEl.textContent = peer.hostname;
+  if (nameEl) nameEl.textContent = machineName(peer);
 
   const metaEl = container.querySelector(".peer-meta");
   if (metaEl) {
@@ -105,6 +105,8 @@ export function createPeerItem(
   supportsPingPeer: boolean,
   showPeerSSH: boolean,
 ): HTMLElement {
+  const displayName = machineName(peer);
+
   const container = document.createElement("div");
   container.className = "peer-item-container";
   container.dataset.peerId = peer.id;
@@ -117,7 +119,7 @@ export function createPeerItem(
   row.className = "peer-item";
   row.setAttribute("role", "button");
   row.setAttribute("tabindex", "0");
-  row.setAttribute("aria-label", `${peer.hostname}, ${peer.online ? "online" : "offline"}`);
+  row.setAttribute("aria-label", `${displayName}, ${peer.online ? "online" : "offline"}`);
 
   // OS icon
   const icon = document.createElement("div");
@@ -133,7 +135,7 @@ export function createPeerItem(
 
   const name = document.createElement("div");
   name.className = "peer-name";
-  name.textContent = peer.hostname;
+  name.textContent = displayName;
 
   const meta = document.createElement("div");
   meta.className = "peer-meta";
@@ -208,13 +210,13 @@ export function createPeerItem(
   if (supportsPingPeer && peer.online && firstIP) {
     actions.appendChild(createActionButton("Ping", () => {
       sendMessage({ type: "ping-peer", nodeID: peer.id });
-      showToast(`Pinging ${peer.hostname}\u2026`, "info");
+      showToast(`Pinging ${displayName}\u2026`, "info");
     }));
   }
 
   if (showPeerSSH && peer.sshHost && peer.online) {
     actions.appendChild(createActionButton("SSH", () => {
-      chrome.tabs.create({ url: `http://100.100.100.100/ssh/${peer.hostname}` });
+      chrome.tabs.create({ url: `http://100.100.100.100/ssh/${displayName}` });
     }));
   }
 
@@ -249,7 +251,7 @@ export function createPeerItem(
       input.value = "";
       clearBtn.style.display = "none";
       if (openBtn) openBtn.textContent = openButtonLabel(undefined);
-      showToast(`Custom URL cleared for ${peer.hostname}`);
+      showToast(`Custom URL cleared for ${displayName}`);
     });
 
     const saveBtn = document.createElement("button");
@@ -262,7 +264,7 @@ export function createPeerItem(
         await setCustomUrl(peer.id, val);
         clearBtn.style.display = "";
         if (openBtn) openBtn.textContent = openButtonLabel(val);
-        showToast(`Custom URL saved for ${peer.hostname}`);
+        showToast(`Custom URL saved for ${displayName}`);
       }
     });
 
@@ -373,7 +375,7 @@ function openFilePicker(peer: PeerInfo): void {
           size: file.size,
           dataBase64: base64,
         });
-        showToast(`Sending "${file.name}" to ${peer.hostname}...`);
+        showToast(`Sending "${file.name}" to ${machineName(peer)}...`);
       };
       reader.onerror = () => {
         showToast("Failed to read file", "error");

@@ -202,6 +202,16 @@ function nonEmpty(value: string | null | undefined): string | null {
 }
 
 /**
+ * Returns the node's Tailscale machine name — the first label of its MagicDNS
+ * name — which reflects renames made in the admin console. Falls back to the
+ * OS hostname when no DNS name is available (e.g. MagicDNS disabled).
+ */
+export function machineName(node: { dnsName?: string | null; hostname: string }): string {
+  const firstLabel = node.dnsName?.split(".")[0]?.trim();
+  return firstLabel || node.hostname;
+}
+
+/**
  * Formats a geographic label from native-host location data.
  * Location fields are omitted from JSON when empty, so handle partial objects.
  */

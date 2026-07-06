@@ -1,5 +1,5 @@
 import type { TailscaleState, PeerInfo } from "../../types";
-import { addListKeyboardNav, formatLocationLabel } from "../utils";
+import { addListKeyboardNav, formatLocationLabel, machineName } from "../utils";
 import { sendMessage } from "../popup";
 import { iconArrowLeft } from "../icons";
 import { isMullvadExitNodePeer } from "../peer-filters";
@@ -163,6 +163,7 @@ function filterExitNodes(nodes: PeerInfo[], query: string): PeerInfo[] {
   if (!query) return nodes;
   const lower = query.toLowerCase();
   return nodes.filter((n) =>
+    machineName(n).toLowerCase().includes(lower) ||
     n.hostname.toLowerCase().includes(lower) ||
     (n.location?.city && n.location.city.toLowerCase().includes(lower)) ||
     (n.location?.country && n.location.country.toLowerCase().includes(lower)) ||
@@ -201,7 +202,7 @@ function renderExitNodeList(
 
     const suggestLabel = formatLocationLabel(
       recommendedMullvad.location,
-      recommendedMullvad.hostname,
+      machineName(recommendedMullvad),
     );
     const isSelected =
       selectedExitNodeID === recommendedMullvad.id ||
@@ -320,7 +321,7 @@ function renderFlatSection(
   const selectedExitNodeID = effectiveSelectedExitNodeID(state);
 
   for (const node of nodes) {
-    const nodeLabel = formatLocationLabel(node.location, node.hostname);
+    const nodeLabel = formatLocationLabel(node.location, machineName(node));
     const isSelected = selectedExitNodeID === node.id;
     const row = createExitNodeRow(nodeLabel, node, isSelected, () =>
       selectExitNode(node.id)
@@ -574,13 +575,13 @@ function groupMullvadByCountry(nodes: PeerInfo[]): MullvadCountryGroup[] {
     if (!loc) continue;
     const cc = locationPart(loc.countryCode) ?? locationPart(loc.country) ?? node.id;
     const cityKey =
-      locationPart(loc.cityCode) ?? locationPart(loc.city) ?? node.hostname;
+      locationPart(loc.cityCode) ?? locationPart(loc.city) ?? machineName(node);
 
     countryNames.set(
       cc,
       locationPart(loc.country) ?? locationPart(loc.countryCode) ?? "Unknown",
     );
-    cityNames.set(cityKey, locationPart(loc.city) ?? node.hostname);
+    cityNames.set(cityKey, locationPart(loc.city) ?? machineName(node));
 
     if (!countryMap.has(cc)) countryMap.set(cc, new Map());
     const cityMap = countryMap.get(cc)!;
@@ -660,8 +661,8 @@ function compareRecommendedMullvadExitNodes(
   const priority = (b.location?.priority ?? 0) - (a.location?.priority ?? 0);
   if (priority !== 0) return priority;
 
-  return formatLocationLabel(a.location, a.hostname).localeCompare(
-    formatLocationLabel(b.location, b.hostname),
+  return formatLocationLabel(a.location, machineName(a)).localeCompare(
+    formatLocationLabel(b.location, machineName(b)),
   );
 }
 
