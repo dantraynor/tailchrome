@@ -1,6 +1,7 @@
+// @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { makePeer } from "../../__test__/fixtures";
-import { formatRelativeTime, peerDisplayKey } from "./peer-item";
+import { createPeerItem, formatRelativeTime, peerDisplayKey, updatePeerItemText } from "./peer-item";
 
 describe("formatRelativeTime", () => {
   beforeEach(() => {
@@ -106,5 +107,49 @@ describe("peerDisplayKey", () => {
   it("is stable for identical peers", () => {
     const p = makePeer();
     expect(peerDisplayKey(p)).toBe(peerDisplayKey(p));
+  });
+});
+
+describe("createPeerItem", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("shows the machine name from the DNS name", () => {
+    const peer = makePeer({
+      hostname: "os-host",
+      dnsName: "renamed-laptop.example.ts.net.",
+    });
+
+    const item = createPeerItem(peer, false, false);
+
+    expect(item.querySelector(".peer-name")?.textContent).toBe("renamed-laptop");
+  });
+
+  it("SSH action uses the new machine name after an in-place rename update", () => {
+    const tabsCreate = vi
+      .spyOn(chrome.tabs, "create")
+      .mockImplementation(() => Promise.resolve());
+    const peer = makePeer({
+      hostname: "os-host",
+      dnsName: "old-name.example.ts.net.",
+      sshHost: true,
+      online: true,
+    });
+
+    const item = createPeerItem(peer, false, true);
+    updatePeerItemText(item, { ...peer, dnsName: "new-name.example.ts.net." });
+
+    expect(item.querySelector(".peer-name")?.textContent).toBe("new-name");
+
+    const sshBtn = Array.from(
+      item.querySelectorAll<HTMLButtonElement>(".peer-action-btn"),
+    ).find((btn) => btn.textContent === "SSH");
+    expect(sshBtn).toBeDefined();
+    sshBtn!.click();
+
+    expect(tabsCreate).toHaveBeenCalledWith({
+      url: "http://100.100.100.100/ssh/new-name",
+    });
   });
 });

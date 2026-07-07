@@ -49,8 +49,18 @@ export function peerDisplayKey(peer: PeerInfo): string {
  * Preserves expansion state and event listeners.
  */
 export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void {
+  container.dataset.machineName = machineName(peer);
+
   const nameEl = container.querySelector(".peer-name");
   if (nameEl) nameEl.textContent = machineName(peer);
+
+  const rowEl = container.querySelector(".peer-item");
+  if (rowEl) {
+    rowEl.setAttribute(
+      "aria-label",
+      `${machineName(peer)}, ${peer.online ? "online" : "offline"}`,
+    );
+  }
 
   const metaEl = container.querySelector(".peer-meta");
   if (metaEl) {
@@ -110,6 +120,11 @@ export function createPeerItem(
   const container = document.createElement("div");
   container.className = "peer-item-container";
   container.dataset.peerId = peer.id;
+  container.dataset.machineName = displayName;
+  // Action handlers read the dataset instead of closing over displayName:
+  // updatePeerItemText refreshes cached DOM in place, so a rename would
+  // otherwise leave the handlers pointing at the old machine name.
+  const currentName = () => container.dataset.machineName || displayName;
   container.dataset.hostPingCap = supportsPingPeer ? "1" : "0";
   container.dataset.showPeerSsh = showPeerSSH ? "1" : "0";
   container.dataset.sshActionShown = showPeerSSH && peer.sshHost && peer.online ? "1" : "0";
@@ -210,13 +225,13 @@ export function createPeerItem(
   if (supportsPingPeer && peer.online && firstIP) {
     actions.appendChild(createActionButton("Ping", () => {
       sendMessage({ type: "ping-peer", nodeID: peer.id });
-      showToast(`Pinging ${displayName}\u2026`, "info");
+      showToast(`Pinging ${currentName()}\u2026`, "info");
     }));
   }
 
   if (showPeerSSH && peer.sshHost && peer.online) {
     actions.appendChild(createActionButton("SSH", () => {
-      chrome.tabs.create({ url: `http://100.100.100.100/ssh/${displayName}` });
+      chrome.tabs.create({ url: `http://100.100.100.100/ssh/${currentName()}` });
     }));
   }
 
@@ -251,7 +266,7 @@ export function createPeerItem(
       input.value = "";
       clearBtn.style.display = "none";
       if (openBtn) openBtn.textContent = openButtonLabel(undefined);
-      showToast(`Custom URL cleared for ${displayName}`);
+      showToast(`Custom URL cleared for ${currentName()}`);
     });
 
     const saveBtn = document.createElement("button");
@@ -264,7 +279,7 @@ export function createPeerItem(
         await setCustomUrl(peer.id, val);
         clearBtn.style.display = "";
         if (openBtn) openBtn.textContent = openButtonLabel(val);
-        showToast(`Custom URL saved for ${displayName}`);
+        showToast(`Custom URL saved for ${currentName()}`);
       }
     });
 
