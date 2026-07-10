@@ -45,7 +45,7 @@ The same UI renders in either surface.
 ## Install
 
 1. Get the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) (also installs in Brave, Edge, Vivaldi, Opera, and — on macOS — Arc) or [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/)
-2. Install the native helper from the [latest release](https://github.com/dantraynor/tailchrome/releases/latest) — on macOS, download and open **`tailchrome-helper-macos.pkg`**; on other platforms, download the binary and run it. The helper auto-installs the native messaging manifest into every supported browser it detects on your machine.
+2. Install the native helper from the [latest release](https://github.com/dantraynor/tailchrome/releases/latest) — **`tailchrome-helper-macos.pkg`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the **`.deb`/`.rpm`** package on Linux. Raw binaries remain available for advanced/manual installs.
 3. Log in to your Tailscale account
 
 ## Development

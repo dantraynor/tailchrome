@@ -1280,13 +1280,16 @@ button.setting-row {
 }
 
 /* ==============================
-   macOS .pkg CTA (needs-install)
+   Installer CTA (needs-install/update)
    ============================== */
 
 .install-pkg-cta {
   width: 100%;
   max-width: 280px;
   margin: 0 auto var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
 }
 
 .install-pkg-cta .btn {
@@ -1387,6 +1390,12 @@ button.setting-row {
 .install-advanced-section {
   width: 100%;
   margin-top: var(--space-sm);
+}
+
+.install-advanced-section > .btn {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: var(--space-sm);
 }
 
 .install-advanced-section.hidden {

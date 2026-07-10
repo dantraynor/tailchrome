@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="Tailchrome Helper"
+    Manufacturer="Tesseras"
+    Version="$(var.Version)"
+    UpgradeCode="4ADE97ED-5BE9-43D2-B426-AAD1C67CEFF8"
+    Scope="perUser">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Tailchrome Helper is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="TailscaleFolder" Name="Tailscale">
+        <Directory Id="BrowserExtFolder" Name="BrowserExt">
+          <Directory Id="InstallerFolder" Name="installer">
+            <Component
+              Id="HelperBinary"
+              Guid="C4D395ED-654A-4339-B3CC-2AF419E273E7">
+              <File
+                Id="HelperExe"
+                Source="$(var.HelperExe)"
+                Name="tailscale-browser-ext.exe"
+                KeyPath="yes" />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="Tailchrome Helper" Level="1">
+      <ComponentRef Id="HelperBinary" />
+    </Feature>
+
+    <CustomAction
+      Id="InstallNativeHost"
+      FileRef="HelperExe"
+      ExeCommand="-install-now"
+      Execute="deferred"
+      Impersonate="yes"
+      Return="check" />
+
+    <!-- The MSI only tracks the staged exe; -install-now writes the runtime
+         copy and HKCU registrations outside the MSI's file/registry tables,
+         so uninstall must deregister them explicitly. Skipped during major
+         upgrades, where the new version rewrites the registrations anyway. -->
+    <CustomAction
+      Id="UninstallNativeHost"
+      FileRef="HelperExe"
+      ExeCommand="-uninstall"
+      Execute="deferred"
+      Impersonate="yes"
+      Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="InstallNativeHost" After="InstallFiles" Condition="NOT REMOVE" />
+      <Custom Action="UninstallNativeHost" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

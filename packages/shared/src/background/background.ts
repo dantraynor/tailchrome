@@ -83,6 +83,9 @@ function isVersionMismatch(hostVersion: string | null): boolean {
 const NATIVE_HOST_UNREACHABLE =
   "Could not reach Tailscale service. Please check that the native host is installed.";
 
+/** Poll schedule for native-host discovery after the user starts an installer. */
+const INSTALL_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000, 30_000];
+
 function domainSplitEquals(
   a: { mode: string; domains: string[] },
   b: { mode: string; domains: string[] },
@@ -457,15 +460,39 @@ export function initBackground(
       });
   }
 
+  /**
+   * Polls native-host discovery after the user starts an installer. Each
+   * attempt is skipped once the helper is connected: connect() tears down a
+   * live port, and the browser then respawns the helper, so retrying a
+   * healthy connection would bounce the Tailscale node.
+   */
+  function scheduleInstallRetries(): void {
+    INSTALL_RETRY_DELAYS_MS.forEach((delay, i) => {
+      timerService.setTimeout(`install-retry-${i}`, () => {
+        const state = store.getState();
+        if (state.hostConnected) return;
+        if (!state.installError && !state.hostVersionMismatch) return;
+        nativeHost.connect().catch(() => {
+          // The installer may still be running; later retries or the
+          // built-in backoff loop pick up the helper once registration lands.
+        });
+      }, delay);
+    });
+  }
+
   chrome.runtime.onConnect.addListener((port: chrome.runtime.Port) => {
     if (port.name !== "popup") return;
 
     popupPorts.add(port);
 
     // If we're in install error or version mismatch state, retry the native
-    // host connection in case the user just installed or updated the helper
+    // host connection in case the user just installed or updated the helper.
+    // Skip while a port is live: connect() would bounce a working host.
     const currentState = store.getState();
-    if (currentState.installError || currentState.hostVersionMismatch) {
+    if (
+      !currentState.hostConnected &&
+      (currentState.installError || currentState.hostVersionMismatch)
+    ) {
       nativeHost.connect().catch(() => {
         // Still in error state, popup will show needs-install or needs-update
       });
@@ -551,6 +578,11 @@ export function initBackground(
 
       case "logout": {
         nativeHost.send({ cmd: "logout" });
+        break;
+      }
+
+      case "retry-native-host": {
+        scheduleInstallRetries();
         break;
       }
 

@@ -159,6 +159,26 @@ func TestUninstallRemovesAllChromiumManifests(t *testing.T) {
 	}
 }
 
+func TestUninstallRemovesInstalledBinary(t *testing.T) {
+	setupTempHome(t)
+
+	binPath := installedBinaryPath()
+	if err := os.MkdirAll(filepath.Dir(binPath), 0755); err != nil {
+		t.Fatalf("failed to create install dir: %v", err)
+	}
+	if err := os.WriteFile(binPath, []byte("helper"), 0755); err != nil {
+		t.Fatalf("failed to stage binary: %v", err)
+	}
+
+	if err := uninstall(); err != nil {
+		t.Fatalf("uninstall failed: %v", err)
+	}
+
+	if _, err := os.Stat(binPath); !os.IsNotExist(err) {
+		t.Errorf("post-uninstall: installed binary still exists at %s (err=%v)", binPath, err)
+	}
+}
+
 func TestUninstallIsIdempotent(t *testing.T) {
 	setupTempHome(t)
 	if err := uninstall(); err != nil {

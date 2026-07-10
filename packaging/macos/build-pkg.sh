@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build tailscale-browser-ext as a universal macOS binary, then a flat .pkg that installs:
 #   - /Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext
-#   - /Applications/Tailchrome Helper.app  (runs -install-now for the logged-in user)
+#   - /Applications/Tailchrome Helper.app  (repair/re-run fallback)
+# and runs a postinstall script that registers native messaging for the logged-in user.
 #
 # Usage: from repo root, ./packaging/macos/build-pkg.sh
 # Optional: VERSION=1.2.3 ./packaging/macos/build-pkg.sh
@@ -10,6 +11,7 @@
 #   packaging/macos/sign-component.sh  (see packaging/macos/README.md)
 
 set -euo pipefail
+export COPYFILE_DISABLE=1
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
@@ -30,7 +32,7 @@ STAGE="$ROOT/packaging/macos/.pkg-stage-$$"
 cleanup() { rm -rf "$STAGE"; }
 trap cleanup EXIT
 
-mkdir -p "$DIST_DIR" "$STAGE/pkgroot/Library/Application Support/Tailscale/BrowserExt" "$STAGE/pkgroot/Applications"
+mkdir -p "$DIST_DIR" "$STAGE/pkgroot/Library/Application Support/Tailscale/BrowserExt" "$STAGE/pkgroot/Applications" "$STAGE/scripts"
 
 echo "Building universal binary (version $VERSION)..."
 (
@@ -47,6 +49,10 @@ echo "Staging Tailchrome Helper.app..."
 cp -R "$ROOT/packaging/macos/TailchromeHelper.app" "$STAGE/pkgroot/Applications/Tailchrome Helper.app"
 chmod 755 "$STAGE/pkgroot/Applications/Tailchrome Helper.app/Contents/MacOS/tailchrome-helper"
 
+echo "Staging postinstall script..."
+cp "$ROOT/packaging/macos/scripts/postinstall" "$STAGE/scripts/postinstall"
+chmod 755 "$STAGE/scripts/postinstall"
+
 # Optional: Developer ID signing (requires Apple Developer Program)
 if [[ -n "${MACOS_SIGN_APPLICATION_IDENTITY:-}" ]]; then
   echo "Signing binaries with: $MACOS_SIGN_APPLICATION_IDENTITY"
@@ -55,6 +61,18 @@ if [[ -n "${MACOS_SIGN_APPLICATION_IDENTITY:-}" ]]; then
   codesign --force --options runtime --timestamp --deep --sign "$MACOS_SIGN_APPLICATION_IDENTITY" \
     "$STAGE/pkgroot/Applications/Tailchrome Helper.app"
 fi
+
+# Avoid packaging AppleDouble sidecar files when local files have extended
+# attributes or resource forks. Run after signing too, because signing tools can
+# touch extended attributes.
+if command -v xattr >/dev/null 2>&1; then
+  xattr -cr "$STAGE/pkgroot" "$STAGE/scripts"
+fi
+if command -v dot_clean >/dev/null 2>&1; then
+  dot_clean -m "$STAGE/pkgroot"
+  dot_clean -m "$STAGE/scripts"
+fi
+find "$STAGE/pkgroot" "$STAGE/scripts" -name '._*' -type f -delete
 
 PKG_PATH="$DIST_DIR/$OUT_NAME"
 echo "Writing $PKG_PATH ..."
@@ -72,6 +90,11 @@ pkgbuild \
   --install-location / \
   --ownership recommended \
   --component-plist "$STAGE/component.plist" \
+  --scripts "$STAGE/scripts" \
+  --filter '\.DS_Store$' \
+  --filter '(^|/)\.svn($|/)' \
+  --filter '(^|/)CVS($|/)' \
+  --filter '(^|/)\._[^/]*$' \
   "$PKG_PATH"
 
 if [[ -n "${MACOS_SIGN_INSTALLER_IDENTITY:-}" ]]; then

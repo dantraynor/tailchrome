@@ -20,6 +20,9 @@ permissions:
 #   APPLE_API_KEY_ID             - App Store Connect API key ID
 #   APPLE_API_ISSUER_ID          - App Store Connect API issuer UUID
 #   APPLE_API_KEY_P8             - contents of the AuthKey_*.p8 file
+# Optional repository secrets:
+#   WINDOWS_CODESIGN_P12_BASE64  - base64-encoded Windows code-signing .p12/.pfx
+#   WINDOWS_CODESIGN_PASSWORD    - password for the Windows signing certificate
 
 jobs:
   build:
@@ -162,8 +165,93 @@ jobs:
             dist/tailscale-browser-ext-darwin-amd64
             dist/tailscale-browser-ext-darwin-arm64
 
+  package-linux:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: host/go.mod
+          cache-dependency-path: host/go.sum
+      - name: Download build artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: build-output
+      - name: Install nFPM
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+      - name: Build Linux packages
+        run: VERSION="$RELEASE_TAG" ./packaging/linux/build-packages.sh
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-packages
+          retention-days: 1
+          path: |
+            dist/tailchrome-helper-linux-amd64.deb
+            dist/tailchrome-helper-linux-x86_64.rpm
+
+  package-windows:
+    needs: build
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+      - name: Download build artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: build-output
+      - name: Install WiX
+        run: dotnet tool install --global wix --version 6.0.2
+      - name: Build Windows MSI
+        shell: pwsh
+        run: .\packaging\windows\build-msi.ps1 -Version "$env:RELEASE_TAG"
+      - name: Sign Windows MSI
+        shell: pwsh
+        env:
+          WINDOWS_CODESIGN_P12_BASE64: ${{ secrets.WINDOWS_CODESIGN_P12_BASE64 }}
+          WINDOWS_CODESIGN_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CODESIGN_P12_BASE64)) {
+            Write-Host "Skipping Windows signing; WINDOWS_CODESIGN_P12_BASE64 is not configured."
+            exit 0
+          }
+          $certPath = Join-Path $env:RUNNER_TEMP "tailchrome-windows-codesign.p12"
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CODESIGN_P12_BASE64))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -match "\\x64\\signtool.exe$" } |
+            Select-Object -First 1
+          if (-not $signtool) {
+            throw "signtool.exe not found"
+          }
+          & $signtool.FullName sign `
+            /fd SHA256 `
+            /tr http://timestamp.digicert.com `
+            /td SHA256 `
+            /f $certPath `
+            /p "$env:WINDOWS_CODESIGN_PASSWORD" `
+            dist\tailchrome-helper-windows-x64.msi
+      - name: Upload Windows MSI
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-msi
+          retention-days: 1
+          path: dist/tailchrome-helper-windows-x64.msi
+
   release:
-    needs: [build, sign-macos]
+    needs: [build, sign-macos, package-linux, package-windows]
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
@@ -181,6 +269,18 @@ jobs:
           name: signed-darwin
           path: signed-darwin
 
+      - name: Download Linux packages
+        uses: actions/download-artifact@v6
+        with:
+          name: linux-packages
+          path: linux-packages
+
+      - name: Download Windows MSI
+        uses: actions/download-artifact@v6
+        with:
+          name: windows-msi
+          path: windows-msi
+
       - name: Collect release assets
         run: |
           set -euo pipefail
@@ -191,6 +291,9 @@ jobs:
           # — they extract straight into signed-darwin/.
           cp signed-darwin/tailscale-browser-ext-darwin-amd64 release/
           cp signed-darwin/tailscale-browser-ext-darwin-arm64 release/
+          cp linux-packages/tailchrome-helper-linux-amd64.deb release/
+          cp linux-packages/tailchrome-helper-linux-x86_64.rpm release/
+          cp windows-msi/tailchrome-helper-windows-x64.msi release/
           # build-output uploads paths under both dist/ and packages/, so it
           # has no common ancestor and the artifact preserves the full paths.
           cp dist/tailscale-browser-ext-linux-amd64 release/

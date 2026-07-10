@@ -37,7 +37,7 @@ Features:
 - Taildrop
 - multiple profiles
 
-Tailchrome requires a separate native helper downloaded from GitHub Releases. The helper installs the Firefox native messaging manifest and runs the local Tailscale proxy used by the extension.
+Tailchrome requires a separate native helper downloaded from GitHub Releases. The helper installer registers the Firefox native messaging manifest and installs the local Tailscale proxy used by the extension.
 
 ### Privacy Disclosure Notes
 
@@ -69,7 +69,7 @@ Upload from the matching GitHub Release:
 
 Use this wording in reviewer notes and any store responses:
 
-Tailchrome's Firefox add-on package does not contain native binaries. The separate helper is downloaded from GitHub Releases, installed locally by the user, and registered through Firefox native messaging so the extension can run a Tailscale node for the current browser profile.
+Tailchrome's Firefox add-on package does not contain native binaries. The separate helper installer is downloaded from GitHub Releases, installed locally by the user, and registered through Firefox native messaging so the extension can run a Tailscale node for the current browser profile.
 
 ## Reviewer Account Checklist
 

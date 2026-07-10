@@ -1,0 +1,9 @@
+{
+  "name": "com.tailscale.browserext.firefox",
+  "description": "Tailscale Browser Extension Native Messaging Host",
+  "path": "/usr/lib/tailchrome/tailscale-browser-ext",
+  "type": "stdio",
+  "allowed_extensions": [
+    "tailchrome@tesseras.org"
+  ]
+}

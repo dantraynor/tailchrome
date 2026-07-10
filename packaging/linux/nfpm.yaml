@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://nfpm.goreleaser.com/schema.json
+name: tailchrome-helper
+arch: amd64
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: net
+priority: optional
+maintainer: Daniel Traynor
+description: Native helper for the Tailchrome browser extension.
+vendor: Tesseras
+homepage: https://github.com/dantraynor/tailchrome
+license: MIT
+contents:
+  - src: dist/tailscale-browser-ext-linux-amd64
+    dst: /usr/lib/tailchrome/tailscale-browser-ext
+    file_info:
+      mode: 0755
+  - src: packaging/linux/native-messaging/com.tailscale.browserext.chrome.json
+    dst: /etc/opt/chrome/native-messaging-hosts/com.tailscale.browserext.chrome.json
+    file_info:
+      mode: 0644
+  - src: packaging/linux/native-messaging/com.tailscale.browserext.chrome.json
+    dst: /etc/chromium/native-messaging-hosts/com.tailscale.browserext.chrome.json
+    file_info:
+      mode: 0644
+  - src: packaging/linux/native-messaging/com.tailscale.browserext.chrome.json
+    dst: /etc/opt/edge/native-messaging-hosts/com.tailscale.browserext.chrome.json
+    file_info:
+      mode: 0644
+  - src: packaging/linux/native-messaging/com.tailscale.browserext.firefox.json
+    dst: /usr/lib/mozilla/native-messaging-hosts/com.tailscale.browserext.firefox.json
+    file_info:
+      mode: 0644
+  # Fedora/RHEL Firefox builds use libdir /usr/lib64 and only read system-wide
+  # manifests from there.
+  - src: packaging/linux/native-messaging/com.tailscale.browserext.firefox.json
+    dst: /usr/lib64/mozilla/native-messaging-hosts/com.tailscale.browserext.firefox.json
+    file_info:
+      mode: 0644
+    packager: rpm
+rpm:
+  group: Applications/Internet

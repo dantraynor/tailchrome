@@ -155,7 +155,7 @@ Last updated: 2026-05-26
 | Dark mode              | Yes           | Yes        | Follows browser/system theme via CSS                                                                                                               |
 | Keyboard navigation    | Yes           | Yes        | Arrow keys in peer list                                                                                                                            |
 | Search                 | Yes           | Yes        | Peer search in popup                                                                                                                               |
-| Auto-update            | Yes           | Partial    | Extension auto-updates via Chrome Web Store; native host requires manual update (extension detects version mismatch and shows "needs-update" view) |
+| Auto-update            | Yes           | Partial    | Extension auto-updates via Chrome Web Store; native host updates use the platform helper installer when the extension shows "needs-update" |
 | Cross-platform         | Yes           | Yes        | Extension: Chrome + Firefox. Host: macOS (amd64/arm64), Linux (amd64), Windows (amd64)                                                             |
 
 
@@ -198,4 +198,3 @@ These gaps exist for fundamental reasons:
 3. **Browser sandbox** -- the extension cannot modify system DNS, routing tables, or network configuration. All networking goes through the SOCKS5/HTTP proxy, which means split DNS and custom nameserver configuration are not feasible from the browser alone.
 4. **tsnet scope** -- the native host runs a `tsnet.Server`, which is a userspace Tailscale node. It does not have the full feature surface of `tailscaled` (the system daemon). Features like Serve, Funnel, and network lock require daemon-level integration that `tsnet` does not expose.
 5. **UI surface area** -- the popup is constrained to a small window. Some features (subnet route advertisement, SSH server toggle, detailed peer stats) are omitted from the UI to keep it focused, even though the underlying protocol and host may support them.
-

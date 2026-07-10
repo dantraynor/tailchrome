@@ -62,8 +62,8 @@ Tailchrome does not include analytics or advertising trackers. These categories 
 The extension requires the separate native helper to demonstrate full functionality. Reviewer steps:
 
 1. Install the signed Firefox extension build.
-2. Download the helper binary from the matching GitHub Release asset for the current OS.
-3. Run the helper once to install the native messaging manifest.
+2. Download the helper installer from the matching GitHub Release asset for the current OS.
+3. Run the installer to register the native messaging manifest.
 4. Re-open the extension popup and sign in using the disposable reviewer account provided with the submission.
 
 The popup includes optional split-tunneling controls under the Exit Node row and an optional "Auto-connect on start" toggle in quick settings. Both settings are off or empty by default and are stored locally.

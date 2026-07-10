@@ -4,8 +4,9 @@ The script `build-pkg.sh` produces `dist/tailchrome-helper-macos.pkg`, which ins
 
 1. **Universal** `tailscale-browser-ext` at  
    `/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext`
-2. **Tailchrome Helper** in `/Applications` — a small app the user opens once; it runs  
-   `tailscale-browser-ext -install-now` to register Chrome/Firefox native messaging for the **current user** (no Terminal).
+2. **Tailchrome Helper** in `/Applications` — a repair/re-run fallback app.
+
+The package postinstall script runs `tailscale-browser-ext -install-now` for the logged-in console user, so normal installs do not require opening the app manually.
 
 ## Unsigned builds
 
@@ -43,4 +44,4 @@ Store Apple credentials in GitHub Actions secrets for automated release; do not 
 
 ## GitHub Actions
 
-The release workflow runs `build-pkg.sh` on `macos-latest` and uploads the `.pkg` to the GitHub Release. Add repository secrets and wire optional signing/notarization steps when you are ready.
+The release workflow runs `build-pkg.sh` on `macos-latest`, signs and notarizes the package with the configured Apple secrets, and uploads the `.pkg` to the GitHub Release.
