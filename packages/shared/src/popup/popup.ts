@@ -1,7 +1,7 @@
 import type { TailscaleState, PopupMessage, BackgroundMessage } from "../types";
 import { renderConnected, updateConnected } from "./views/connected";
-import { renderDisconnected } from "./views/disconnected";
-import { renderNeedsLogin } from "./views/needs-login";
+import { renderDisconnected, updateDisconnected } from "./views/disconnected";
+import { renderNeedsLogin, updateNeedsLogin } from "./views/needs-login";
 import { renderNeedsInstall } from "./views/needs-install";
 import { renderNeedsUpdate } from "./views/needs-update";
 import { showToast } from "./utils";
@@ -109,9 +109,19 @@ function render(state: TailscaleState): void {
   currentView = view;
   lastStateVersion = state.stateVersion;
 
-  // For the connected view, use in-place patching when possible
+  // For views with editable inputs (connected, needs-login), patch in place
+  // when staying on the same view so in-flight edits aren't clobbered by a
+  // status-update re-render.
   if (view === "connected" && isSameView) {
     updateConnected(root, state);
+    return;
+  }
+  if (view === "needs-login" && isSameView) {
+    updateNeedsLogin(root, state);
+    return;
+  }
+  if (view === "disconnected" && isSameView) {
+    updateDisconnected(root, state);
     return;
   }
 

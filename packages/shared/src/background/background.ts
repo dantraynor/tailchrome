@@ -5,7 +5,15 @@ import type {
   PopupMessage,
   ProxyManager,
 } from "../types";
-import { KEEPALIVE_INTERVAL_MS, ADMIN_URL, TAILSCALE_SERVICE_IP, EXPECTED_HOST_VERSION } from "../constants";
+import {
+  KEEPALIVE_INTERVAL_MS,
+  ADMIN_URL,
+  TAILSCALE_SERVICE_IP,
+  EXPECTED_HOST_VERSION,
+  DEFAULT_LOGIN_ORIGINS,
+  isCustomControlURL,
+  isValidControlURL,
+} from "../constants";
 import { StateStore } from "./state-store";
 import { NativeHostConnection } from "./native-host";
 import { BadgeManager } from "./badge-manager";
@@ -45,16 +53,43 @@ export interface InitBackgroundOptions {
 
 const LOGIN_OPEN_TIMEOUT_MS = 30_000;
 const LOGIN_OPEN_TIMEOUT_NAME = "login-open-timeout";
-const ALLOWED_LOGIN_ORIGINS = new Set([
-  "https://login.tailscale.com",
-  "https://controlplane.tailscale.com",
-  "https://tailscale.com",
-]);
 
-function isValidLoginURL(url: string): boolean {
+/**
+ * Returns true if `url` is a login URL we'll open in a tab. Always accepts the
+ * Tailscale-managed origins when using the default coordination server. For
+ * custom coordination servers, allow delegated HTTPS auth URLs while rejecting
+ * stale Tailscale-managed login URLs from a previous default-server status.
+ */
+export function isValidLoginURL(url: string, controlURL?: string | null): boolean {
+  let parsed: URL;
   try {
-    const parsed = new URL(url);
-    return ALLOWED_LOGIN_ORIGINS.has(parsed.origin);
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (isCustomControlURL(controlURL)) {
+    if (DEFAULT_LOGIN_ORIGINS.includes(parsed.origin)) return false;
+    if (parsed.protocol === "https:") return true;
+    try {
+      const controlProtocol = new URL(controlURL!).protocol;
+      return controlProtocol === "http:" && parsed.protocol === "http:";
+    } catch {
+      return false;
+    }
+  }
+  if (DEFAULT_LOGIN_ORIGINS.includes(parsed.origin)) return true;
+  return false;
+}
+
+/**
+ * True only for a login URL served from a Tailscale-default origin — the
+ * stale-linger case worth waiting out after switching to a custom server. A
+ * malformed or custom-origin-but-invalid URL is NOT stale; it should surface an
+ * error rather than spin until the pending-login timeout.
+ */
+function isDefaultOriginLoginURL(url: string): boolean {
+  try {
+    return DEFAULT_LOGIN_ORIGINS.includes(new URL(url).origin);
   } catch {
     return false;
   }
@@ -63,6 +98,34 @@ function isValidLoginURL(url: string): boolean {
 function loginURLFromStatus(status: NativeReply["status"]): string | null {
   if (!status) return null;
   return status.browseToURL || status.authURL || null;
+}
+
+/**
+ * Coarse, origin-level check for whether saving `next` actually changes the
+ * coordination server vs the currently-cached `current`. Used only to decide
+ * when to drop switch-scoped cached state; the native host stays the authority
+ * on the real change. All default-server synonyms collapse to the same key.
+ */
+function controlServerChanged(
+  next: string,
+  current: string | undefined | null,
+): boolean {
+  const key = (url: string | undefined | null): string => {
+    if (!url || !isCustomControlURL(url)) return "";
+    try {
+      // Mirror the host's `controlURLCompareKey`: lowercase scheme+host but
+      // keep the (case-sensitive) path and query, so a same-origin switch that
+      // only changes the path still counts as a real server change. Drop a bare
+      // "/" path and the fragment, matching the host's normalization.
+      const u = new URL(url);
+      u.hash = "";
+      if (u.pathname === "/" && u.search === "") u.pathname = "";
+      return `${u.protocol.toLowerCase()}//${u.host.toLowerCase()}${u.pathname}${u.search}`;
+    } catch {
+      return url.trim().toLowerCase();
+    }
+  };
+  return key(next) !== key(current);
 }
 
 /**
@@ -154,6 +217,11 @@ export function initBackground(
   // Track whether we've attempted to restore exit node for this connection
   let exitNodeRestoreAttempted = false;
   let latestBackendState: TailscaleState["backendState"] | null = null;
+  // Last coordination server the host has actually confirmed. Used to drop
+  // switch-scoped persistent state (the saved exit node) only once the server
+  // change is committed — never optimistically, since the host can roll a
+  // switch back. `undefined` means no status has established a baseline yet.
+  let lastConfirmedControlURL: string | undefined;
 
   // Hydrate the auto-connect preference so the popup reflects it on first
   // render. If the first native status arrived before storage resolved, re-run
@@ -215,6 +283,7 @@ export function initBackground(
           supportsNetcheck: false,
           supportsPingPeer: false,
           supportsLogin: false,
+          supportsCustomControlURL: false,
         });
       } else {
         store.update({
@@ -225,6 +294,7 @@ export function initBackground(
           supportsNetcheck: msg.procRunning.supportsNetcheck === true,
           supportsPingPeer: msg.procRunning.supportsPingPeer === true,
           supportsLogin: msg.procRunning.supportsLogin === true,
+          supportsCustomControlURL: msg.procRunning.supportsCustomControlURL === true,
         });
       }
     }
@@ -251,11 +321,38 @@ export function initBackground(
     if (msg.status) {
       latestBackendState = msg.status.backendState;
       store.applyStatusUpdate(msg.status);
+
+      // Drop the saved exit node once the host confirms a real coordination
+      // server change (a node from the old tailnet won't exist on the new one).
+      // Reacting to the confirmed prefs — rather than the optimistic set-pref
+      // request — means a host that rolls the switch back keeps the saved node.
+      const confirmedControlURL = msg.status.prefs?.controlURL ?? "";
+      if (lastConfirmedControlURL === undefined) {
+        lastConfirmedControlURL = confirmedControlURL;
+      } else if (
+        controlServerChanged(confirmedControlURL, lastConfirmedControlURL)
+      ) {
+        lastConfirmedControlURL = confirmedControlURL;
+        void chrome.storage.local.remove("lastExitNodeID");
+      }
+
       const loginURL = loginURLFromStatus(msg.status);
       if (pendingLoginOpen) {
-        if (loginURL && isValidLoginURL(loginURL)) {
+        const allowedControlURL = msg.status.prefs?.controlURL ?? null;
+        if (loginURL && isValidLoginURL(loginURL, allowedControlURL)) {
           clearPendingLoginOpen();
           chrome.tabs.create({ url: loginURL });
+        } else if (
+          loginURL &&
+          isCustomControlURL(allowedControlURL) &&
+          isDefaultOriginLoginURL(loginURL)
+        ) {
+          // A stale Tailscale-default login URL can briefly linger right after
+          // switching to a custom server. Stay pending and wait for the fresh
+          // URL the host is about to emit rather than giving up; the pending
+          // timeout bounds the wait. Only a default-origin URL is treated as
+          // stale — a genuinely-invalid custom URL falls through to the error
+          // below instead of spinning silently.
         } else if (loginURL) {
           clearPendingLoginOpen();
           sendToastToPopup(
@@ -388,6 +485,7 @@ export function initBackground(
             supportsNetcheck: false,
             supportsPingPeer: false,
             supportsLogin: false,
+            supportsCustomControlURL: false,
           }),
     });
   }
@@ -557,7 +655,10 @@ export function initBackground(
           sendToastToPopup("Still waiting for Tailscale to return a login URL.", "info");
           break;
         }
-        if (state.browseToURL && isValidLoginURL(state.browseToURL)) {
+        if (
+          state.browseToURL &&
+          isValidLoginURL(state.browseToURL, state.prefs?.controlURL ?? null)
+        ) {
           chrome.tabs.create({ url: state.browseToURL });
         } else if (!state.supportsLogin) {
           sendToastToPopup(
@@ -611,6 +712,33 @@ export function initBackground(
       }
 
       case "set-pref": {
+        if (msg.key === "controlURL") {
+          // Reverting to the default server ("") is always allowed; only
+          // switching to a custom server requires native-helper support.
+          if (!state.supportsCustomControlURL && msg.value !== "") {
+            sendToastToPopup(
+              "Please update the native helper to change the coordination server.",
+              "error",
+            );
+            break;
+          }
+          // Validate at the trust boundary, not only on the popup's Save button.
+          if (msg.value !== "" && !isValidControlURL(msg.value)) {
+            sendToastToPopup(
+              "Enter a valid coordination server URL (http:// or https://).",
+              "error",
+            );
+            break;
+          }
+          // Switching coordination servers invalidates the cached login URL
+          // (stale until the host replies), so drop it now for an immediate Log
+          // In. The saved exit-node ID is dropped reactively once the host
+          // *confirms* the change (see the status handler) rather than here, so
+          // a rolled-back switch doesn't permanently lose it.
+          if (controlServerChanged(msg.value, state.prefs?.controlURL)) {
+            store.update({ browseToURL: "" });
+          }
+        }
         nativeHost.send({
           cmd: "set-prefs",
           prefs: { [msg.key]: msg.value },

@@ -50,6 +50,8 @@ export interface NativeReply {
     supportsPingPeer?: boolean;
     /** When true, the native host handles the `login` command (omitted on older helpers). */
     supportsLogin?: boolean;
+    /** When true, the native host accepts a `controlURL` field in `set-prefs` (omitted on older helpers). */
+    supportsCustomControlURL?: boolean;
   };
   init?: { error?: string };
   pong?: Record<string, never>;
@@ -150,6 +152,8 @@ export interface TailscalePrefs {
   /** When omitted, treat as false (older hosts). */
   runSSH?: boolean;
   advertiseRoutes?: string[];
+  /** Coordination/control plane URL. Empty string means use Tailscale's default. */
+  controlURL?: string;
 }
 
 export interface ProfileInfo {
@@ -223,6 +227,8 @@ export interface TailscaleState {
   supportsPingPeer: boolean;
   /** True when the connected native helper advertises the `login` command in procRunning. */
   supportsLogin: boolean;
+  /** True when the connected native helper advertises `supportsCustomControlURL` in procRunning. */
+  supportsCustomControlURL: boolean;
   /** True when the native host disconnected and reconnection is being attempted. */
   reconnecting: boolean;
   /** Opt-in: send `up` automatically on extension startup when the node is Stopped/NoState. */

@@ -78,30 +78,7 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 		}
 
 		if n.Prefs != nil && n.Prefs.Valid() {
-			p := n.Prefs
-			pv := &PrefsView{
-				ControlURL:             p.ControlURL(),
-				RouteAll:               p.RouteAll(),
-				ExitNodeAllowLANAccess: p.ExitNodeAllowLANAccess(),
-				CorpDNS:                p.CorpDNS(),
-				WantRunning:            p.WantRunning(),
-				ShieldsUp:              p.ShieldsUp(),
-				Hostname:               p.Hostname(),
-				RunSSH:                 p.RunSSH(),
-				RunWebClient:           p.RunWebClient(),
-				AdvertiseExitNode:      p.AdvertisesExitNode(),
-			}
-			ar := p.AdvertiseRoutes()
-			if n := ar.Len(); n > 0 {
-				pv.AdvertiseRoutes = make([]string, 0, n)
-				for i := 0; i < n; i++ {
-					pv.AdvertiseRoutes = append(pv.AdvertiseRoutes, ar.At(i).String())
-				}
-			}
-			if p.ExitNodeID() != "" {
-				id := string(p.ExitNodeID())
-				pv.ExitNodeID = id
-			}
+			pv := prefsViewFromIPN(*n.Prefs)
 			h.stateMu.Lock()
 			h.lastPrefs = pv
 			h.stateMu.Unlock()
@@ -138,6 +115,32 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 			sendDebounced()
 		}
 	}
+}
+
+func prefsViewFromIPN(p ipn.PrefsView) *PrefsView {
+	pv := &PrefsView{
+		ControlURL:             p.ControlURL(),
+		RouteAll:               p.RouteAll(),
+		ExitNodeAllowLANAccess: p.ExitNodeAllowLANAccess(),
+		CorpDNS:                p.CorpDNS(),
+		WantRunning:            p.WantRunning(),
+		ShieldsUp:              p.ShieldsUp(),
+		Hostname:               p.Hostname(),
+		RunSSH:                 p.RunSSH(),
+		RunWebClient:           p.RunWebClient(),
+		AdvertiseExitNode:      p.AdvertisesExitNode(),
+	}
+	ar := p.AdvertiseRoutes()
+	if n := ar.Len(); n > 0 {
+		pv.AdvertiseRoutes = make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			pv.AdvertiseRoutes = append(pv.AdvertiseRoutes, ar.At(i).String())
+		}
+	}
+	if p.ExitNodeID() != "" {
+		pv.ExitNodeID = string(p.ExitNodeID())
+	}
+	return pv
 }
 
 // refreshFullStatus calls the local client Status API and builds a full

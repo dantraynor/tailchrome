@@ -1,6 +1,10 @@
 import type { TailscaleState } from "../../types";
 import { renderHeader } from "../components/header";
 import { renderUiSurfaceFooter } from "../components/ui-surface-row";
+import {
+  appendCoordinationServerSettings,
+  rerenderPreservingCoordEdit,
+} from "../components/coordination-server-row";
 import { sendMessage } from "../popup";
 import { iconLock } from "../icons";
 
@@ -49,7 +53,22 @@ export function renderNeedsLogin(root: HTMLElement, state: TailscaleState): void
   content.appendChild(description);
   content.appendChild(loginBtn);
   view.appendChild(content);
+
+  // Coordination server editor — lets users point at a custom control plane
+  // (e.g. Headscale) before pressing Log In, since once we click Log In we
+  // open a URL whose origin must match the currently-configured server.
+  appendCoordinationServerSettings(view, state);
+
   renderUiSurfaceFooter(view);
 
   root.appendChild(view);
+}
+
+/**
+ * In-place update path for the needs-login view. Re-renders the view while
+ * preserving an in-progress coordination-server edit (value, focus, caret), so
+ * a partially-typed URL is not discarded by a status update.
+ */
+export function updateNeedsLogin(root: HTMLElement, state: TailscaleState): void {
+  rerenderPreservingCoordEdit(root, state, renderNeedsLogin);
 }

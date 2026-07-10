@@ -1,5 +1,9 @@
 import type { DomainSplitConfig, DomainSplitMode, TailscaleState } from "../../types";
-import { ADMIN_URL, TAILCHROME_PROJECT_URL } from "../../constants";
+import { ADMIN_URL, TAILCHROME_PROJECT_URL, isCustomControlURL } from "../../constants";
+import {
+  createCoordinationServerRow,
+  updateCoordinationServerRow,
+} from "../components/coordination-server-row";
 import { renderHeader } from "../components/header";
 import { renderPeerList, updatePeerList, filterPeers } from "../components/peer-list";
 import { peersForDeviceList } from "../peer-filters";
@@ -24,10 +28,26 @@ let advertiseRoutesEditorOpen = false;
 /** UI-only: whether the split-tunneling editor is visible. */
 let splitTunnelingEditorOpen = false;
 
+/** UI-only: whether the coordination-server URL editor is visible. */
+let coordinationServerEditorOpen = false;
+
 /** UI-only: Advanced section (Run as Exit Node, local node page; peer SSH when expanded). */
 let advancedSectionOpen = false;
 
 const PEER_SEARCH_THRESHOLD = 6;
+
+/** Footer "Admin Console" link (shown only for the default Tailscale server). */
+function createAdminLink(): HTMLAnchorElement {
+  const adminLink = document.createElement("a");
+  adminLink.className = "footer-link footer-link--admin";
+  adminLink.textContent = "Admin Console";
+  adminLink.href = "#";
+  adminLink.addEventListener("click", (e) => {
+    e.preventDefault();
+    chrome.tabs.create({ url: ADMIN_URL });
+  });
+  return adminLink;
+}
 
 function openSubView(root: HTMLElement, renderFn: SubViewRenderer): void {
   const currentState = getLatestState();
@@ -253,6 +273,20 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   });
   advancedPanel.appendChild(localNodeRow);
 
+  // Coordination server (control plane) editor — collapsible inside Advanced.
+  // Changing this triggers a logout + re-auth against the new server. The same
+  // editor also appears in the needs-login and disconnected views so users can
+  // configure Headscale (or revert) before pressing Log In.
+  const coordRow = createCoordinationServerRow(
+    state,
+    coordinationServerEditorOpen,
+    (open) => {
+      coordinationServerEditorOpen = open;
+    },
+  );
+  advancedPanel.appendChild(coordRow.header);
+  advancedPanel.appendChild(coordRow.editor);
+
   const advancedHeaderRow = document.createElement("div");
   advancedHeaderRow.className = "setting-row";
   const advancedLabel = document.createElement("span");
@@ -395,14 +429,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
     footer.appendChild(hostVer);
   }
 
-  const adminLink = document.createElement("a");
-  adminLink.className = "footer-link";
-  adminLink.textContent = "Admin Console";
-  adminLink.href = "#";
-  adminLink.addEventListener("click", (e) => {
-    e.preventDefault();
-    chrome.tabs.create({ url: ADMIN_URL });
-  });
+  const showAdminLink = !isCustomControlURL(state.prefs?.controlURL);
 
   const logoutLink = document.createElement("a");
   logoutLink.className = "footer-link footer-link--danger";
@@ -413,11 +440,15 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
     sendMessage({ type: "logout" });
   });
 
-  const sep1 = document.createElement("span");
-  sep1.className = "footer-sep";
+  if (showAdminLink) {
+    const adminLink = createAdminLink();
 
-  footer.appendChild(adminLink);
-  footer.appendChild(sep1);
+    const sep1 = document.createElement("span");
+    sep1.className = "footer-sep";
+
+    footer.appendChild(adminLink);
+    footer.appendChild(sep1);
+  }
   footer.appendChild(logoutLink);
 
   const githubCta = document.createElement("div");
@@ -637,6 +668,26 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
     return;
   }
 
+  // The Admin Console footer link is shown only for the default server. Patch
+  // it in place (instead of a full re-render) so switching servers can't
+  // clobber a focused coordination-server input mid-edit.
+  const adminLinkEl = view.querySelector(".footer-link--admin");
+  const shouldHaveAdminLink = !isCustomControlURL(state.prefs?.controlURL);
+  if (shouldHaveAdminLink && !adminLinkEl) {
+    const footer = view.querySelector(".footer");
+    const logout = footer?.querySelector(".footer-link--danger") ?? null;
+    if (footer && logout) {
+      const sep = document.createElement("span");
+      sep.className = "footer-sep";
+      footer.insertBefore(createAdminLink(), logout);
+      footer.insertBefore(sep, logout);
+    }
+  } else if (!shouldHaveAdminLink && adminLinkEl) {
+    const sep = adminLinkEl.nextElementSibling;
+    if (sep && sep.classList.contains("footer-sep")) sep.remove();
+    adminLinkEl.remove();
+  }
+
   const tailnetEl = view.querySelector(".status-bar-tailnet");
   if (tailnetEl) {
     const newTailnet = state.tailnet || "My Tailnet";
@@ -765,6 +816,8 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
         routesTa.value = next;
       }
     }
+
+    updateCoordinationServerRow(view, state);
 
     const splitSection = view.querySelector<HTMLElement>(".split-tunneling-editor");
     if (splitSection) {

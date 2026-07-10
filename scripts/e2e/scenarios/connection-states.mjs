@@ -25,7 +25,7 @@ export const cases = [
   },
   {
     name: "needs update on host version mismatch",
-    control: () => makeControl({ hostVersion: "0.2.0" }),
+    control: () => makeControl({ hostVersion: "0.0.11" }),
     run: async ({ openPopup }) => {
       const page = await openPopup();
       try {

@@ -227,6 +227,7 @@ function mockSource(baseUrl, initialControl) {
           supportsNetcheck: control.supportsNetcheck !== false,
           supportsPingPeer: control.supportsPingPeer !== false,
           supportsLogin: control.supportsLogin !== false,
+          supportsCustomControlURL: control.supportsCustomControlURL !== false,
         },
       });
     });

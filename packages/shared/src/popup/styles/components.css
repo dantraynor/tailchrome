@@ -632,6 +632,37 @@ button.setting-row {
   display: none;
 }
 
+.coordination-server-editor.hidden {
+  display: none;
+}
+
+.coordination-server-input {
+  width: 100%;
+  padding: var(--space-xs) var(--space-sm);
+  font-family: var(--font-family);
+  font-size: var(--font-size-xs);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.coordination-server-note {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.coordination-server-error {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--ts-red, #e25c5c);
+}
+
+.coordination-server-save {
+  align-self: flex-start;
+}
+
 .split-tunneling-editor.hidden {
   display: none;
 }

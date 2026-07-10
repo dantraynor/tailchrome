@@ -1,4 +1,8 @@
 import type { TailscaleState } from "../../types";
+import {
+  appendCoordinationServerSettings,
+  rerenderPreservingCoordEdit,
+} from "../components/coordination-server-row";
 import { renderHeader } from "../components/header";
 import { renderUiSurfaceFooter } from "../components/ui-surface-row";
 import { iconPlug, iconWarning } from "../icons";
@@ -138,6 +142,20 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
   }
 
   view.appendChild(content);
+
+  if (state) {
+    appendCoordinationServerSettings(view, state);
+  }
+
   renderUiSurfaceFooter(view);
   root.appendChild(view);
+}
+
+/**
+ * In-place update path for the disconnected view. Re-renders so all
+ * state-dependent messaging (spinner, error hints, retry) stays fresh, while
+ * preserving an in-progress coordination-server edit (value, focus, caret).
+ */
+export function updateDisconnected(root: HTMLElement, state: TailscaleState): void {
+  rerenderPreservingCoordEdit(root, state, renderDisconnected);
 }

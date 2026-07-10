@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,6 +21,11 @@ import (
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
+)
+
+const (
+	defaultControlURLOrigin = "https://controlplane.tailscale.com"
+	defaultLoginURLOrigin   = "https://login.tailscale.com"
 )
 
 // Host manages the native messaging connection and the Tailscale tsnet instance.
@@ -133,6 +140,92 @@ func (h *Host) sendError(cmd, message string) {
 			Message: message,
 		},
 	})
+}
+
+func (h *Host) clearCachedStatus(prefs *ipn.Prefs) {
+	h.stateMu.Lock()
+	defer h.stateMu.Unlock()
+	h.lastState = ""
+	h.lastBrowseToURL = ""
+	h.lastPrefs = nil
+	h.lastHealth = nil
+	if prefs != nil {
+		h.lastPrefs = prefsViewFromIPN(prefs.View())
+	}
+}
+
+func controlURLForPrefs(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if isDefaultControlURL(trimmed) {
+		return ""
+	}
+	return trimmed
+}
+
+// isValidControlURL reports whether a non-empty custom control URL is a
+// well-formed http/https URL with a host. Validation lives here at the trust
+// boundary (not only in the popup) so any caller of set-prefs is guarded.
+func isValidControlURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	return (scheme == "http" || scheme == "https") && u.Host != ""
+}
+
+func controlURLCompareKey(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if isDefaultControlURL(trimmed) {
+		return ""
+	}
+
+	u, err := url.Parse(trimmed)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return trimmed
+	}
+
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = normalizedURLHost(u)
+	if u.Path == "/" && u.RawQuery == "" {
+		u.Path = ""
+	}
+	u.Fragment = ""
+	return u.String()
+}
+
+func isDefaultControlURL(raw string) bool {
+	if raw == "" {
+		return true
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	switch normalizedURLOrigin(u) {
+	case defaultControlURLOrigin, defaultLoginURLOrigin:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizedURLOrigin(u *url.URL) string {
+	scheme := strings.ToLower(u.Scheme)
+	host := normalizedURLHost(u)
+	return scheme + "://" + host
+}
+
+func normalizedURLHost(u *url.URL) string {
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+	if port == "" || (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		return host
+	}
+	// JoinHostPort re-adds brackets for IPv6 literals so distinct hosts don't
+	// collapse to the same key (e.g. "[::1]:8443" vs "::1:8443").
+	return net.JoinHostPort(host, port)
 }
 
 // handleRequest dispatches a request to the appropriate handler based on the cmd field.
@@ -473,6 +566,7 @@ func (h *Host) handleSetPrefs(req Request) {
 
 	// Decode the partial prefs from the extension.
 	var partial struct {
+		ControlURL             *string   `json:"controlURL,omitempty"`
 		ExitNodeID             *string   `json:"exitNodeID,omitempty"`
 		ExitNodeAllowLANAccess *bool     `json:"exitNodeAllowLANAccess,omitempty"`
 		CorpDNS                *bool     `json:"corpDNS,omitempty"`
@@ -490,6 +584,15 @@ func (h *Host) handleSetPrefs(req Request) {
 	}
 
 	mp := &ipn.MaskedPrefs{}
+	if partial.ControlURL != nil {
+		normalized := controlURLForPrefs(*partial.ControlURL)
+		if normalized != "" && !isValidControlURL(normalized) {
+			h.sendError("set-prefs", fmt.Sprintf("invalid control server URL: %q", normalized))
+			return
+		}
+		mp.ControlURLSet = true
+		mp.Prefs.ControlURL = normalized
+	}
 	if partial.ExitNodeID != nil {
 		mp.ExitNodeIDSet = true
 		mp.Prefs.ExitNodeID = tailcfg.StableNodeID(*partial.ExitNodeID)
@@ -525,12 +628,20 @@ func (h *Host) handleSetPrefs(req Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if partial.AdvertiseRoutes != nil || partial.AdvertiseExitNode != nil {
-		currentPrefs, err := h.lc.GetPrefs(ctx)
+	// Fetch current prefs when we need to merge against them (route advertise) or
+	// detect a real ControlURL change. Reuse the single GetPrefs call.
+	var currentPrefs *ipn.Prefs
+	needCurrent := partial.AdvertiseRoutes != nil || partial.AdvertiseExitNode != nil || partial.ControlURL != nil
+	if needCurrent {
+		cp, err := h.lc.GetPrefs(ctx)
 		if err != nil {
 			h.sendError("set-prefs", fmt.Sprintf("failed to get current prefs: %v", err))
 			return
 		}
+		currentPrefs = cp
+	}
+
+	if partial.AdvertiseRoutes != nil || partial.AdvertiseExitNode != nil {
 		exitWas := currentPrefs.AdvertisesExitNode()
 		if partial.AdvertiseRoutes != nil {
 			prefixes := make([]netip.Prefix, 0, len(*partial.AdvertiseRoutes))
@@ -553,10 +664,72 @@ func (h *Host) handleSetPrefs(req Request) {
 		mp.Prefs.AdvertiseRoutes = currentPrefs.AdvertiseRoutes
 	}
 
-	_, err := h.lc.EditPrefs(ctx, mp)
+	controlURLChanged := partial.ControlURL != nil &&
+		currentPrefs != nil &&
+		controlURLCompareKey(mp.Prefs.ControlURL) != controlURLCompareKey(currentPrefs.ControlURL)
+
+	updatedPrefs, err := h.lc.EditPrefs(ctx, mp)
 	if err != nil {
 		h.sendError("set-prefs", fmt.Sprintf("failed to set prefs: %v", err))
 		return
+	}
+
+	if controlURLChanged {
+		// Exit-node selection and node identity are scoped to the previous
+		// tailnet; clear them so a now-invalid ExitNodeID (a StableNodeID from
+		// the old control server) isn't carried onto the new one.
+		updatedPrefs.ExitNodeID = ""
+		updatedPrefs.ExitNodeIP = netip.Addr{}
+
+		h.clearCachedStatus(updatedPrefs)
+
+		// Explicitly log out so the previous control plane's node key and
+		// profile identity are discarded. Without this, restarting with the
+		// new ControlURL would carry the old identity to the new server and
+		// the IPN engine could skip the interactive login prompt.
+		logoutCtx, logoutCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		if err := h.lc.Logout(logoutCtx); err != nil {
+			logoutCancel()
+			log.Printf("logout during controlURL change failed, restoring previous URL: %v", err)
+
+			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			rollbackErr := h.lc.Start(rollbackCtx, ipn.Options{UpdatePrefs: currentPrefs})
+			rollbackCancel()
+			if rollbackErr != nil {
+				h.clearCachedStatus(currentPrefs)
+				h.sendError("set-prefs", fmt.Sprintf("failed to logout before changing control URL: %v; also failed to restore previous control URL: %v", err, rollbackErr))
+				return
+			}
+
+			h.clearCachedStatus(currentPrefs)
+			h.handleGetStatus()
+			h.sendError("set-prefs", fmt.Sprintf("failed to logout before changing control URL: %v; restored previous control URL", err))
+			return
+		}
+		logoutCancel()
+
+		restartCtx, restartCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := h.lc.Start(restartCtx, ipn.Options{UpdatePrefs: updatedPrefs}); err != nil {
+			restartCancel()
+			log.Printf("restart with updated control URL failed, restoring previous URL: %v", err)
+
+			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			rollbackErr := h.lc.Start(rollbackCtx, ipn.Options{UpdatePrefs: currentPrefs})
+			rollbackCancel()
+			if rollbackErr != nil {
+				h.clearCachedStatus(currentPrefs)
+				h.sendError("set-prefs", fmt.Sprintf("failed to restart with updated control URL: %v; also failed to restore previous control URL: %v", err, rollbackErr))
+				return
+			}
+
+			h.clearCachedStatus(currentPrefs)
+			h.handleGetStatus()
+			// The logout above already discarded the previous session, so the
+			// prefs are restored but the node is signed out and must log in again.
+			h.sendError("set-prefs", fmt.Sprintf("failed to switch control server: %v; reverted to your previous server, but you have been signed out and must log in again", err))
+			return
+		}
+		restartCancel()
 	}
 
 	h.handleGetStatus()
