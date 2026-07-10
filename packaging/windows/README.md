@@ -23,7 +23,7 @@ dotnet tool install --global wix --version 6.0.2
 Then build from the repository root:
 
 ```powershell
-.\packaging\windows\build-msi.ps1 -Version v0.1.11
+.\packaging\windows\build-msi.ps1 -Version v0.1.12
 ```
 
 The release workflow may sign the MSI when Windows signing secrets are configured. Unsigned local builds still work for manual testing.

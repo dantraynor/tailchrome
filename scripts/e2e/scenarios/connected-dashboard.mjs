@@ -18,7 +18,7 @@ export async function run({ openPopup }) {
     await expectText(page, "example.ts.net");
     await expectText(page, "100.64.0.1");
     await expectText(page, "browser-node");
-    await expectText(page, "Native helper 0.1.11");
+    await expectText(page, "Native helper 0.1.12");
     await expectText(page, "Network lock is enabled");
     await expectText(page, "router");
     await expectText(page, "laptop");

@@ -25,7 +25,7 @@ export const DEFAULT_LOGIN_ORIGINS: readonly string[] = [
 ];
 /** Tailchrome project on GitHub (footer, diagnostics toast). */
 export const TAILCHROME_PROJECT_URL = "https://github.com/dantraynor/tailchrome";
-export const EXPECTED_HOST_VERSION = "0.1.11";
+export const EXPECTED_HOST_VERSION = "0.1.12";
 
 /**
  * Returns true when the given prefs.controlURL points at a custom coordination
