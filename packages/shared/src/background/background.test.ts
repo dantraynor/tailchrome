@@ -337,6 +337,57 @@ describe("initBackground", () => {
       expect(otherPort.postMessage).not.toHaveBeenCalled();
     });
 
+    it("polls the native host after the popup requests install retries", async () => {
+      await setupBackground();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+
+      // Helper is missing: the connect attempt reported an install error.
+      sendNativeMessage({ error: { cmd: "connect", message: "install_error" } });
+
+      popupPort.onMessage._listeners[0]!({ type: "retry-native-host" });
+      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(nativePort.disconnect).toHaveBeenCalled();
+      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(2);
+
+      // Later retries keep polling while the helper is still missing.
+      await vi.advanceTimersByTimeAsync(28_000);
+      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(6);
+    });
+
+    it("does not bounce a connected native host on install retry requests", async () => {
+      await setupBackground();
+      advertiseLoginSupport();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+
+      popupPort.onMessage._listeners[0]!({ type: "retry-native-host" });
+      await vi.advanceTimersByTimeAsync(31_000);
+
+      expect(nativePort.disconnect).not.toHaveBeenCalled();
+      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not bounce a connected host that only needs a helper update", async () => {
+      await setupBackground();
+      // Helper connects but reports an outdated version: needs-update state.
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, version: "0.0.1", supportsLogin: true },
+      });
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "retry-native-host" });
+      await vi.advanceTimersByTimeAsync(31_000);
+
+      expect(nativePort.disconnect).not.toHaveBeenCalled();
+      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(1);
+    });
+
     it("broadcasts state changes to connected popups", async () => {
       await setupBackground();
 

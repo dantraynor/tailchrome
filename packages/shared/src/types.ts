@@ -256,6 +256,7 @@ export type BackgroundMessage =
   | { type: "toggle" }
   | { type: "login" }
   | { type: "logout" }
+  | { type: "retry-native-host" }
   | { type: "set-exit-node"; nodeID: string }
   | { type: "clear-exit-node" }
   | SetPrefMessage

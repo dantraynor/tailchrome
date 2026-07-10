@@ -28,7 +28,7 @@ Tailchrome uses a lightweight native helper app that runs a full Tailscale node 
 
 **Getting started:**
 1. Install the extension
-2. Download and run the helper app (one-time setup, ~30 seconds)
+2. Download and run the helper installer (one-time setup, ~30 seconds)
 3. Log in to your Tailscale account
 4. Toggle the switch to connect
 
@@ -64,7 +64,7 @@ Tailchrome connects Firefox to your Tailscale tailnet without a system VPN. Each
 - Shields Up mode
 
 **Setup:**
-Install the extension, download the helper app, and log in. The helper app is a small native program that runs a Tailscale node per browser profile. Setup takes about 30 seconds.
+Install the extension, download the helper installer, and log in. The helper app is a small native program that runs a Tailscale node per browser profile. Setup takes about 30 seconds.
 
 **How it works:**
 A native messaging host runs locally and manages Tailscale connections per profile. Only Firefox traffic is routed through your tailnet. Your system networking is never modified.

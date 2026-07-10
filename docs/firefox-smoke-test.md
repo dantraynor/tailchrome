@@ -4,17 +4,17 @@
 
 Run the full checklist on:
 
-| OS | Firefox | Helper binary |
+| OS | Firefox | Helper installer |
 | --- | --- | --- |
-| macOS 14+ | 140+ stable | `tailscale-browser-ext-darwin-arm64` or `tailscale-browser-ext-darwin-amd64` |
-| Windows 11 | 140+ stable | `tailscale-browser-ext-windows-amd64.exe` |
-| Ubuntu 24.04+ | 140+ stable | `tailscale-browser-ext-linux-amd64` |
+| macOS 14+ | 140+ stable | `tailchrome-helper-macos.pkg` |
+| Windows 11 | 140+ stable | `tailchrome-helper-windows-x64.msi` |
+| Ubuntu 24.04+ | 140+ stable | `tailchrome-helper-linux-amd64.deb` |
 
 ## Preconditions
 
 - Fresh Firefox profile
 - Matching signed Firefox extension build
-- Matching helper binary from the same GitHub Release
+- Matching helper installer from the same GitHub Release
 - Disposable Tailscale reviewer account
 - Test tailnet with MagicDNS peer, subnet route, exit node, and Taildrop target
 
@@ -26,7 +26,7 @@ Steps:
 
 1. Open the popup immediately after installing the extension.
 2. Confirm the setup-required view appears.
-3. Download and run the helper for the current OS.
+3. Download and run the helper installer for the current OS.
 4. Re-open the popup.
 
 Pass:
@@ -133,7 +133,7 @@ Pass:
 
 Steps:
 
-1. Install an older helper binary than the extension expects.
+1. Install an older helper package than the extension expects.
 2. Open the popup.
 
 Pass:

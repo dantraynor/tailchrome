@@ -6,7 +6,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev
 TS_VERSION = $(shell cd host && go list -m -f '{{.Version}}' tailscale.com 2>/dev/null | sed 's/^v//')
 LDFLAGS = -ldflags "-X main.version=$(VERSION) -X tailscale.com/version.shortStamp=$(TS_VERSION) -X tailscale.com/version.longStamp=$(TS_VERSION)"
 
-.PHONY: all extension extension-chrome extension-firefox host host-all macos-pkg clean dev zip zip-chrome zip-firefox
+.PHONY: all extension extension-chrome extension-firefox host host-all macos-pkg windows-msi linux-packages clean dev zip zip-chrome zip-firefox
 
 all: extension host
 
@@ -30,6 +30,14 @@ host-all:
 # macOS only: universal .pkg installer (requires lipo, pkgbuild)
 macos-pkg:
 	./packaging/macos/build-pkg.sh
+
+# Windows only: per-user .msi installer (requires WiX)
+windows-msi:
+	pwsh ./packaging/windows/build-msi.ps1
+
+# Linux only: .deb and .rpm installers (requires nFPM)
+linux-packages:
+	./packaging/linux/build-packages.sh
 
 zip: zip-chrome zip-firefox
 
