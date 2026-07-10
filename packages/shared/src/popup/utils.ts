@@ -212,6 +212,14 @@ export function machineName(node: { dnsName?: string | null; hostname: string })
 }
 
 /**
+ * Returns the node's full MagicDNS name without the trailing dot, or ""
+ * when no DNS name is available.
+ */
+export function shortDNSName(node: { dnsName?: string | null }): string {
+  return node.dnsName ? node.dnsName.replace(/\.$/, "") : "";
+}
+
+/**
  * Formats a geographic label from native-host location data.
  * Location fields are omitted from JSON when empty, so handle partial objects.
  */

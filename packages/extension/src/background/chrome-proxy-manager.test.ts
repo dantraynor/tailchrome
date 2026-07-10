@@ -89,6 +89,7 @@ describe("ChromeProxyManager", () => {
         exitNode: {
           id: "exit1",
           hostname: "exit-node",
+          dnsName: "exit-node.example.ts.net.",
           location: null,
           online: true,
         },
@@ -170,6 +171,7 @@ describe("ChromeProxyManager", () => {
           exitNode: {
             id: "exit1",
             hostname: "exit",
+            dnsName: "exit.example.ts.net.",
             location: null,
             online: true,
           },
@@ -207,6 +209,7 @@ describe("ChromeProxyManager", () => {
         exitNode: {
           id: "exit1",
           hostname: "exit",
+          dnsName: "exit.example.ts.net.",
           location: null,
           online: true,
         },

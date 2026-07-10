@@ -130,8 +130,7 @@ export interface PeerLocation {
 export interface ExitNodeInfo {
   id: string;
   hostname: string;
-  /** The host sends a full PeerInfo here; optional for older payloads. */
-  dnsName?: string;
+  dnsName: string;
   location: PeerLocation | null;
   online: boolean;
 }

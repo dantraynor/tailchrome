@@ -248,6 +248,7 @@ describe("selectRecommendedMullvadExitNode", () => {
         exitNode: {
           id: "new-york-b",
           hostname: "us-nyc-wg-002",
+          dnsName: "us-nyc-wg-002.mullvad.ts.net.",
           location: selectedSameCity.location,
           online: true,
         },
@@ -282,6 +283,7 @@ describe("selectRecommendedMullvadExitNode", () => {
         exitNode: {
           id: "new-york",
           hostname: "us-nyc-wg-001",
+          dnsName: "us-nyc-wg-001.mullvad.ts.net.",
           location: recommended.location,
           online: true,
         },

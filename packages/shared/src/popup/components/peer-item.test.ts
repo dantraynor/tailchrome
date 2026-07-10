@@ -1,7 +1,13 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { makePeer } from "../../__test__/fixtures";
-import { createPeerItem, formatRelativeTime, peerDisplayKey, updatePeerItemText } from "./peer-item";
+import {
+  createPeerItem,
+  formatRelativeTime,
+  peerActionsKey,
+  peerDisplayKey,
+  updatePeerItemText,
+} from "./peer-item";
 
 describe("formatRelativeTime", () => {
   beforeEach(() => {
@@ -110,6 +116,26 @@ describe("peerDisplayKey", () => {
   });
 });
 
+describe("peerActionsKey", () => {
+  it("is stable across a pure rename", () => {
+    const peer = makePeer({ dnsName: "a.example.ts.net.", online: true });
+    expect(peerActionsKey({ ...peer, dnsName: "b.example.ts.net." }, false, false)).toBe(
+      peerActionsKey(peer, false, false),
+    );
+  });
+
+  it("changes when a field that adds or removes an action changes", () => {
+    const peer = makePeer({ dnsName: "a.example.ts.net.", online: true, taildropTarget: false });
+    const base = peerActionsKey(peer, false, false);
+
+    expect(peerActionsKey({ ...peer, online: false }, false, false)).not.toBe(base);
+    expect(peerActionsKey({ ...peer, dnsName: "" }, false, false)).not.toBe(base);
+    expect(peerActionsKey({ ...peer, taildropTarget: true }, false, false)).not.toBe(base);
+    expect(peerActionsKey(peer, true, false)).not.toBe(base);
+    expect(peerActionsKey({ ...peer, sshHost: true }, false, true)).not.toBe(base);
+  });
+});
+
 describe("createPeerItem", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -150,6 +176,68 @@ describe("createPeerItem", () => {
 
     expect(tabsCreate).toHaveBeenCalledWith({
       url: "http://100.100.100.100/ssh/new-name",
+    });
+  });
+
+  it("Open and Copy DNS use the new DNS name after an in-place rename update", () => {
+    const tabsCreate = vi
+      .spyOn(chrome.tabs, "create")
+      .mockImplementation(() => Promise.resolve());
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    const peer = makePeer({
+      hostname: "os-host",
+      dnsName: "old-name.example.ts.net.",
+      online: true,
+    });
+
+    const item = createPeerItem(peer, false, false);
+    updatePeerItemText(item, { ...peer, dnsName: "new-name.example.ts.net." });
+
+    const buttons = Array.from(
+      item.querySelectorAll<HTMLButtonElement>(".peer-action-btn"),
+    );
+    buttons.find((btn) => btn.textContent === "Copy DNS")!.click();
+    buttons.find((btn) => btn.textContent === "Open")!.click();
+
+    expect(writeText).toHaveBeenCalledWith("new-name.example.ts.net");
+    expect(tabsCreate).toHaveBeenCalledWith({
+      url: "http://new-name.example.ts.net/",
+    });
+  });
+
+  it("Send File toast uses the new machine name after an in-place rename update", async () => {
+    const peer = makePeer({
+      hostname: "os-host",
+      dnsName: "old-name.example.ts.net.",
+      taildropTarget: true,
+      online: true,
+    });
+
+    const item = createPeerItem(peer, false, false);
+    updatePeerItemText(item, { ...peer, dnsName: "new-name.example.ts.net." });
+
+    const sendBtn = Array.from(
+      item.querySelectorAll<HTMLButtonElement>(".peer-action-btn"),
+    ).find((btn) => btn.textContent === "Send File");
+    expect(sendBtn).toBeDefined();
+    sendBtn!.click();
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    Object.defineProperty(input!, "files", {
+      value: [new File(["hello"], "notes.txt", { type: "text/plain" })],
+      configurable: true,
+    });
+    input!.dispatchEvent(new Event("change"));
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".toast")?.textContent).toBe(
+        'Sending "notes.txt" to new-name...',
+      );
     });
   });
 });

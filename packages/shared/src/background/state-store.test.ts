@@ -246,7 +246,7 @@ describe("StateStore", () => {
         selfNode: null,
         needsLogin: false,
         browseToURL: "",
-        exitNode: { id: "node123", hostname: "nyc", location: null, online: true },
+        exitNode: { id: "node123", hostname: "nyc", dnsName: "nyc.example.ts.net.", location: null, online: true },
         peers: [],
         prefs: null,
         health: [],

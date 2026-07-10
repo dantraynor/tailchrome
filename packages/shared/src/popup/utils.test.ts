@@ -5,6 +5,7 @@ import {
   formatKeyExpiryLocal,
   formatLocationLabel,
   machineName,
+  shortDNSName,
 } from "./utils";
 
 describe("detectPlatform", () => {
@@ -175,5 +176,20 @@ describe("machineName", () => {
 
   it("falls back to the hostname when the DNS name is missing", () => {
     expect(machineName({ hostname: "johns-macbook" })).toBe("johns-macbook");
+  });
+});
+
+describe("shortDNSName", () => {
+  it("strips the trailing dot", () => {
+    expect(shortDNSName({ dnsName: "laptop.example.ts.net." })).toBe("laptop.example.ts.net");
+  });
+
+  it("returns DNS names without a trailing dot unchanged", () => {
+    expect(shortDNSName({ dnsName: "laptop.example.ts.net" })).toBe("laptop.example.ts.net");
+  });
+
+  it("returns an empty string when the DNS name is empty or missing", () => {
+    expect(shortDNSName({ dnsName: "" })).toBe("");
+    expect(shortDNSName({})).toBe("");
   });
 });
