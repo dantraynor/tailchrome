@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -61,3 +62,9 @@ func browserHasFootprint(target chromiumBrowserTarget) bool {
 }
 
 func platformPostInstallFirefox(_ string) error { return nil }
+
+// replaceBinary installs the new host binary at destPath. A running executable
+// can be overwritten in place on this platform, so this is a straight copy.
+func replaceBinary(destPath string, src io.Reader, perm os.FileMode) error {
+	return copyFile(destPath, src, perm)
+}

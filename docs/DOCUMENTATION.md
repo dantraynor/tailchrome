@@ -148,7 +148,7 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 - **Keyboard navigation** -- peer list supports arrow key navigation
 - **Platform-aware** -- detects macOS for platform-specific UI hints
 - **Side panel mode** -- opt-in toggle ("Open as side panel") that switches the UI from popup to Chrome side panel / Firefox sidebar; a single quick-settings row controls it on either browser
-- **Auto-connect on start** -- opt-in quick-settings toggle that brings the tailnet up on the first status after init when the backend is `Stopped`/`NoState`; a session-scoped flag preserves an explicit disconnect across service-worker restarts within the same browser session
+- **Auto-connect on start** -- opt-in quick-settings toggle that brings the tailnet up on the first status after init when the backend is `Stopped`/`NoState`; a session-scoped flag preserves an explicit disconnect across service-worker restarts within the same browser session. The background registers a `runtime.onStartup` listener so the browser wakes it at launch -- without it the connection would wait for the popup to open
 
 ### Parity and backlog
 
@@ -376,7 +376,7 @@ The proxy uses Tailscale's `proxymux.SplitSOCKSAndHTTP()` to multiplex a single 
 
 ### Auto-Installation
 
-When the host binary is run in a terminal (detected via `term.IsTerminal`), it auto-detects installed browsers and installs native messaging manifests for Chrome and/or Firefox. The binary copies itself to `~/.local/share/tailscale-browser-ext/` (or platform equivalent) and writes JSON manifests to the browser's native messaging host directory.
+When the raw host binary is run in a terminal (detected via `term.IsTerminal`), it auto-detects installed browsers and installs native messaging manifests for Chrome-family browsers and Firefox. The binary copies itself to the per-user helper directory (`~/.local/share/tailscale/browser-ext/`, `~/Library/Application Support/Tailscale/BrowserExt/`, or `%LOCALAPPDATA%\Tailscale\BrowserExt\`) and writes JSON manifests to each browser's native messaging host location.
 
 ---
 
@@ -549,21 +549,27 @@ The popup is a vanilla TypeScript UI (no framework) rendered into the extension 
 **Chrome:**
 
 1. Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
-2. **macOS:** Download **`tailchrome-helper-macos.pkg`** from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest), install it, then open **Tailchrome Helper** once from Applications. **Other platforms:** click the extension icon and follow the prompts to install the native host.
+2. Install the native helper from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest): **`tailchrome-helper-macos.pkg`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the **`.deb`/`.rpm`** package on Linux.
 3. Log in to your Tailscale account
 
 **Firefox:**
 
-1. Install from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest)
-2. **macOS:** use the same **`tailchrome-helper-macos.pkg`** and **Tailchrome Helper** step as Chrome. **Other platforms:** click the extension icon and follow the prompts to install the native host from GitHub Releases
+1. Install from [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/) or the matching [GitHub Release](https://github.com/dantraynor/tailchrome/releases/latest)
+2. Install the same native helper package used for Chrome: **`.pkg`** on macOS, **`.msi`** on Windows, or **`.deb`/`.rpm`** on Linux.
 3. Log in to your Tailscale account
 
 ### Native Host Installation
 
-The native host binary auto-installs when run interactively in a terminal, or non-interactively via **`tailscale-browser-ext -install-now`** (used by the macOS Helper app):
+The installer packages are the primary path:
+
+- **macOS:** `tailchrome-helper-macos.pkg` installs a universal binary and runs `tailscale-browser-ext -install-now` for the logged-in user during package postinstall. `Tailchrome Helper.app` remains in `/Applications` as a repair/re-run fallback.
+- **Windows:** `tailchrome-helper-windows-x64.msi` installs a staged helper under `%LOCALAPPDATA%\Tailscale\BrowserExt\installer\` and runs it with `-install-now`, which writes HKCU native messaging registrations.
+- **Linux:** `.deb` and `.rpm` packages install `/usr/lib/tailchrome/tailscale-browser-ext` plus system-wide manifests for Chrome, Chromium, Edge, and Firefox. The raw binary fallback remains available for per-user registration in additional Chromium-family browsers.
+
+The raw native host binary remains available for advanced/manual installs. When run interactively in a terminal, or non-interactively via **`tailscale-browser-ext -install-now`**, it:
 
 - Detects installed browsers and writes per-browser manifests for the whole Chromium family (Chrome stable/beta/canary/dev, Chromium, Brave, Edge, Vivaldi, Opera, Arc on macOS) plus Firefox
-- Copies itself to `~/.local/share/tailscale-browser-ext/` (Linux), `~/Library/Application Support/Tailscale/BrowserExt/` (macOS), or `%LOCALAPPDATA%\tailscale-browser-ext\` (Windows)
+- Copies itself to `~/.local/share/tailscale/browser-ext/` (Linux), `~/Library/Application Support/Tailscale/BrowserExt/` (macOS), or `%LOCALAPPDATA%\Tailscale\BrowserExt\` (Windows)
 - Reports per-browser install status so unsupported or missing browsers are skipped cleanly
 - Manual install: `./tailscale-browser-ext --install C<extensionID>` (Chromium-family) or `--install F<extensionID>` (Firefox)
 - Uninstall: `./tailscale-browser-ext --uninstall` removes manifests from every browser it installed into
@@ -752,14 +758,17 @@ Four parallel jobs:
 
 ### Release (`release.yml`) -- Runs on `v`* Tags or Manual Dispatch
 
-Single job that:
+The release workflow:
 
 1. Validates extension IDs and release tag
 2. Builds `chrome.zip`, `firefox.zip`, `firefox-sources.zip`
 3. Builds host binaries for all platforms
 4. **Verifies Firefox source ZIP**: extracts sources, rebuilds from scratch, `diff -qr` against original to ensure reproducibility
-5. Generates `SHA256SUMS.txt` for all release assets
-6. Creates/updates GitHub Release with all assets
+5. Signs/notarizes macOS binaries
+6. Builds Linux `.deb`/`.rpm` packages with nFPM and the Windows `.msi` with WiX
+7. Generates `SHA256SUMS.txt` for the main release assets
+8. Creates/updates GitHub Release with all assets
+9. Builds, signs, and notarizes the macOS `.pkg` in a follow-up job and uploads it to the release with its own `.sha256` checksum
 
 ### Publish (`publish.yml`) -- Manual Dispatch Only
 

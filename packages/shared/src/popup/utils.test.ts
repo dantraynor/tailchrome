@@ -4,6 +4,8 @@ import {
   formatBytes,
   formatKeyExpiryLocal,
   formatLocationLabel,
+  machineName,
+  shortDNSName,
 } from "./utils";
 
 describe("detectPlatform", () => {
@@ -152,5 +154,42 @@ describe("formatLocationLabel", () => {
         "countryCode",
       ),
     ).toBe("Frankfurt, DE");
+  });
+});
+
+describe("machineName", () => {
+  it("uses the first label of the DNS name over the OS hostname", () => {
+    expect(
+      machineName({ dnsName: "renamed-laptop.example.ts.net.", hostname: "johns-macbook" }),
+    ).toBe("renamed-laptop");
+  });
+
+  it("handles DNS names without a trailing dot", () => {
+    expect(
+      machineName({ dnsName: "renamed-laptop.example.ts.net", hostname: "johns-macbook" }),
+    ).toBe("renamed-laptop");
+  });
+
+  it("falls back to the hostname when the DNS name is empty", () => {
+    expect(machineName({ dnsName: "", hostname: "johns-macbook" })).toBe("johns-macbook");
+  });
+
+  it("falls back to the hostname when the DNS name is missing", () => {
+    expect(machineName({ hostname: "johns-macbook" })).toBe("johns-macbook");
+  });
+});
+
+describe("shortDNSName", () => {
+  it("strips the trailing dot", () => {
+    expect(shortDNSName({ dnsName: "laptop.example.ts.net." })).toBe("laptop.example.ts.net");
+  });
+
+  it("returns DNS names without a trailing dot unchanged", () => {
+    expect(shortDNSName({ dnsName: "laptop.example.ts.net" })).toBe("laptop.example.ts.net");
+  });
+
+  it("returns an empty string when the DNS name is empty or missing", () => {
+    expect(shortDNSName({ dnsName: "" })).toBe("");
+    expect(shortDNSName({})).toBe("");
   });
 });

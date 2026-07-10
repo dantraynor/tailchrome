@@ -140,6 +140,7 @@ describe("FirefoxProxyManager", () => {
         exitNode: {
           id: "exit1",
           hostname: "exit",
+          dnsName: "exit.example.ts.net.",
           location: null,
           online: true,
         },

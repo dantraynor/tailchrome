@@ -1,6 +1,6 @@
 import type { PeerInfo } from "../../types";
 import { addListKeyboardNav } from "../utils";
-import { createPeerItem, peerDisplayKey, updatePeerItemText } from "./peer-item";
+import { createPeerItem, peerActionsKey, peerDisplayKey, updatePeerItemText } from "./peer-item";
 import { iconSearch } from "../icons";
 
 /**
@@ -86,13 +86,12 @@ function renderPeerSection(
     if (cached) {
       const oldKey = cached.dataset.displayKey ?? "";
       const newKey = peerDisplayKey(peer);
-      const oldSshAction = cached.dataset.sshActionShown ?? "0";
-      const newSshAction =
-        showPeerSSH && peer.sshHost && peer.online ? "1" : "0";
+      const oldActions = cached.dataset.actionsKey ?? "";
+      const newActions = peerActionsKey(peer, supportsPingPeer, showPeerSSH);
 
-      if (oldKey === newKey && oldSshAction === newSshAction) {
+      if (oldKey === newKey && oldActions === newActions) {
         list.appendChild(cached);
-      } else if (oldKey !== newKey && oldSshAction === newSshAction) {
+      } else if (oldKey !== newKey && oldActions === newActions) {
         updatePeerItemText(cached, peer);
         list.appendChild(cached);
       } else {

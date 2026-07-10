@@ -1,5 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { NativeHostConnection } from "./native-host";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import {
+  NativeHostConnection,
+  type NativeMessageHandler,
+  type NativeStateChangeHandler,
+} from "./native-host";
 
 // Helper to create a mock port with accessible listener arrays
 function createMockPort() {
@@ -30,8 +34,8 @@ describe("NativeHostConnection", () => {
   let storageGetSpy: ReturnType<typeof vi.fn>;
   let storageSetSpy: ReturnType<typeof vi.fn>;
   let mockPort: ReturnType<typeof createMockPort>;
-  let onMessage: ReturnType<typeof vi.fn>;
-  let onStateChange: ReturnType<typeof vi.fn>;
+  let onMessage: Mock<NativeMessageHandler>;
+  let onStateChange: Mock<NativeStateChangeHandler>;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -41,12 +45,12 @@ describe("NativeHostConnection", () => {
     storageSetSpy = vi.fn().mockResolvedValue(undefined);
 
     chrome.runtime.connectNative = connectNativeSpy as unknown as typeof chrome.runtime.connectNative;
-    chrome.storage.local.get = storageGetSpy;
-    chrome.storage.local.set = storageSetSpy;
+    chrome.storage.local.get = storageGetSpy as unknown as typeof chrome.storage.local.get;
+    chrome.storage.local.set = storageSetSpy as unknown as typeof chrome.storage.local.set;
     chrome.runtime.lastError = undefined;
 
-    onMessage = vi.fn();
-    onStateChange = vi.fn();
+    onMessage = vi.fn<NativeMessageHandler>();
+    onStateChange = vi.fn<NativeStateChangeHandler>();
   });
 
   afterEach(() => {

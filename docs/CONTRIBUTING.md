@@ -51,7 +51,7 @@ make host-all            # All platform binaries
 make dev                 # Chrome watch mode (WXT)
 ```
 
-Extension builds go to `packages/extension/.output/`. Native host binaries go to `dist/`.
+Extension builds go to `packages/extension/.output/`. Native host binaries and helper installers go to `dist/`.
 
 See [puppeteer-testing-suite.md](puppeteer-testing-suite.md) for the end-to-end harness layout.
 
@@ -62,5 +62,5 @@ Include your browser, OS, extension version, and steps to reproduce.
 ## Release Pipeline
 
 - PRs run extension typecheck/tests, Chrome build, the full Firefox review gate, and native host builds via GitHub Actions
-- Tagged releases build all artifacts (extension zips, host binaries, macOS `.pkg` installer) and attach them to the GitHub Release
+- Tagged releases build all artifacts (extension zips, host binaries, macOS `.pkg`, Windows `.msi`, and Linux `.deb`/`.rpm` installers) and attach them to the GitHub Release
 - Store publication uses GitHub Actions with manual environment approvals for Chrome Web Store and Firefox AMO submission

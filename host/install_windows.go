@@ -1,11 +1,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -135,4 +138,46 @@ func removeRegistryKey(baseKey registry.Key, path string) error {
 		return nil
 	}
 	return nil
+}
+
+// replaceBinary installs the new host binary at destPath. On Windows a running
+// executable cannot be opened for writing -- the image loader holds it open with
+// a share mode that denies writes -- so overwriting the currently-running host
+// fails with ERROR_SHARING_VIOLATION. Windows does permit renaming a running
+// image, so in that case move the old binary aside and write the new one to the
+// original path; the browser launches the updated binary the next time it spawns
+// the host. Without this, re-running the helper to update never replaces the
+// in-use binary and the extension keeps prompting to update (issue #84).
+func replaceBinary(destPath string, src io.Reader, perm os.FileMode) error {
+	err := copyFile(destPath, src, perm)
+	if err == nil || !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+		return err
+	}
+
+	// copyFile opens the destination before reading src, so the failed attempt
+	// above did not consume src; it is still positioned to be written here.
+	oldPath := destPath + ".old"
+	if err := os.Rename(destPath, oldPath); err != nil {
+		return fmt.Errorf("failed to move running binary aside: %w", err)
+	}
+	if err := copyFile(destPath, src, perm); err != nil {
+		// Roll back so the user is not left without a working binary.
+		_ = os.Rename(oldPath, destPath)
+		return fmt.Errorf("failed to write new binary after moving the old one aside: %w", err)
+	}
+	scheduleOldBinaryCleanup(oldPath)
+	return nil
+}
+
+// scheduleOldBinaryCleanup removes the moved-aside binary. It is usually still
+// running (that is why it had to be moved), so deleting it now typically fails;
+// in that case schedule it for removal on the next reboot. Best-effort: a
+// lingering ".old" file never blocks a successful update.
+func scheduleOldBinaryCleanup(oldPath string) {
+	if err := os.Remove(oldPath); err == nil {
+		return
+	}
+	if p, err := windows.UTF16PtrFromString(oldPath); err == nil {
+		_ = windows.MoveFileEx(p, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
+	}
 }

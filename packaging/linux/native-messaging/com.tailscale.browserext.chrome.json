@@ -1,0 +1,9 @@
+{
+  "name": "com.tailscale.browserext.chrome",
+  "description": "Tailscale Browser Extension Native Messaging Host",
+  "path": "/usr/lib/tailchrome/tailscale-browser-ext",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://bhfeceecialgilpedkoflminjgcjljll/"
+  ]
+}

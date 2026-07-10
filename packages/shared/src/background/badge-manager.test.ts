@@ -11,9 +11,10 @@ describe("BadgeManager", () => {
     setIconSpy = vi.fn().mockResolvedValue(undefined);
     setBadgeTextSpy = vi.fn();
     setBadgeColorSpy = vi.fn();
-    chrome.action.setIcon = setIconSpy;
-    chrome.action.setBadgeText = setBadgeTextSpy;
-    chrome.action.setBadgeBackgroundColor = setBadgeColorSpy;
+    chrome.action.setIcon = setIconSpy as unknown as typeof chrome.action.setIcon;
+    chrome.action.setBadgeText = setBadgeTextSpy as unknown as typeof chrome.action.setBadgeText;
+    chrome.action.setBadgeBackgroundColor =
+      setBadgeColorSpy as unknown as typeof chrome.action.setBadgeBackgroundColor;
   });
 
   describe("Running state", () => {
@@ -31,7 +32,7 @@ describe("BadgeManager", () => {
       const mgr = new BadgeManager();
       mgr.update(
         baseState({
-          exitNode: { id: "exit1", hostname: "exit-node", location: null, online: true },
+          exitNode: { id: "exit1", hostname: "exit-node", dnsName: "exit-node.example.ts.net.", location: null, online: true },
         })
       );
 

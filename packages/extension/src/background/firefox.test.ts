@@ -31,7 +31,12 @@ describe("startFirefoxBackground", () => {
   let alarmAddListener: ReturnType<typeof vi.fn>;
   let alarmsCreate: ReturnType<typeof vi.fn>;
   let alarmListener: ((alarm: { name: string }) => void) | null;
+  let onStartupAddListener: ReturnType<typeof vi.fn>;
   let originalBrowser: unknown;
+
+  const chromeRuntime = (
+    globalThis.chrome as unknown as { runtime: Record<string, unknown> }
+  ).runtime;
 
   const getBrowser = (): unknown =>
     (globalThis as typeof globalThis & { browser?: unknown }).browser;
@@ -51,6 +56,8 @@ describe("startFirefoxBackground", () => {
       alarmListener = listener;
     });
     alarmsCreate = vi.fn();
+    onStartupAddListener = vi.fn();
+    chromeRuntime["onStartup"] = { addListener: onStartupAddListener };
 
     originalBrowser = getBrowser();
     setBrowser({
@@ -75,7 +82,9 @@ describe("startFirefoxBackground", () => {
       restoreFromStorage: mocks.restoreFromStorage,
     };
     mocks.FirefoxProxyManager.mockReset();
-    mocks.FirefoxProxyManager.mockImplementation(() => mocks.proxyManagerInstance);
+    mocks.FirefoxProxyManager.mockImplementation(function () {
+      return mocks.proxyManagerInstance;
+    });
     mocks.initBackground.mockReturnValue({
       proxyManager: mocks.proxyManagerInstance,
       reconnect: vi.fn(),
@@ -85,6 +94,7 @@ describe("startFirefoxBackground", () => {
 
   afterEach(() => {
     setBrowser(originalBrowser);
+    delete chromeRuntime["onStartup"];
   });
 
   it("registers the Firefox proxy and alarm listeners immediately", () => {
@@ -98,6 +108,15 @@ describe("startFirefoxBackground", () => {
       { urls: ["<all_urls>"] },
     );
     expect(alarmAddListener).toHaveBeenCalledTimes(1);
+  });
+
+  it("registers a runtime.onStartup listener synchronously so the background loads at browser launch", () => {
+    mocks.restoreFromStorage.mockReturnValue(new Promise<boolean>(() => {}));
+
+    startFirefoxBackground();
+
+    expect(onStartupAddListener).toHaveBeenCalledTimes(1);
+    expect(onStartupAddListener).toHaveBeenCalledWith(expect.any(Function));
   });
 
   it("waits for restore before starting the shared background and keepalive alarm", async () => {
