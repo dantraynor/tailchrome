@@ -184,7 +184,11 @@ jobs:
         with:
           name: build-output
       - name: Install nFPM
-        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+        # Pinned: @latest can require a newer Go than the repo toolchain;
+        # GOTOOLCHAIN=auto lets go fetch the toolchain nfpm needs.
+        env:
+          GOTOOLCHAIN: auto
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
       - name: Build Linux packages
         run: VERSION="$RELEASE_TAG" ./packaging/linux/build-packages.sh
       - name: Upload Linux packages
