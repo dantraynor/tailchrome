@@ -2,6 +2,7 @@ import {
   initBackground,
   type BackgroundHandle,
 } from "@tailchrome/shared/background/background";
+import { registerStartupWakeListener } from "@tailchrome/shared/background/startup-wake";
 import { registerSidebarOpener } from "@tailchrome/shared/background/ui-surface";
 import { KEEPALIVE_INTERVAL_MS } from "@tailchrome/shared/constants";
 import { FIREFOX_NATIVE_HOST_ID } from "../constants";
@@ -35,6 +36,10 @@ export function startFirefoxBackground(): void {
   // Anything registered later (after async storage restore resolves) can
   // miss the wake-up event.
   registerSidebarOpener();
+
+  // Wake the background at browser launch so the restore chain below runs
+  // auto-connect without waiting for the popup (#90).
+  registerStartupWakeListener();
 
   browser.proxy.onRequest.addListener(proxyManager.listener, {
     urls: ["<all_urls>"],

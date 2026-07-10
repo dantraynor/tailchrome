@@ -148,7 +148,7 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 - **Keyboard navigation** -- peer list supports arrow key navigation
 - **Platform-aware** -- detects macOS for platform-specific UI hints
 - **Side panel mode** -- opt-in toggle ("Open as side panel") that switches the UI from popup to Chrome side panel / Firefox sidebar; a single quick-settings row controls it on either browser
-- **Auto-connect on start** -- opt-in quick-settings toggle that brings the tailnet up on the first status after init when the backend is `Stopped`/`NoState`; a session-scoped flag preserves an explicit disconnect across service-worker restarts within the same browser session
+- **Auto-connect on start** -- opt-in quick-settings toggle that brings the tailnet up on the first status after init when the backend is `Stopped`/`NoState`; a session-scoped flag preserves an explicit disconnect across service-worker restarts within the same browser session. The background registers a `runtime.onStartup` listener so the browser wakes it at launch -- without it the connection would wait for the popup to open
 
 ### Parity and backlog
 
