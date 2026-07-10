@@ -28,6 +28,22 @@ Thumbs.db
 
 # Environment
 .env*
+*.local
+*.local.*
+
+# Local workspace configuration
+.conductor/
 
 # Tooling
 .context/
+
+# Private keys, certificates, and signing artifacts
+*.key
+*.pem
+*.p12
+*.cer
+*.crt
+*.csr
+*.mobileprovision
+*.provisionprofile
+AuthKey_*.p8
