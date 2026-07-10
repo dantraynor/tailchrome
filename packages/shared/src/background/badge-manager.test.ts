@@ -32,7 +32,7 @@ describe("BadgeManager", () => {
       const mgr = new BadgeManager();
       mgr.update(
         baseState({
-          exitNode: { id: "exit1", hostname: "exit-node", location: null, online: true },
+          exitNode: { id: "exit1", hostname: "exit-node", dnsName: "exit-node.example.ts.net.", location: null, online: true },
         })
       );
 

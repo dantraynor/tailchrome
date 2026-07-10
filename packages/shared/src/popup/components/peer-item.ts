@@ -1,5 +1,5 @@
 import type { PeerInfo } from "../../types";
-import { copyToClipboard, formatBytes, showToast } from "../utils";
+import { copyToClipboard, formatBytes, machineName, shortDNSName, showToast } from "../utils";
 import { sendMessage } from "../popup";
 import { getCustomUrl, setCustomUrl, clearCustomUrl, resolveOpenUrl } from "../custom-urls";
 import { iconForOS } from "../icons";
@@ -45,12 +45,50 @@ export function peerDisplayKey(peer: PeerInfo): string {
 }
 
 /**
+ * Returns a string key encoding which action buttons a peer's expanded panel
+ * contains. Buttons are only created in createPeerItem, so when this key
+ * changes the item must be rebuilt rather than updated in place.
+ */
+export function peerActionsKey(
+  peer: PeerInfo,
+  supportsPingPeer: boolean,
+  showPeerSSH: boolean,
+): string {
+  const firstIP = peer.tailscaleIPs[0] ?? "";
+  const openTarget = peer.online ? shortDNSName(peer) || firstIP : "";
+  return [
+    firstIP ? "1" : "0", // Copy IP
+    peer.dnsName ? "1" : "0", // Copy DNS
+    openTarget ? "1" : "0", // Open + custom URL editor
+    supportsPingPeer && peer.online && firstIP ? "1" : "0", // Ping
+    showPeerSSH && peer.sshHost && peer.online ? "1" : "0", // SSH
+    peer.taildropTarget && peer.online ? "1" : "0", // Send File
+  ].join("");
+}
+
+/**
  * Updates the visible text content of an existing peer item container in place.
  * Preserves expansion state and event listeners.
  */
 export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void {
+  const displayName = machineName(peer);
+  const firstIP = peer.tailscaleIPs[0] ?? "";
+  const shortDNS = shortDNSName(peer);
+
+  container.dataset.machineName = displayName;
+  container.dataset.shortDns = shortDNS;
+  container.dataset.openTarget = peer.online ? shortDNS || firstIP : "";
+
   const nameEl = container.querySelector(".peer-name");
-  if (nameEl) nameEl.textContent = peer.hostname;
+  if (nameEl) nameEl.textContent = displayName;
+
+  const rowEl = container.querySelector(".peer-item");
+  if (rowEl) {
+    rowEl.setAttribute(
+      "aria-label",
+      `${displayName}, ${peer.online ? "online" : "offline"}`,
+    );
+  }
 
   const metaEl = container.querySelector(".peer-meta");
   if (metaEl) {
@@ -65,8 +103,7 @@ export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void
 
   const ipEl = container.querySelector(".peer-ip");
   if (ipEl) {
-    const firstIP = peer.tailscaleIPs[0];
-    ipEl.textContent = firstIP ?? "";
+    ipEl.textContent = firstIP;
   }
 
   const det = container.querySelector(".peer-details");
@@ -75,8 +112,11 @@ export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void
   }
 
   container.dataset.displayKey = peerDisplayKey(peer);
-  container.dataset.sshActionShown =
-    container.dataset.showPeerSsh === "1" && peer.sshHost && peer.online ? "1" : "0";
+  container.dataset.actionsKey = peerActionsKey(
+    peer,
+    container.dataset.hostPingCap === "1",
+    container.dataset.showPeerSsh === "1",
+  );
 }
 
 function buildPeerDetailsText(peer: PeerInfo): string {
@@ -105,19 +145,33 @@ export function createPeerItem(
   supportsPingPeer: boolean,
   showPeerSSH: boolean,
 ): HTMLElement {
+  const displayName = machineName(peer);
+  const firstIP = peer.tailscaleIPs[0] ?? "";
+  const shortDNS = shortDNSName(peer);
+  const initialOpenTarget = peer.online ? shortDNS || firstIP : "";
+
   const container = document.createElement("div");
   container.className = "peer-item-container";
   container.dataset.peerId = peer.id;
+  container.dataset.machineName = displayName;
+  container.dataset.shortDns = shortDNS;
+  container.dataset.openTarget = initialOpenTarget;
+  // Action handlers read the dataset instead of closing over display fields:
+  // updatePeerItemText refreshes cached DOM in place, so a rename would
+  // otherwise leave the handlers pointing at the old machine/DNS name.
+  const currentName = () => container.dataset.machineName || displayName;
+  const currentShortDNS = () => container.dataset.shortDns || "";
+  const currentOpenTarget = () => container.dataset.openTarget || "";
   container.dataset.hostPingCap = supportsPingPeer ? "1" : "0";
   container.dataset.showPeerSsh = showPeerSSH ? "1" : "0";
-  container.dataset.sshActionShown = showPeerSSH && peer.sshHost && peer.online ? "1" : "0";
+  container.dataset.actionsKey = peerActionsKey(peer, supportsPingPeer, showPeerSSH);
   container.dataset.displayKey = peerDisplayKey(peer);
 
   const row = document.createElement("div");
   row.className = "peer-item";
   row.setAttribute("role", "button");
   row.setAttribute("tabindex", "0");
-  row.setAttribute("aria-label", `${peer.hostname}, ${peer.online ? "online" : "offline"}`);
+  row.setAttribute("aria-label", `${displayName}, ${peer.online ? "online" : "offline"}`);
 
   // OS icon
   const icon = document.createElement("div");
@@ -133,7 +187,7 @@ export function createPeerItem(
 
   const name = document.createElement("div");
   name.className = "peer-name";
-  name.textContent = peer.hostname;
+  name.textContent = displayName;
 
   const meta = document.createElement("div");
   meta.className = "peer-meta";
@@ -159,9 +213,7 @@ export function createPeerItem(
   // Address display
   const ip = document.createElement("div");
   ip.className = "peer-ip";
-  const firstIP = peer.tailscaleIPs[0];
-  const shortDNS = peer.dnsName ? peer.dnsName.replace(/\.$/, "") : "";
-  ip.textContent = firstIP ?? "";
+  ip.textContent = firstIP;
 
   row.appendChild(icon);
   row.appendChild(info);
@@ -184,49 +236,48 @@ export function createPeerItem(
   }
 
   if (peer.dnsName) {
-    const shortDNS = peer.dnsName.replace(/\.$/, "");
     actions.appendChild(createActionButton("Copy DNS", () => {
-      copyToClipboard(shortDNS);
-      showToast("Copied " + shortDNS);
+      const dns = currentShortDNS();
+      if (!dns) return;
+      copyToClipboard(dns);
+      showToast("Copied " + dns);
     }));
   }
 
   // Track openTarget for use in custom URL editor
-  let openTarget: string | undefined;
   let openBtn: HTMLElement | null = null;
 
-  if (peer.online) {
-    openTarget = shortDNS || firstIP || undefined;
-    if (openTarget) {
-      openBtn = createActionButton(openButtonLabel(getCustomUrl(peer.id)), () => {
-        chrome.tabs.create({ url: resolveOpenUrl(openTarget!, getCustomUrl(peer.id)) });
-      });
-      actions.appendChild(openBtn);
-    }
+  if (initialOpenTarget) {
+    openBtn = createActionButton(openButtonLabel(getCustomUrl(peer.id)), () => {
+      const target = currentOpenTarget();
+      if (!target) return;
+      chrome.tabs.create({ url: resolveOpenUrl(target, getCustomUrl(peer.id)) });
+    });
+    actions.appendChild(openBtn);
   }
 
   if (supportsPingPeer && peer.online && firstIP) {
     actions.appendChild(createActionButton("Ping", () => {
       sendMessage({ type: "ping-peer", nodeID: peer.id });
-      showToast(`Pinging ${peer.hostname}\u2026`, "info");
+      showToast(`Pinging ${currentName()}\u2026`, "info");
     }));
   }
 
   if (showPeerSSH && peer.sshHost && peer.online) {
     actions.appendChild(createActionButton("SSH", () => {
-      chrome.tabs.create({ url: `http://100.100.100.100/ssh/${peer.hostname}` });
+      chrome.tabs.create({ url: `http://100.100.100.100/ssh/${currentName()}` });
     }));
   }
 
   if (peer.taildropTarget && peer.online) {
     actions.appendChild(createActionButton("Send File", () => {
-      openFilePicker(peer);
+      openFilePicker(peer, currentName);
     }));
   }
 
   // Custom URL editor (inline, hidden by default)
   let editRow: HTMLElement | null = null;
-  if (peer.online && openTarget) {
+  if (initialOpenTarget) {
     const existingUrl = getCustomUrl(peer.id) || "";
 
     editRow = document.createElement("div");
@@ -249,7 +300,7 @@ export function createPeerItem(
       input.value = "";
       clearBtn.style.display = "none";
       if (openBtn) openBtn.textContent = openButtonLabel(undefined);
-      showToast(`Custom URL cleared for ${peer.hostname}`);
+      showToast(`Custom URL cleared for ${currentName()}`);
     });
 
     const saveBtn = document.createElement("button");
@@ -262,7 +313,7 @@ export function createPeerItem(
         await setCustomUrl(peer.id, val);
         clearBtn.style.display = "";
         if (openBtn) openBtn.textContent = openButtonLabel(val);
-        showToast(`Custom URL saved for ${peer.hostname}`);
+        showToast(`Custom URL saved for ${currentName()}`);
       }
     });
 
@@ -332,7 +383,7 @@ function uint8ToBase64(u8: Uint8Array): string {
   return btoa(binary);
 }
 
-function openFilePicker(peer: PeerInfo): void {
+function openFilePicker(peer: PeerInfo, displayName: () => string): void {
   const input = document.createElement("input");
   input.type = "file";
   input.style.display = "none";
@@ -373,7 +424,7 @@ function openFilePicker(peer: PeerInfo): void {
           size: file.size,
           dataBase64: base64,
         });
-        showToast(`Sending "${file.name}" to ${peer.hostname}...`);
+        showToast(`Sending "${file.name}" to ${displayName()}...`);
       };
       reader.onerror = () => {
         showToast("Failed to read file", "error");

@@ -130,6 +130,7 @@ export interface PeerLocation {
 export interface ExitNodeInfo {
   id: string;
   hostname: string;
+  dnsName: string;
   location: PeerLocation | null;
   online: boolean;
 }

@@ -1227,7 +1227,7 @@ describe("initBackground", () => {
           selfNode: null,
           needsLogin: false,
           browseToURL: "",
-          exitNode: { id: "current-exit", hostname: "exit", location: null, online: true },
+          exitNode: { id: "current-exit", hostname: "exit", dnsName: "exit.example.ts.net.", location: null, online: true },
           peers: [],
           prefs: null,
           health: [],

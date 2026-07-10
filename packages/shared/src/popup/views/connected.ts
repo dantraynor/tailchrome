@@ -4,7 +4,7 @@ import { renderHeader } from "../components/header";
 import { renderPeerList, updatePeerList, filterPeers } from "../components/peer-list";
 import { peersForDeviceList } from "../peer-filters";
 import { renderHealthWarnings } from "../components/health-warnings";
-import { createCopyButton, formatKeyExpiryLocal, formatLocationLabel } from "../utils";
+import { createCopyButton, formatKeyExpiryLocal, formatLocationLabel, machineName } from "../utils";
 import { sendMessage, enterSubView, leaveSubView, getLatestState } from "../popup";
 import { createToggle } from "../components/toggle-switch";
 import { renderExitNodes } from "./exit-nodes";
@@ -97,7 +97,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
     hostnameRow.className = "status-bar-row";
     const hostname = document.createElement("span");
     hostname.className = "status-bar-hostname";
-    hostname.textContent = state.selfNode.hostname;
+    hostname.textContent = machineName(state.selfNode);
     hostnameRow.appendChild(hostname);
     statusBar.appendChild(hostnameRow);
 
@@ -133,7 +133,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   if (state.exitNode) {
     exitValue.textContent = formatLocationLabel(
       state.exitNode.location,
-      state.exitNode.hostname,
+      machineName(state.exitNode),
       "countryCode",
     );
   } else {
@@ -598,7 +598,7 @@ function exitNodeDisplayText(state: TailscaleState): string {
   if (state.exitNode) {
     return formatLocationLabel(
       state.exitNode.location,
-      state.exitNode.hostname,
+      machineName(state.exitNode),
       "countryCode",
     );
   }
@@ -655,7 +655,7 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
 
   const hostnameEl = view.querySelector(".status-bar-hostname");
   if (hostnameEl) {
-    const newHostname = state.selfNode?.hostname ?? "";
+    const newHostname = state.selfNode ? machineName(state.selfNode) : "";
     if (hostnameEl.textContent !== newHostname) {
       hostnameEl.textContent = newHostname;
     }
