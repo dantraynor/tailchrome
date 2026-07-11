@@ -17,6 +17,7 @@ Tailchrome connects your browser to your Tailscale tailnet without installing a 
 - Split-tunneling: choose domains that bypass your exit node (useful for sites that flag VPN traffic), or restrict the exit node to a specific set of domains
 - MagicDNS: reach your devices by hostname
 - Subnet routing: access resources behind subnet routers
+- Custom coordination server: point your browser's node at a self-hosted control server (such as Headscale) instead of Tailscale's default
 - Side panel mode: opt-in toggle keeps the Tailchrome UI docked next to your tabs instead of dismissing on click-away
 - Auto-connect on start: optional toggle that brings your tailnet up automatically when the browser launches
 - No system networking changes: only browser traffic is affected
@@ -32,7 +33,7 @@ Tailchrome uses a lightweight native helper app that runs a full Tailscale node 
 3. Log in to your Tailscale account
 4. Toggle the switch to connect
 
-**Privacy:** Tailchrome communicates only with Tailscale's coordination server and your tailnet peers. No data is sent to third parties. The extension requires the "proxy" permission to route browser traffic and "nativeMessaging" to communicate with the helper app.
+**Privacy:** Tailchrome communicates only with your coordination server (Tailscale's by default, or a custom one you configure) and your tailnet peers. No data is sent to third parties. The extension requires the "proxy" permission to route browser traffic and "nativeMessaging" to communicate with the helper app.
 
 ### Category
 Productivity
@@ -45,7 +46,7 @@ English
 
 ### Summary (250 chars max)
 
-Access your Tailscale tailnet directly from Firefox. Each browser profile runs its own isolated Tailscale node without affecting system networking. Supports exit nodes, MagicDNS, subnet routing, and an optional sidebar UI.
+Access your Tailscale tailnet directly from Firefox. Each browser profile runs its own isolated Tailscale node without affecting system networking. Supports exit nodes, MagicDNS, subnet routing, custom coordination servers, and a sidebar UI.
 
 ### Description
 
@@ -58,6 +59,7 @@ Tailchrome connects Firefox to your Tailscale tailnet without a system VPN. Each
 - Split-tunneling: choose domains that bypass an exit node, or restrict the exit node to specific domains only
 - MagicDNS hostname resolution
 - Subnet routing support
+- Custom coordination server support for self-hosted control servers such as Headscale
 - Optional sidebar mode keeps Tailchrome docked while you browse
 - Auto-connect on start: optional toggle to bring the tailnet up automatically on browser launch
 - Zero system networking changes
