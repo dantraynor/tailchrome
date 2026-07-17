@@ -102,6 +102,122 @@ describe("NativeHostConnection", () => {
     });
   });
 
+  describe("wantRunning resolver", () => {
+    it("includes wantRunning: false in the init message when the resolver resolves false", async () => {
+      const getWantRunning = vi.fn().mockResolvedValue(false);
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+        undefined,
+        getWantRunning,
+      );
+      await conn.connect();
+
+      expect(getWantRunning).toHaveBeenCalled();
+      expect(mockPort.port.postMessage).toHaveBeenCalledWith({
+        cmd: "init",
+        initID: "test-profile-id",
+        wantRunning: false,
+      });
+    });
+
+    it("includes wantRunning: true in the init message when the resolver resolves true", async () => {
+      const getWantRunning = vi.fn().mockResolvedValue(true);
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+        undefined,
+        getWantRunning,
+      );
+      await conn.connect();
+
+      expect(mockPort.port.postMessage).toHaveBeenCalledWith({
+        cmd: "init",
+        initID: "test-profile-id",
+        wantRunning: true,
+      });
+    });
+
+    it("resolves the resolver before opening the native port", async () => {
+      const order: string[] = [];
+      const getWantRunning = vi.fn().mockImplementation(async () => {
+        order.push("resolve");
+        return true;
+      });
+      connectNativeSpy.mockImplementation(() => {
+        order.push("connectNative");
+        return mockPort.port;
+      });
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+        undefined,
+        getWantRunning,
+      );
+      await conn.connect();
+
+      expect(order).toEqual(["resolve", "connectNative"]);
+    });
+
+    it("omits wantRunning from the init message when no resolver is given", async () => {
+      const conn = new NativeHostConnection("com.tailscale.test", onMessage, onStateChange);
+      await conn.connect();
+
+      const initCall = mockPort.port.postMessage.mock.calls.find(
+        (call) => (call[0] as { cmd: string }).cmd === "init",
+      );
+      expect(initCall![0]).toEqual({ cmd: "init", initID: "test-profile-id" });
+      expect(initCall![0]).not.toHaveProperty("wantRunning");
+    });
+
+    it("omits wantRunning from the init message when the resolver resolves undefined", async () => {
+      const getWantRunning = vi.fn().mockResolvedValue(undefined);
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+        undefined,
+        getWantRunning,
+      );
+      await conn.connect();
+
+      expect(mockPort.port.postMessage).toHaveBeenCalledWith({
+        cmd: "init",
+        initID: "test-profile-id",
+      });
+      const initCall = mockPort.port.postMessage.mock.calls.find(
+        (call) => (call[0] as { cmd: string }).cmd === "init",
+      );
+      expect(initCall![0]).not.toHaveProperty("wantRunning");
+    });
+
+    it("omits wantRunning and still sends init when the resolver rejects", async () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const getWantRunning = vi.fn().mockRejectedValue(new Error("boom"));
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+        undefined,
+        getWantRunning,
+      );
+      await conn.connect();
+
+      expect(mockPort.port.postMessage).toHaveBeenCalledWith({
+        cmd: "init",
+        initID: "test-profile-id",
+      });
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[NativeHost] wantRunning resolution failed:",
+        expect.any(Error),
+      );
+      warnSpy.mockRestore();
+    });
+  });
+
   describe("message handling", () => {
     it("notifies state change on first message received", async () => {
       const conn = new NativeHostConnection("com.tailscale.test", onMessage, onStateChange);

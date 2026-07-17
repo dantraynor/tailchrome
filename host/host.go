@@ -350,6 +350,24 @@ func (h *Host) handleInit(req Request) {
 	}
 	h.lc = lc
 
+	// tsnet.Start always applies WantRunning=true, bringing the node up on
+	// every host launch. When the extension asked for a stopped start
+	// (auto-connect off, or the user had disconnected), counteract it before
+	// the connection establishes (#90).
+	if req.WantRunning != nil && !*req.WantRunning {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+			Prefs: ipn.Prefs{
+				WantRunning: false,
+			},
+			WantRunningSet: true,
+		})
+		cancel()
+		if err != nil {
+			log.Printf("init: failed to apply wantRunning=false: %v", err)
+		}
+	}
+
 	// Start watching the IPN bus for state changes with a cancellable context.
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	h.watchCancel = watchCancel

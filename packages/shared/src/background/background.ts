@@ -23,8 +23,10 @@ import {
   isAutoConnectHandled,
   markAutoConnectHandled,
   readAutoConnectPref,
+  resolveStartupWantRunning,
   shouldAutoConnect,
   writeAutoConnectPref,
+  writeSessionIntent,
 } from "./auto-connect";
 import {
   DOMAIN_SPLIT_STORAGE_KEY,
@@ -495,6 +497,7 @@ export function initBackground(
     handleNativeMessage,
     handleNativeStateChange,
     timerService,
+    () => resolveStartupWantRunning(),
   );
 
   // Start the connection
@@ -548,7 +551,9 @@ export function initBackground(
       .then((handled) => {
         if (handled) return;
         return markAutoConnectHandled().then(() => {
-          if (!nativeHost.send({ cmd: "up" })) {
+          if (nativeHost.send({ cmd: "up" })) {
+            void writeSessionIntent(true).catch(() => {});
+          } else {
             sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
           }
         });
@@ -628,6 +633,9 @@ export function initBackground(
           void markAutoConnectHandled().catch((err) => {
             console.warn("[Background] markAutoConnectHandled failed:", err);
           });
+          void writeSessionIntent(false).catch((err) => {
+            console.warn("[Background] writeSessionIntent failed:", err);
+          });
           if (!nativeHost.send({ cmd: "down" })) {
             sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
           }
@@ -635,6 +643,9 @@ export function initBackground(
           state.backendState === "Stopped" ||
           state.backendState === "NoState"
         ) {
+          void writeSessionIntent(true).catch((err) => {
+            console.warn("[Background] writeSessionIntent failed:", err);
+          });
           if (!nativeHost.send({ cmd: "up" })) {
             sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
           }

@@ -181,9 +181,13 @@ describe("initBackground", () => {
 
   it("sends init message with profile ID", async () => {
     await setupBackground();
+    // With no session intent and the auto-connect pref off (default test
+    // mocks), resolveStartupWantRunning() resolves to false and the
+    // NativeHostConnection includes it in the init message.
     expect(nativePort.postMessage).toHaveBeenCalledWith({
       cmd: "init",
       initID: "test-id",
+      wantRunning: false,
     });
   });
 
@@ -2257,6 +2261,13 @@ describe("initBackground", () => {
           return Promise.resolve({});
         },
       );
+      // Give resolveStartupWantRunning() a recorded session intent so its own
+      // read of the (still-hydrating) pref is short-circuited and connect()
+      // isn't blocked on `autoConnectPref` before this test resolves it — the
+      // pending-pref scenario under test is the separate store-hydration read.
+      (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+        desiredWantRunning: false,
+      });
 
       await setupBackground();
       nativePort.postMessage.mockClear();
@@ -2310,6 +2321,10 @@ describe("initBackground", () => {
     it("does not send `up` when the pref is off", async () => {
       await setupBackground();
       nativePort.postMessage.mockClear();
+      // setupBackground() itself records the (off) pref as the session intent
+      // via resolveStartupWantRunning(); clear that so this assertion is only
+      // about the auto-connect decision under test.
+      (chrome.storage.session.set as ReturnType<typeof vi.fn>).mockClear();
 
       sendNativeMessage(stoppedStatus());
       await vi.advanceTimersByTimeAsync(0);
@@ -2367,7 +2382,42 @@ describe("initBackground", () => {
       popupPort.onMessage._listeners[0]!({ type: "toggle" });
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(chrome.storage.session.set).not.toHaveBeenCalled();
+      // A manual connect from Stopped does record the desired-running intent
+      // (see "writes desiredWantRunning: true on toggle-connect" below), but
+      // it must not mark the auto-connect-handled flag — that's reserved for
+      // an explicit disconnect overriding a future auto-connect.
+      expect(chrome.storage.session.set).not.toHaveBeenCalledWith({
+        autoConnectHandled: true,
+      });
+    });
+
+    it("writes desiredWantRunning: true to session storage on toggle-connect", async () => {
+      await setupBackground();
+      (chrome.storage.session.set as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "toggle" });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(chrome.storage.session.set).toHaveBeenCalledWith({
+        desiredWantRunning: true,
+      });
+    });
+
+    it("writes desiredWantRunning: false to session storage on toggle-disconnect", async () => {
+      await setupBackground();
+      sendNativeMessage(statusWith("Running"));
+      (chrome.storage.session.set as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "toggle" });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(chrome.storage.session.set).toHaveBeenCalledWith({
+        desiredWantRunning: false,
+      });
     });
 
     it("set-auto-connect-on-start persists to storage and broadcasts state", async () => {
