@@ -2420,6 +2420,22 @@ describe("initBackground", () => {
       });
     });
 
+    it("writes desiredWantRunning: true to session storage on login", async () => {
+      await setupBackground();
+      (chrome.storage.session.set as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The intent is recorded even when the login request itself can't
+      // proceed (default state has no login URL and no helper support).
+      expect(chrome.storage.session.set).toHaveBeenCalledWith({
+        desiredWantRunning: true,
+      });
+    });
+
     it("set-auto-connect-on-start persists to storage and broadcasts state", async () => {
       await setupBackground();
 
@@ -2454,6 +2470,100 @@ describe("initBackground", () => {
       expect(proxyManager.apply).toHaveBeenCalledWith(
         expect.objectContaining({ autoConnectOnStart: true }),
       );
+    });
+
+    describe("auto-disconnect fallback", () => {
+      function countDownCalls(): number {
+        return nativePort.postMessage.mock.calls.filter(
+          (call) => (call[0] as { cmd: string }).cmd === "down",
+        ).length;
+      }
+
+      it("sends `down` when the node comes up Running against a stay-down intent", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("sends `down` when the node comes up Starting against a stay-down intent", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith("Starting"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("does not send `down` when the recorded intent is to run", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: true,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("does not send `down` when no intent is recorded", async () => {
+        // Default session mock resolves {}: readSessionIntent() → undefined.
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("does not send `down` once a popup has connected", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        const popupPort = createPopupPort();
+        connectListeners[0]!(popupPort);
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("sends `down` only once across repeated qualifying statuses", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(countDownCalls()).toBe(1);
+      });
     });
   });
 

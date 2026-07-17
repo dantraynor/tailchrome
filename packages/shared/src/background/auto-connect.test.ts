@@ -239,4 +239,31 @@ describe("resolveStartupWantRunning", () => {
     expect(await resolveStartupWantRunning()).toBe(false);
     expect(sessionSetSpy).toHaveBeenCalledWith({ desiredWantRunning: false });
   });
+
+  it("still resolves to true and logs a warning when caching the intent fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    sessionSetSpy.mockRejectedValue(new Error("quota exceeded"));
+    (chrome.storage.local.get as unknown as ReturnType<typeof vi.fn>) = vi.fn(() =>
+      Promise.resolve({ [AUTO_CONNECT_PREF_KEY]: true }),
+    );
+
+    await expect(resolveStartupWantRunning()).resolves.toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[AutoConnect] failed to cache session intent:",
+      expect.any(Error),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("still resolves to false and logs a warning when caching the intent fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    sessionSetSpy.mockRejectedValue(new Error("quota exceeded"));
+
+    await expect(resolveStartupWantRunning()).resolves.toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[AutoConnect] failed to cache session intent:",
+      expect.any(Error),
+    );
+    warnSpy.mockRestore();
+  });
 });

@@ -23,6 +23,7 @@ import {
   isAutoConnectHandled,
   markAutoConnectHandled,
   readAutoConnectPref,
+  readSessionIntent,
   resolveStartupWantRunning,
   shouldAutoConnect,
   writeAutoConnectPref,
@@ -215,6 +216,13 @@ export function initBackground(
 
   // Connected popup ports
   const popupPorts: Set<chrome.runtime.Port> = new Set();
+  // Whether a popup has connected during this background lifetime. Gates the
+  // auto-disconnect fallback to the unattended startup window, so it can
+  // never fight an action the user just took from the UI.
+  let popupEverConnected = false;
+  // In-memory (not session) latch so a host respawn that auto-ups again in a
+  // later background lifetime gets corrected again.
+  let autoDisconnectAttempted = false;
 
   // Track whether we've attempted to restore exit node for this connection
   let exitNodeRestoreAttempted = false;
@@ -391,6 +399,7 @@ export function initBackground(
       }
 
       maybeAutoConnect(msg.status.backendState);
+      maybeAutoDisconnect(msg.status.backendState);
     }
 
     // Profiles result
@@ -550,16 +559,41 @@ export function initBackground(
     void isAutoConnectHandled()
       .then((handled) => {
         if (handled) return;
-        return markAutoConnectHandled().then(() => {
-          if (nativeHost.send({ cmd: "up" })) {
-            void writeSessionIntent(true).catch(() => {});
-          } else {
-            sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
-          }
-        });
+        return markAutoConnectHandled()
+          // Record the intent before sending so the auto-disconnect fallback
+          // can never read a stale "stay down" while this `up` is in flight.
+          .then(() => writeSessionIntent(true).catch(() => {}))
+          .then(() => {
+            if (!nativeHost.send({ cmd: "up" })) {
+              sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
+            }
+          });
       })
       .catch((err) => {
         console.warn("[Background] auto-connect failed:", err);
+      });
+  }
+
+  // Fallback for the wantRunning init hint being ignored: helpers that
+  // predate the field (patch-version differences are tolerated, so an
+  // extension-only update still talks to them) and a host that failed to
+  // apply WantRunning=false at init both bring the node up at launch. If the
+  // session resolved to "stay down" and the node still comes up before any
+  // popup has opened, send an explicit down.
+  function maybeAutoDisconnect(
+    backendState: TailscaleState["backendState"],
+  ): void {
+    if (backendState !== "Starting" && backendState !== "Running") return;
+    if (popupEverConnected || autoDisconnectAttempted) return;
+    void readSessionIntent()
+      .then((intent) => {
+        if (intent !== false) return;
+        if (popupEverConnected || autoDisconnectAttempted) return;
+        autoDisconnectAttempted = true;
+        nativeHost.send({ cmd: "down" });
+      })
+      .catch((err) => {
+        console.warn("[Background] auto-disconnect failed:", err);
       });
   }
 
@@ -587,6 +621,7 @@ export function initBackground(
     if (port.name !== "popup") return;
 
     popupPorts.add(port);
+    popupEverConnected = true;
 
     // If we're in install error or version mismatch state, retry the native
     // host connection in case the user just installed or updated the helper.
@@ -666,6 +701,13 @@ export function initBackground(
           sendToastToPopup("Still waiting for Tailscale to return a login URL.", "info");
           break;
         }
+        // Logging in is an explicit request to bring the node online, and
+        // helpers that predate the wantRunning hint connect right after auth.
+        // Record the intent so a later host respawn or the auto-disconnect
+        // fallback doesn't yank a freshly logged-in user offline.
+        void writeSessionIntent(true).catch((err) => {
+          console.warn("[Background] writeSessionIntent failed:", err);
+        });
         if (
           state.browseToURL &&
           isValidLoginURL(state.browseToURL, state.prefs?.controlURL ?? null)

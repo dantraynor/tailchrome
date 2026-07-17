@@ -24,6 +24,8 @@ export class NativeHostConnection {
     // Resolves the wantRunning hint sent with init. The host starts a fresh
     // tsnet node with WantRunning forced on, so init must say when the node
     // should stay down (auto-connect off, or an in-session disconnect).
+    // Helpers that predate this field ignore it; the background compensates
+    // by sending an explicit `down` if the node comes up against the hint.
     private getWantRunning?: () => Promise<boolean | undefined>,
   ) {
     this.timerService = timerService ?? new DefaultTimerService();

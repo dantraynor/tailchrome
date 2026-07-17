@@ -58,7 +58,13 @@ export async function resolveStartupWantRunning(): Promise<boolean> {
   const intent = await readSessionIntent();
   if (intent !== undefined) return intent;
   const pref = await readAutoConnectPref();
-  await writeSessionIntent(pref);
+  // The session cache is an optimization; a failed write must not discard
+  // the resolved preference (dropping the hint would let the node auto-up).
+  try {
+    await writeSessionIntent(pref);
+  } catch (err) {
+    console.warn("[AutoConnect] failed to cache session intent:", err);
+  }
   return pref;
 }
 

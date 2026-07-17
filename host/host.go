@@ -353,18 +353,28 @@ func (h *Host) handleInit(req Request) {
 	// tsnet.Start always applies WantRunning=true, bringing the node up on
 	// every host launch. When the extension asked for a stopped start
 	// (auto-connect off, or the user had disconnected), counteract it before
-	// the connection establishes (#90).
+	// the connection establishes (#90). A failure here leaves the node
+	// running against that request, so retry briefly; if it still fails, the
+	// extension notices the node coming up against its hint and sends an
+	// explicit `down`. Init is still reported as successful either way — the
+	// server is usable, only the run state is off.
 	if req.WantRunning != nil && !*req.WantRunning {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		_, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
-			Prefs: ipn.Prefs{
-				WantRunning: false,
-			},
-			WantRunningSet: true,
-		})
-		cancel()
-		if err != nil {
-			log.Printf("init: failed to apply wantRunning=false: %v", err)
+		for attempt := 1; attempt <= 3; attempt++ {
+			if attempt > 1 {
+				time.Sleep(500 * time.Millisecond)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+				Prefs: ipn.Prefs{
+					WantRunning: false,
+				},
+				WantRunningSet: true,
+			})
+			cancel()
+			if err == nil {
+				break
+			}
+			log.Printf("init: failed to apply wantRunning=false (attempt %d/3): %v", attempt, err)
 		}
 	}
 
