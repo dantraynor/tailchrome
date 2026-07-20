@@ -1,6 +1,6 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 # Tailscale library version, read from go.mod and stamped into the binary so the
-# embedded tsnet node reports a clean version (e.g. "1.94.2") instead of the
+# embedded tsnet node reports a clean version (e.g. "1.100.0") instead of the
 # "-ERR-BuildInfo"/"-dev" fallback that a plain `go build` produces. Derived (not
 # hardcoded) so it tracks the pinned dependency automatically when it is bumped.
 TS_VERSION = $(shell cd host && go list -m -f '{{.Version}}' tailscale.com 2>/dev/null | sed 's/^v//')
