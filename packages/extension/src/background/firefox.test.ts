@@ -32,6 +32,10 @@ describe("startFirefoxBackground", () => {
   let alarmsCreate: ReturnType<typeof vi.fn>;
   let alarmListener: ((alarm: { name: string }) => void) | null;
   let onStartupAddListener: ReturnType<typeof vi.fn>;
+  let startupListener: (() => void) | null;
+  let installedListener:
+    | ((details: chrome.runtime.InstalledDetails) => void)
+    | null;
   let originalBrowser: unknown;
 
   const chromeRuntime = (
@@ -56,8 +60,19 @@ describe("startFirefoxBackground", () => {
       alarmListener = listener;
     });
     alarmsCreate = vi.fn();
-    onStartupAddListener = vi.fn();
+    startupListener = null;
+    installedListener = null;
+    onStartupAddListener = vi.fn((listener: () => void) => {
+      startupListener = listener;
+    });
     chromeRuntime["onStartup"] = { addListener: onStartupAddListener };
+    chromeRuntime["onInstalled"] = {
+      addListener: vi.fn(
+        (listener: (details: chrome.runtime.InstalledDetails) => void) => {
+          installedListener = listener;
+        },
+      ),
+    };
 
     originalBrowser = getBrowser();
     setBrowser({
@@ -95,6 +110,7 @@ describe("startFirefoxBackground", () => {
   afterEach(() => {
     setBrowser(originalBrowser);
     delete chromeRuntime["onStartup"];
+    delete chromeRuntime["onInstalled"];
   });
 
   it("registers the Firefox proxy and alarm listeners immediately", () => {
@@ -138,11 +154,73 @@ describe("startFirefoxBackground", () => {
     expect(mocks.initBackground).toHaveBeenCalledWith(
       mocks.proxyManagerInstance,
       FIREFOX_NATIVE_HOST_ID,
-      { browserKind: "firefox", skipKeepalive: true },
+      {
+        browserKind: "firefox",
+        skipKeepalive: true,
+        initialRuntimeLifecycle: {
+          browserStartup: false,
+          installedReason: undefined,
+        },
+      },
     );
     expect(alarmsCreate).toHaveBeenCalledWith("keepalive", {
       periodInMinutes: 25_000 / 60_000,
     });
+  });
+
+  it("forwards lifecycle events received while proxy restoration is pending", async () => {
+    let resolveRestore!: (value: boolean) => void;
+    mocks.restoreFromStorage.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveRestore = resolve;
+      }),
+    );
+
+    startFirefoxBackground();
+    startupListener?.();
+    installedListener?.({ reason: "update" } as chrome.runtime.InstalledDetails);
+
+    resolveRestore(true);
+    await flushMicrotasks();
+
+    expect(mocks.initBackground).toHaveBeenCalledWith(
+      mocks.proxyManagerInstance,
+      FIREFOX_NATIVE_HOST_ID,
+      {
+        browserKind: "firefox",
+        skipKeepalive: true,
+        initialRuntimeLifecycle: {
+          browserStartup: true,
+          installedReason: "update",
+        },
+      },
+    );
+  });
+
+  it("forwards a fresh-install event received before proxy restoration", async () => {
+    let resolveRestore!: (value: boolean) => void;
+    mocks.restoreFromStorage.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveRestore = resolve;
+      }),
+    );
+
+    startFirefoxBackground();
+    installedListener?.({ reason: "install" } as chrome.runtime.InstalledDetails);
+
+    resolveRestore(true);
+    await flushMicrotasks();
+
+    expect(mocks.initBackground).toHaveBeenCalledWith(
+      mocks.proxyManagerInstance,
+      FIREFOX_NATIVE_HOST_ID,
+      expect.objectContaining({
+        initialRuntimeLifecycle: {
+          browserStartup: false,
+          installedReason: "install",
+        },
+      }),
+    );
   });
 
   it("forwards keepalive alarms to the shared background handle", async () => {

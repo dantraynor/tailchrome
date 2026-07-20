@@ -20,13 +20,15 @@ import { BadgeManager } from "./badge-manager";
 import { DefaultTimerService, type TimerService } from "./timer-service";
 import { applyUiSurface, readUiSurface, type BrowserKind } from "./ui-surface";
 import {
+  clearPersistedIntent,
   isAutoConnectHandled,
   markAutoConnectHandled,
   readAutoConnectPref,
+  readPersistedIntent,
   readSessionIntent,
-  resolveStartupWantRunning,
   shouldAutoConnect,
   writeAutoConnectPref,
+  writePersistedIntent,
   writeSessionIntent,
 } from "./auto-connect";
 import {
@@ -52,10 +54,22 @@ export interface InitBackgroundOptions {
   /** Skip the built-in setInterval keepalive (e.g. when the caller uses browser.alarms instead). */
   skipKeepalive?: boolean;
   browserKind?: BrowserKind;
+  /** Lifecycle events captured synchronously by a caller that must await before initializing. */
+  initialRuntimeLifecycle?: {
+    browserStartup?: boolean;
+    installedReason?: chrome.runtime.InstalledDetails["reason"];
+  };
 }
 
 const LOGIN_OPEN_TIMEOUT_MS = 30_000;
 const LOGIN_OPEN_TIMEOUT_NAME = "login-open-timeout";
+
+// How long the update corrector waits for onStartup before trusting that an
+// onInstalled("update") happened mid-session. Both events of one service-worker
+// start dispatch back-to-back right after evaluation, so a short settle is
+// enough to observe them together when the update applied at browser launch.
+const UPDATE_RESTORE_SETTLE_MS = 250;
+const RUNTIME_LIFECYCLE_SETTLE_TIMER_NAME = "runtime-lifecycle-settle";
 
 /**
  * Returns true if `url` is a login URL we'll open in a tab. Always accepts the
@@ -216,13 +230,75 @@ export function initBackground(
 
   // Connected popup ports
   const popupPorts: Set<chrome.runtime.Port> = new Set();
-  // Whether a popup has connected during this background lifetime. Gates the
-  // auto-disconnect fallback to the unattended startup window, so it can
-  // never fight an action the user just took from the UI.
-  let popupEverConnected = false;
-  // In-memory (not session) latch so a host respawn that auto-ups again in a
-  // later background lifetime gets corrected again.
+  // Newest connection decision this background lifetime knows about. Updated
+  // synchronously at every point the decision changes (user toggle, login,
+  // auto-connect, startup hint resolution), so the auto-disconnect fallback
+  // can never act on a storage read that lags behind a click the user just
+  // made — the mirror always wins over storage.
+  let sessionIntentMirror: boolean | undefined;
+  // Serialize storage writes and read the mirror only when each queued write
+  // begins. Rapid toggles and an in-flight startup resolution therefore
+  // converge on the newest decision instead of allowing a slower old write
+  // to become the value a later service-worker lifetime restores.
+  let intentWriteChain: Promise<void> = Promise.resolve();
+  // One corrective `down` per native-host connection. A fresh host process
+  // re-applies tsnet's forced auto-up at init, so the latch resets when the
+  // host disconnects (see handleNativeStateChange) and the next connection
+  // gets its own corrective window.
   let autoDisconnectAttempted = false;
+
+  // Register runtime lifecycle listeners before the first asynchronous host
+  // initialization step. An update clears storage.session, so the native init
+  // hint must wait briefly for these signals when a persisted intent exists;
+  // restoring only after connecting would transiently apply the opposite
+  // decision. Firefox forwards events captured before its proxy restore.
+  let sawBrowserStartup =
+    options?.initialRuntimeLifecycle?.browserStartup === true;
+  let sawExtensionUpdate =
+    options?.initialRuntimeLifecycle?.installedReason === "update";
+  let startupClearPromise: Promise<void> = Promise.resolve();
+  const handleBrowserStartup = (): void => {
+    sawBrowserStartup = true;
+    intentWriteChain = intentWriteChain.then(async () => {
+      try {
+        await clearPersistedIntent();
+      } catch (err) {
+        console.warn("[Background] clearPersistedIntent failed:", err);
+      }
+    });
+    startupClearPromise = intentWriteChain;
+  };
+  const handleInstalled = (
+    reason: chrome.runtime.InstalledDetails["reason"],
+  ): void => {
+    chrome.contextMenus.create({
+      id: "tailscale-send-page",
+      title: "Send page URL to Tailscale device",
+      contexts: ["page"],
+    });
+    if (reason === "update") sawExtensionUpdate = true;
+  };
+  chrome.runtime.onStartup?.addListener(handleBrowserStartup);
+  chrome.runtime.onInstalled?.addListener((details) => {
+    handleInstalled(details.reason);
+  });
+  if (sawBrowserStartup) handleBrowserStartup();
+  if (options?.initialRuntimeLifecycle?.installedReason) {
+    handleInstalled(options.initialRuntimeLifecycle.installedReason);
+  }
+  const initialLifecycleCaptured =
+    sawBrowserStartup ||
+    (options?.initialRuntimeLifecycle?.installedReason != null &&
+      options.initialRuntimeLifecycle.installedReason !== "update");
+  const runtimeLifecycleSettled = initialLifecycleCaptured
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => {
+        timerService.setTimeout(
+          RUNTIME_LIFECYCLE_SETTLE_TIMER_NAME,
+          resolve,
+          UPDATE_RESTORE_SETTLE_MS,
+        );
+      });
 
   // Track whether we've attempted to restore exit node for this connection
   let exitNodeRestoreAttempted = false;
@@ -478,6 +554,7 @@ export function initBackground(
   function handleNativeStateChange(connected: boolean): void {
     if (!connected) {
       exitNodeRestoreAttempted = false;
+      autoDisconnectAttempted = false;
       clearPendingLoginOpen();
     }
     store.update({
@@ -501,12 +578,68 @@ export function initBackground(
     });
   }
 
+  // Records a connection decision everywhere it needs to live: the in-memory
+  // mirror (synchronous, so nothing can race it), session storage (survives
+  // service-worker restarts), and local storage (survives the session-storage
+  // wipe an extension update performs; cleared again at browser startup).
+  function enqueueIntentWrite(persistAcrossUpdate: boolean): Promise<void> {
+    intentWriteChain = intentWriteChain.then(async () => {
+      const value = sessionIntentMirror;
+      if (value === undefined) return;
+      try {
+        await writeSessionIntent(value);
+      } catch (err) {
+        console.warn("[Background] writeSessionIntent failed:", err);
+      }
+      if (persistAcrossUpdate) {
+        try {
+          await writePersistedIntent(value);
+        } catch (err) {
+          console.warn("[Background] writePersistedIntent failed:", err);
+        }
+      }
+    });
+    return intentWriteChain;
+  }
+
+  function recordIntent(value: boolean): void {
+    sessionIntentMirror = value;
+    void enqueueIntentWrite(true);
+  }
+
   const nativeHost = new NativeHostConnection(
     nativeHostId,
     handleNativeMessage,
     handleNativeStateChange,
     timerService,
-    () => resolveStartupWantRunning(),
+    async () => {
+      // A decision already made this lifetime is fresher than storage — a
+      // reconnect must restore it even when the session write had failed.
+      if (sessionIntentMirror !== undefined) return sessionIntentMirror;
+      const sessionIntent = await readSessionIntent();
+      let resolved: boolean;
+      if (sessionIntent !== undefined) {
+        resolved = sessionIntent;
+      } else {
+        const [pref, persisted] = await Promise.all([
+          readAutoConnectPref(),
+          readPersistedIntent(),
+        ]);
+        if (persisted !== undefined) {
+          await runtimeLifecycleSettled;
+        }
+        if (sawBrowserStartup) {
+          await startupClearPromise;
+        }
+        const recoverUpdateIntent =
+          persisted !== undefined && sawExtensionUpdate && !sawBrowserStartup;
+        resolved = recoverUpdateIntent ? persisted : pref;
+      }
+      // A user action that landed while the resolution was in flight wins.
+      sessionIntentMirror ??= resolved;
+      await enqueueIntentWrite(false);
+      return sessionIntentMirror;
+    },
   );
 
   // Start the connection
@@ -556,18 +689,21 @@ export function initBackground(
   function maybeAutoConnect(backendState: TailscaleState["backendState"]): void {
     if (!store.getState().autoConnectOnStart) return;
     if (!shouldAutoConnect(backendState)) return;
+    // A synchronous decision is newer than the session flag and closes the
+    // window where an update-restored/manual disconnect is still waiting for
+    // its asynchronous handled-marker write.
+    if (sessionIntentMirror === false) return;
     void isAutoConnectHandled()
       .then((handled) => {
         if (handled) return;
-        return markAutoConnectHandled()
+        return markAutoConnectHandled().then(() => {
           // Record the intent before sending so the auto-disconnect fallback
           // can never read a stale "stay down" while this `up` is in flight.
-          .then(() => writeSessionIntent(true).catch(() => {}))
-          .then(() => {
-            if (!nativeHost.send({ cmd: "up" })) {
-              sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
-            }
-          });
+          recordIntent(true);
+          if (!nativeHost.send({ cmd: "up" })) {
+            sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
+          }
+        });
       })
       .catch((err) => {
         console.warn("[Background] auto-connect failed:", err);
@@ -577,24 +713,40 @@ export function initBackground(
   // Fallback for the wantRunning init hint being ignored: helpers that
   // predate the field (patch-version differences are tolerated, so an
   // extension-only update still talks to them) and a host that failed to
-  // apply WantRunning=false at init both bring the node up at launch. If the
-  // session resolved to "stay down" and the node still comes up before any
-  // popup has opened, send an explicit down.
+  // apply WantRunning=false at init both bring the node up against a
+  // stay-down decision. The mirror is authoritative when set — every user
+  // action updates it synchronously, so unlike a storage read it can never
+  // lag behind a click and yank down a node the user just brought up.
   function maybeAutoDisconnect(
     backendState: TailscaleState["backendState"],
   ): void {
     if (backendState !== "Starting" && backendState !== "Running") return;
-    if (popupEverConnected || autoDisconnectAttempted) return;
+    if (autoDisconnectAttempted) return;
+    if (sessionIntentMirror !== undefined) {
+      if (sessionIntentMirror === false) sendCorrectiveDown();
+      return;
+    }
     void readSessionIntent()
       .then((intent) => {
         if (intent !== false) return;
-        if (popupEverConnected || autoDisconnectAttempted) return;
-        autoDisconnectAttempted = true;
-        nativeHost.send({ cmd: "down" });
+        if (autoDisconnectAttempted) return;
+        // A user action that landed while the read was in flight wins.
+        if (sessionIntentMirror === true) return;
+        sessionIntentMirror = false;
+        sendCorrectiveDown();
       })
       .catch((err) => {
         console.warn("[Background] auto-disconnect failed:", err);
       });
+  }
+
+  function sendCorrectiveDown(): void {
+    autoDisconnectAttempted = true;
+    if (!nativeHost.send({ cmd: "down" })) {
+      // Port already gone: the disconnect handler resets the latch and the
+      // next connection gets its own corrective window.
+      autoDisconnectAttempted = false;
+    }
   }
 
   /**
@@ -621,7 +773,6 @@ export function initBackground(
     if (port.name !== "popup") return;
 
     popupPorts.add(port);
-    popupEverConnected = true;
 
     // If we're in install error or version mismatch state, retry the native
     // host connection in case the user just installed or updated the helper.
@@ -668,9 +819,7 @@ export function initBackground(
           void markAutoConnectHandled().catch((err) => {
             console.warn("[Background] markAutoConnectHandled failed:", err);
           });
-          void writeSessionIntent(false).catch((err) => {
-            console.warn("[Background] writeSessionIntent failed:", err);
-          });
+          recordIntent(false);
           if (!nativeHost.send({ cmd: "down" })) {
             sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
           }
@@ -678,9 +827,7 @@ export function initBackground(
           state.backendState === "Stopped" ||
           state.backendState === "NoState"
         ) {
-          void writeSessionIntent(true).catch((err) => {
-            console.warn("[Background] writeSessionIntent failed:", err);
-          });
+          recordIntent(true);
           if (!nativeHost.send({ cmd: "up" })) {
             sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
           }
@@ -705,9 +852,7 @@ export function initBackground(
         // helpers that predate the wantRunning hint connect right after auth.
         // Record the intent so a later host respawn or the auto-disconnect
         // fallback doesn't yank a freshly logged-in user offline.
-        void writeSessionIntent(true).catch((err) => {
-          console.warn("[Background] writeSessionIntent failed:", err);
-        });
+        recordIntent(true);
         if (
           state.browseToURL &&
           isValidLoginURL(state.browseToURL, state.prefs?.controlURL ?? null)
@@ -887,14 +1032,6 @@ export function initBackground(
       }
     }, KEEPALIVE_INTERVAL_MS);
   }
-
-  chrome.runtime.onInstalled?.addListener(() => {
-    chrome.contextMenus.create({
-      id: "tailscale-send-page",
-      title: "Send page URL to Tailscale device",
-      contexts: ["page"],
-    });
-  });
 
   chrome.contextMenus.onClicked.addListener((info) => {
     if (info.menuItemId !== "tailscale-send-page") return;

@@ -46,6 +46,13 @@ type Host struct {
 	// watchCancel cancels the IPN bus watcher goroutine.
 	watchCancel context.CancelFunc
 
+	// correctionCancel stops the async retries of the startup
+	// WantRunning=false correction. Only touched from the dispatch goroutine;
+	// an explicit run-state command cancels it first so a stale retry can
+	// never override what the user just asked for.
+	correctionCancel context.CancelFunc
+	correctionDone   <-chan struct{}
+
 	// Cached state for building status updates.
 	stateMu         sync.Mutex
 	lastState       string
@@ -293,6 +300,7 @@ func (h *Host) handleInit(req Request) {
 
 	// If initialized with a different ID, cancel watcher and close the old server.
 	if h.ts != nil {
+		h.cancelStartupCorrection()
 		if h.watchCancel != nil {
 			h.watchCancel()
 			h.watchCancel = nil
@@ -353,29 +361,14 @@ func (h *Host) handleInit(req Request) {
 	// tsnet.Start always applies WantRunning=true, bringing the node up on
 	// every host launch. When the extension asked for a stopped start
 	// (auto-connect off, or the user had disconnected), counteract it before
-	// the connection establishes (#90). A failure here leaves the node
-	// running against that request, so retry briefly; if it still fails, the
-	// extension notices the node coming up against its hint and sends an
-	// explicit `down`. Init is still reported as successful either way — the
-	// server is usable, only the run state is off.
+	// the connection establishes (#90). Run the correction asynchronously so
+	// init never stalls the sole reader of native-messaging frames. An explicit
+	// run-state command stops future retries and waits for any in-flight edit to
+	// finish before applying the newer decision. The local API can continue an
+	// EditPrefs after its client context is canceled, so timeout-based ordering
+	// would allow an old `false` to land after a user-requested `up`.
 	if req.WantRunning != nil && !*req.WantRunning {
-		for attempt := 1; attempt <= 3; attempt++ {
-			if attempt > 1 {
-				time.Sleep(500 * time.Millisecond)
-			}
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			_, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
-				Prefs: ipn.Prefs{
-					WantRunning: false,
-				},
-				WantRunningSet: true,
-			})
-			cancel()
-			if err == nil {
-				break
-			}
-			log.Printf("init: failed to apply wantRunning=false (attempt %d/3): %v", attempt, err)
-		}
+		h.startWantRunningFalseCorrection(lc)
 	}
 
 	// Start watching the IPN bus for state changes with a cancellable context.
@@ -389,11 +382,75 @@ func (h *Host) handleInit(req Request) {
 	})
 }
 
+// applyWantRunningFalse issues a single ordered EditPrefs(WantRunning=false).
+// Do not put a client-side timeout on this call: localapi may keep processing
+// a decoded request after cancellation, which would make its completion order
+// unknowable to the next explicit run-state command.
+func (h *Host) applyWantRunningFalse(lc *local.Client) error {
+	_, err := lc.EditPrefs(context.Background(), &ipn.MaskedPrefs{
+		Prefs: ipn.Prefs{
+			WantRunning: false,
+		},
+		WantRunningSet: true,
+	})
+	return err
+}
+
+// startWantRunningFalseCorrection applies and, on failure, retries the startup
+// correction off the dispatch goroutine.
+func (h *Host) startWantRunningFalseCorrection(lc *local.Client) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	h.correctionCancel = cancel
+	h.correctionDone = done
+	go func() {
+		defer cancel()
+		defer close(done)
+		for attempt := 1; attempt <= 3; attempt++ {
+			if attempt > 1 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(500 * time.Millisecond):
+				}
+			}
+			err := h.applyWantRunningFalse(lc)
+			if err == nil {
+				return
+			}
+			log.Printf("init: failed to apply wantRunning=false (attempt %d/3): %v", attempt, err)
+		}
+	}()
+}
+
+// cancelStartupCorrection stops any pending startup-correction retries. Must
+// run before an explicit run-state change is applied, on the same dispatch
+// goroutine that started the retries.
+func (h *Host) cancelStartupCorrection() {
+	cancel := h.correctionCancel
+	done := h.correctionDone
+	h.correctionCancel = nil
+	h.correctionDone = nil
+	if cancel == nil {
+		return
+	}
+	cancel()
+	// Stopping future retries alone does not establish ordering with an
+	// EditPrefs call already in flight. Wait for it to return before issuing
+	// the explicit command, otherwise its stale WantRunning=false could arrive
+	// after a user-requested `up` and undo it.
+	if done != nil {
+		<-done
+	}
+}
+
 // handleLogin requests or resumes an interactive Tailscale login flow.
 func (h *Host) handleLogin() {
 	if err := h.requireInit("login"); err != nil {
 		return
 	}
+
+	h.cancelStartupCorrection()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -408,9 +465,9 @@ func (h *Host) handleUp() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	_, err := h.lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+	h.cancelStartupCorrection()
+
+	_, err := h.lc.EditPrefs(context.Background(), &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			WantRunning: true,
 		},
@@ -430,9 +487,9 @@ func (h *Host) handleDown() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	_, err := h.lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+	h.cancelStartupCorrection()
+
+	_, err := h.lc.EditPrefs(context.Background(), &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			WantRunning: false,
 		},
@@ -642,6 +699,7 @@ func (h *Host) handleSetPrefs(req Request) {
 		mp.Prefs.ShieldsUp = *partial.ShieldsUp
 	}
 	if partial.WantRunning != nil {
+		h.cancelStartupCorrection()
 		mp.WantRunningSet = true
 		mp.Prefs.WantRunning = *partial.WantRunning
 	}
@@ -653,7 +711,11 @@ func (h *Host) handleSetPrefs(req Request) {
 		mp.HostnameSet = true
 		mp.Prefs.Hostname = *partial.Hostname
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx := context.Background()
+	cancel := func() {}
+	if partial.WantRunning == nil {
+		ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
+	}
 	defer cancel()
 
 	// Fetch current prefs when we need to merge against them (route advertise) or
@@ -768,6 +830,8 @@ func (h *Host) handleLogout() {
 	if err := h.requireInit("logout"); err != nil {
 		return
 	}
+
+	h.cancelStartupCorrection()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

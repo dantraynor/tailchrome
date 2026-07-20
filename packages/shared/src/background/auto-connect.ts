@@ -3,6 +3,7 @@ import type { BackendState } from "../types";
 export const AUTO_CONNECT_PREF_KEY = "autoConnectOnStart";
 const SESSION_KEY = "autoConnectHandled";
 const INTENT_KEY = "desiredWantRunning";
+const LAST_INTENT_KEY = "lastSessionWantRunning";
 
 // `chrome.storage.session` is MV3-only and may be missing on older builds.
 // Resolve lazily so the module loads even if the API is absent.
@@ -50,22 +51,34 @@ export async function writeSessionIntent(value: boolean): Promise<void> {
   await area.set({ [INTENT_KEY]: value });
 }
 
+// Local-storage copy of the session intent. chrome.storage.session is wiped
+// not only at browser restart but also when the extension is updated or
+// reloaded mid-session; this copy is what lets the update corrector in
+// background.ts tell those apart and restore a connection the user had
+// started. Cleared at browser startup (runtime.onStartup) so a genuinely
+// fresh session is governed by the auto-connect preference alone.
+export async function readPersistedIntent(): Promise<boolean | undefined> {
+  const result = await chrome.storage.local.get(LAST_INTENT_KEY);
+  const value = result[LAST_INTENT_KEY];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+export async function writePersistedIntent(value: boolean): Promise<void> {
+  await chrome.storage.local.set({ [LAST_INTENT_KEY]: value });
+}
+
+export async function clearPersistedIntent(): Promise<void> {
+  await chrome.storage.local.remove(LAST_INTENT_KEY);
+}
+
 // Resolves the `wantRunning` hint for host init: the in-session intent when
 // one is recorded, otherwise the persisted auto-connect preference. The
-// fallback is recorded as the session intent so flipping the preference
-// mid-session doesn't change what a host respawn restores.
+// caller records the final value after arbitrating it against any user action
+// that arrived while these asynchronous reads were in flight.
 export async function resolveStartupWantRunning(): Promise<boolean> {
   const intent = await readSessionIntent();
   if (intent !== undefined) return intent;
-  const pref = await readAutoConnectPref();
-  // The session cache is an optimization; a failed write must not discard
-  // the resolved preference (dropping the hint would let the node auto-up).
-  try {
-    await writeSessionIntent(pref);
-  } catch (err) {
-    console.warn("[AutoConnect] failed to cache session intent:", err);
-  }
-  return pref;
+  return readAutoConnectPref();
 }
 
 // Backend states where sending `up` is the right action to bring the node online.

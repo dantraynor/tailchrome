@@ -7,7 +7,7 @@
 // The listener body is intentionally empty: waking the background evaluates
 // the entry module, and the entry point's init connects the native host and
 // runs the auto-connect flow.
-export function registerStartupWakeListener(): void {
+export function registerStartupWakeListener(listener: () => void = () => {}): void {
   const onStartup = chrome.runtime.onStartup as
     | typeof chrome.runtime.onStartup
     | undefined;
@@ -18,5 +18,5 @@ export function registerStartupWakeListener(): void {
     );
     return;
   }
-  onStartup.addListener(() => {});
+  onStartup.addListener(listener);
 }

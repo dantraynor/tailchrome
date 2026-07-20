@@ -2,13 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { BackendState } from "../types";
 import {
   AUTO_CONNECT_PREF_KEY,
+  clearPersistedIntent,
   isAutoConnectHandled,
   markAutoConnectHandled,
   readAutoConnectPref,
+  readPersistedIntent,
   readSessionIntent,
   resolveStartupWantRunning,
   shouldAutoConnect,
   writeAutoConnectPref,
+  writePersistedIntent,
   writeSessionIntent,
 } from "./auto-connect";
 
@@ -191,6 +194,46 @@ describe("session intent fallback (no chrome.storage.session)", () => {
   });
 });
 
+describe("persisted intent (storage.local)", () => {
+  let getSpy: ReturnType<typeof vi.fn>;
+  let setSpy: ReturnType<typeof vi.fn>;
+  let removeSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    getSpy = vi.fn(() => Promise.resolve({}));
+    setSpy = vi.fn(() => Promise.resolve());
+    removeSpy = vi.fn(() => Promise.resolve());
+    (chrome.storage.local.get as unknown as ReturnType<typeof vi.fn>) = getSpy;
+    (chrome.storage.local.set as unknown as ReturnType<typeof vi.fn>) = setSpy;
+    (chrome.storage.local.remove as unknown as ReturnType<typeof vi.fn>) = removeSpy;
+  });
+
+  it("round-trips a value written with writePersistedIntent", async () => {
+    await writePersistedIntent(true);
+    expect(setSpy).toHaveBeenCalledWith({ lastSessionWantRunning: true });
+
+    getSpy.mockResolvedValueOnce({ lastSessionWantRunning: true });
+    expect(await readPersistedIntent()).toBe(true);
+
+    getSpy.mockResolvedValueOnce({ lastSessionWantRunning: false });
+    expect(await readPersistedIntent()).toBe(false);
+  });
+
+  it("readPersistedIntent returns undefined when the key is missing", async () => {
+    expect(await readPersistedIntent()).toBeUndefined();
+  });
+
+  it("readPersistedIntent returns undefined for non-boolean stored values", async () => {
+    getSpy.mockResolvedValueOnce({ lastSessionWantRunning: "yes" });
+    expect(await readPersistedIntent()).toBeUndefined();
+  });
+
+  it("clearPersistedIntent removes the key", async () => {
+    await clearPersistedIntent();
+    expect(removeSpy).toHaveBeenCalledWith("lastSessionWantRunning");
+  });
+});
+
 describe("resolveStartupWantRunning", () => {
   let sessionGetSpy: ReturnType<typeof vi.fn>;
   let sessionSetSpy: ReturnType<typeof vi.fn>;
@@ -226,44 +269,17 @@ describe("resolveStartupWantRunning", () => {
     expect(sessionSetSpy).not.toHaveBeenCalled();
   });
 
-  it("falls back to the pref when there is no session intent, and records it", async () => {
+  it("falls back to the pref when there is no session intent", async () => {
     (chrome.storage.local.get as unknown as ReturnType<typeof vi.fn>) = vi.fn(() =>
       Promise.resolve({ [AUTO_CONNECT_PREF_KEY]: true }),
     );
 
     expect(await resolveStartupWantRunning()).toBe(true);
-    expect(sessionSetSpy).toHaveBeenCalledWith({ desiredWantRunning: true });
+    expect(sessionSetSpy).not.toHaveBeenCalled();
   });
 
-  it("returns false and records false when the pref is unset", async () => {
+  it("returns false when the pref is unset", async () => {
     expect(await resolveStartupWantRunning()).toBe(false);
-    expect(sessionSetSpy).toHaveBeenCalledWith({ desiredWantRunning: false });
-  });
-
-  it("still resolves to true and logs a warning when caching the intent fails", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    sessionSetSpy.mockRejectedValue(new Error("quota exceeded"));
-    (chrome.storage.local.get as unknown as ReturnType<typeof vi.fn>) = vi.fn(() =>
-      Promise.resolve({ [AUTO_CONNECT_PREF_KEY]: true }),
-    );
-
-    await expect(resolveStartupWantRunning()).resolves.toBe(true);
-    expect(warnSpy).toHaveBeenCalledWith(
-      "[AutoConnect] failed to cache session intent:",
-      expect.any(Error),
-    );
-    warnSpy.mockRestore();
-  });
-
-  it("still resolves to false and logs a warning when caching the intent fails", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    sessionSetSpy.mockRejectedValue(new Error("quota exceeded"));
-
-    await expect(resolveStartupWantRunning()).resolves.toBe(false);
-    expect(warnSpy).toHaveBeenCalledWith(
-      "[AutoConnect] failed to cache session intent:",
-      expect.any(Error),
-    );
-    warnSpy.mockRestore();
+    expect(sessionSetSpy).not.toHaveBeenCalled();
   });
 });

@@ -48,6 +48,12 @@ jobs:
         working-directory: host
       - run: pnpm validate:ids
       - run: pnpm validate:release-tag "$RELEASE_TAG"
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: go test -race ./...
+        working-directory: host
+      - run: go vet ./...
+        working-directory: host
       - run: pnpm zip:chrome
       - run: pnpm zip:firefox
       - run: make host-all
