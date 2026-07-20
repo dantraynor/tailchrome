@@ -336,7 +336,7 @@ Defined in `packages/shared/src/constants.ts`:
 
 ## Native Host Internals
 
-The native host is a Go binary at `host/` using `tailscale.com/tsnet` v1.94.2.
+The native host is a Go binary at `host/` using `tailscale.com/tsnet` v1.100.0.
 
 ### Files
 
@@ -689,7 +689,7 @@ tailchrome/
 
 ### Prerequisites
 
-- Go 1.25+ (per `host/go.mod`)
+- Go 1.26+ (per `host/go.mod`)
 - Node.js 22+
 - pnpm (via corepack)
 - Desktop Chrome or Firefox for testing
@@ -988,7 +988,7 @@ Full listing text: [STORE_LISTING.md](STORE_LISTING.md)
 ## Contributing
 
 1. Fork the repo and clone locally
-2. Install dependencies: Go 1.25+, Node.js 22+, pnpm (via `corepack enable`)
+2. Install dependencies: Go 1.26+, Node.js 22+, pnpm (via `corepack enable`)
 3. `pnpm install --frozen-lockfile`
 4. Build: `pnpm build:chrome`, `pnpm build:firefox`, `make host`
 5. Load extension in browser for testing:
@@ -1013,8 +1013,8 @@ Full guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 Key dependencies in `host/go.mod`:
 
 
-| Dependency          | Version | Purpose                                                |
-| ------------------- | ------- | ------------------------------------------------------ |
-| `tailscale.com`     | v1.94.2 | tsnet, local client, IPN, socks5, proxymux, web client |
-| `golang.org/x/term` | v0.38.0 | Terminal detection for auto-install                    |
-| `golang.org/x/sys`  | v0.40.0 | System calls                                           |
+| Dependency          | Version  | Purpose                                                |
+| ------------------- | -------- | ------------------------------------------------------ |
+| `tailscale.com`     | v1.100.0 | tsnet, local client, IPN, socks5, proxymux, web client |
+| `golang.org/x/term` | v0.43.0  | Terminal detection for auto-install                    |
+| `golang.org/x/sys`  | v0.45.0  | System calls                                           |
