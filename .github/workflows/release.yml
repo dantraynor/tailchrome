@@ -12,7 +12,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 # Required repository secrets:
 #   APPLE_CERTIFICATE_P12        - base64-encoded Developer ID Application .p12
@@ -263,6 +263,10 @@ jobs:
   release:
     needs: [build, sign-macos, package-linux, package-windows]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
       # gh resolves repo via git remote; this job has no checkout (artifacts only).
@@ -314,6 +318,11 @@ jobs:
           cd release
           sha256sum $(ls -1 | sort) > SHA256SUMS.txt
 
+      - name: Generate release artifact provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: release/*
+
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -345,6 +354,10 @@ jobs:
   release-macos-pkg:
     needs: release
     runs-on: macos-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
     steps:
@@ -414,6 +427,11 @@ jobs:
 
       - name: SHA256 of macOS package
         run: (cd dist && shasum -a 256 tailchrome-helper-macos.pkg | tee tailchrome-helper-macos.pkg.sha256)
+
+      - name: Generate macOS package provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/tailchrome-helper-macos.pkg
 
       - name: Upload macOS assets to release
         env:

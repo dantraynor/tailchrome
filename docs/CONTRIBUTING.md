@@ -1,6 +1,6 @@
 # Contributing to Tailchrome
 
-Thanks for your interest in contributing! Please open an issue before submitting a PR so we can discuss the approach.
+Thanks for your interest in contributing. Please open an issue before submitting a PR so we can discuss the approach.
 
 ## Project Structure
 
@@ -12,7 +12,7 @@ host/                 # Native messaging host (Go)
 
 ## Requirements
 
-- Go 1.26+
+- Go 1.26.5+
 - Node.js 22+
 - pnpm
 - Chrome or Firefox for manual testing
@@ -61,6 +61,6 @@ Include your browser, OS, extension version, and steps to reproduce.
 
 ## Release Pipeline
 
-- PRs run extension typecheck/tests, Chrome build, the full Firefox review gate, and native host builds via GitHub Actions
+- PRs run extension tests, Chrome checks, full Firefox review gate, Go tests on Linux and Windows, and Linux packaging checks via GitHub Actions
 - Tagged releases build all artifacts (extension zips, host binaries, macOS `.pkg`, Windows `.msi`, and Linux `.deb`/`.rpm` installers) and attach them to the GitHub Release
 - Store publication uses GitHub Actions with manual environment approvals for Chrome Web Store and Firefox AMO submission

@@ -6,12 +6,21 @@ import {
   waitForPopup,
   waitForRequest,
 } from "../assertions.mjs";
-import { makeControl } from "../fixtures.mjs";
+import { makeControl, makeProfiles } from "../fixtures.mjs";
 
 export const suite = "full";
 export const browsers = ["chrome", "firefox"];
 
-export const control = () => makeControl();
+export const control = () =>
+  makeControl({
+    commandReplies: {
+      "switch-profile": {
+        profiles: makeProfiles({
+          current: { id: "profile-personal", name: "Personal" },
+        }),
+      },
+    },
+  });
 
 export async function run({ openPopup, nativeHost }) {
   const page = await openPopup();
@@ -47,8 +56,15 @@ export async function run({ openPopup, nativeHost }) {
     await expectText(page, "Profiles");
     await clickText(page, "Personal", ".profile-row");
     await waitForRequest(nativeHost, "switch-profile", (msg) => msg.profileID === "profile-personal");
-
-    await page.goBack().catch(() => {});
+    await page.waitForFunction(() => {
+      const active = document.querySelector(".profile-row--current");
+      return active?.textContent?.includes("Personal");
+    });
+    await clickText(page, "Back", "button");
+    await page.waitForFunction(() => {
+      const row = document.querySelector(".setting-row-profile");
+      return row?.textContent?.includes("Personal");
+    });
   } finally {
     await page.close();
   }

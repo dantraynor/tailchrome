@@ -64,7 +64,7 @@ export function renderHeader(
 
   const toggle = createToggle(connected, () => {
     sendMessage({ type: "toggle" });
-  }, disabled);
+  }, connected ? "Disconnect Tailchrome" : "Connect Tailchrome", disabled);
 
   header.appendChild(logo);
   header.appendChild(toggle);

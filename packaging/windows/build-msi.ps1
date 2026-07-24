@@ -42,4 +42,8 @@ wix build `
   $Wxs `
   -out $OutPath
 
+if ($LASTEXITCODE -ne 0) {
+  throw "wix build failed with exit code $LASTEXITCODE"
+}
+
 Write-Host "Done: $OutPath"

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -28,12 +29,19 @@ const (
 	defaultLoginURLOrigin   = "https://login.tailscale.com"
 )
 
+var validInitID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
 // Host manages the native messaging connection and the Tailscale tsnet instance.
 type Host struct {
 	stdin  io.Reader
 	stdout io.Writer
 
 	mu sync.Mutex // protects writes to stdout
+
+	// sessionMu protects the active tsnet server, local client, watcher, and
+	// browser profile identity as one atomic session.
+	sessionMu         sync.RWMutex
+	sessionGeneration uint64
 
 	// ts is the tsnet.Server, created during init.
 	ts *tsnet.Server
@@ -62,6 +70,15 @@ type Host struct {
 
 	pendingMu        sync.Mutex
 	pendingTransfers map[string]*fileTransferAccumulator
+	activeMu         sync.Mutex
+	activeTransfers  map[uint64]context.CancelFunc
+	nextTransferID   uint64
+
+	webMu    sync.Mutex
+	webCache *webServerCache
+
+	// proxyDial is a test seam; production leaves it nil and uses tsnet.
+	proxyDial func(context.Context, string, string) (net.Conn, error)
 }
 
 // newHost creates a new Host that reads from r and writes to w.
@@ -79,11 +96,12 @@ func (h *Host) readMessages() {
 		// Read the 4-byte length prefix.
 		var length uint32
 		if err := binary.Read(h.stdin, binary.LittleEndian, &length); err != nil {
-			if err == io.EOF {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
 				log.Println("stdin closed, exiting")
-				os.Exit(0)
+				return
 			}
-			log.Fatalf("failed to read message length: %v", err)
+			log.Printf("failed to read message length: %v", err)
+			return
 		}
 
 		if length == 0 {
@@ -91,13 +109,19 @@ func (h *Host) readMessages() {
 		}
 		if length > maxMessageSize {
 			log.Printf("message too large: %d bytes", length)
+			if _, err := io.CopyN(io.Discard, h.stdin, int64(length)); err != nil {
+				log.Printf("failed to drain oversized message: %v", err)
+				return
+			}
+			h.sendError("", fmt.Sprintf("message too large: %d bytes", length))
 			continue
 		}
 
 		// Read the JSON payload.
 		buf := make([]byte, length)
 		if _, err := io.ReadFull(h.stdin, buf); err != nil {
-			log.Fatalf("failed to read message body: %v", err)
+			log.Printf("failed to read message body: %v", err)
+			return
 		}
 
 		var req Request
@@ -120,6 +144,14 @@ func (h *Host) send(reply Reply) {
 		return
 	}
 
+	if len(data) > maxMessageSize && reply.Status != nil {
+		data, err = truncateStatusReply(reply)
+		if err != nil {
+			log.Printf("failed to truncate status reply: %v", err)
+			return
+		}
+	}
+
 	if len(data) > maxMessageSize {
 		log.Printf("reply too large (%d bytes), dropping", len(data))
 		return
@@ -135,6 +167,33 @@ func (h *Host) send(reply Reply) {
 	if _, err := h.stdout.Write(data); err != nil {
 		log.Printf("failed to write reply body: %v", err)
 		return
+	}
+}
+
+// truncateStatusReply removes peers from the end until a status reply fits the
+// browser's native-messaging limit, while explicitly reporting the omission.
+func truncateStatusReply(reply Reply) ([]byte, error) {
+	status := *reply.Status
+	status.Peers = append([]PeerInfo(nil), reply.Status.Peers...)
+	status.TotalPeers = len(status.Peers)
+	status.PeersTruncated = true
+	reply.Status = &status
+
+	for {
+		data, err := json.Marshal(reply)
+		if err != nil {
+			return nil, err
+		}
+		if len(data) <= maxMessageSize || len(status.Peers) == 0 {
+			return data, nil
+		}
+		// Remove multiple peers per pass for large tailnets, then finish one at
+		// a time near the boundary.
+		remove := len(status.Peers) / 8
+		if remove < 1 {
+			remove = 1
+		}
+		status.Peers = status.Peers[:len(status.Peers)-remove]
 	}
 }
 
@@ -281,16 +340,19 @@ func (h *Host) handleRequest(req Request) {
 
 // handleInit initializes (or reuses) a tsnet.Server for the given browser profile.
 func (h *Host) handleInit(req Request) {
-	if req.InitID == "" {
+	if !validInitID.MatchString(req.InitID) {
 		h.send(Reply{
 			Cmd:  "init",
-			Init: &InitReply{Error: "initID is required"},
+			Init: &InitReply{Error: "initID must contain 1-64 letters, numbers, underscores, or hyphens"},
 		})
 		return
 	}
 
 	// If already initialized with the same ID, reuse.
-	if h.ts != nil && h.initID == req.InitID {
+	h.sessionMu.RLock()
+	sameSession := h.ts != nil && h.initID == req.InitID
+	h.sessionMu.RUnlock()
+	if sameSession {
 		h.send(Reply{
 			Cmd:  "init",
 			Init: &InitReply{},
@@ -298,19 +360,28 @@ func (h *Host) handleInit(req Request) {
 		return
 	}
 
-	// If initialized with a different ID, cancel watcher and close the old server.
-	if h.ts != nil {
-		h.cancelStartupCorrection()
-		if h.watchCancel != nil {
-			h.watchCancel()
-			h.watchCancel = nil
-		}
-		h.ts.Close()
-		h.ts = nil
-		h.lc = nil
-	}
-
+	// Atomically detach the old session before closing it so proxy and status
+	// goroutines never race against partially replaced fields.
+	h.sessionMu.Lock()
+	oldServer := h.ts
+	oldWatchCancel := h.watchCancel
+	h.ts = nil
+	h.lc = nil
+	h.watchCancel = nil
 	h.initID = req.InitID
+	h.sessionGeneration++
+	generation := h.sessionGeneration
+	h.sessionMu.Unlock()
+
+	h.cancelStartupCorrection()
+	if oldWatchCancel != nil {
+		oldWatchCancel()
+	}
+	if oldServer != nil {
+		oldServer.Close()
+	}
+	h.cancelTransfers()
+	h.clearCachedStatus(nil)
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -330,33 +401,30 @@ func (h *Host) handleInit(req Request) {
 		return
 	}
 
-	h.ts = &tsnet.Server{
+	server := &tsnet.Server{
 		Dir:          stateDir,
 		Hostname:     "browser-ext",
 		RunWebClient: true,
 		Logf:         log.Printf,
 	}
 
-	if err := h.ts.Start(); err != nil {
+	if err := server.Start(); err != nil {
 		h.send(Reply{
 			Cmd:  "init",
 			Init: &InitReply{Error: fmt.Sprintf("failed to start tsnet: %v", err)},
 		})
-		h.ts = nil
 		return
 	}
 
-	lc, err := h.ts.LocalClient()
+	lc, err := server.LocalClient()
 	if err != nil {
 		h.send(Reply{
 			Cmd:  "init",
 			Init: &InitReply{Error: fmt.Sprintf("failed to get local client: %v", err)},
 		})
-		h.ts.Close()
-		h.ts = nil
+		server.Close()
 		return
 	}
-	h.lc = lc
 
 	// tsnet.Start always applies WantRunning=true, bringing the node up on
 	// every host launch. When the extension asked for a stopped start
@@ -373,8 +441,18 @@ func (h *Host) handleInit(req Request) {
 
 	// Start watching the IPN bus for state changes with a cancellable context.
 	watchCtx, watchCancel := context.WithCancel(context.Background())
+	h.sessionMu.Lock()
+	if h.sessionGeneration != generation || h.initID != req.InitID {
+		h.sessionMu.Unlock()
+		watchCancel()
+		server.Close()
+		return
+	}
+	h.ts = server
+	h.lc = lc
 	h.watchCancel = watchCancel
-	go h.watchIPNBus(watchCtx)
+	h.sessionMu.Unlock()
+	go h.watchIPNBus(watchCtx, lc, generation)
 
 	h.send(Reply{
 		Cmd:  "init",
@@ -461,7 +539,8 @@ func (h *Host) cancelStartupCorrection() {
 
 // handleLogin requests or resumes an interactive Tailscale login flow.
 func (h *Host) handleLogin() {
-	if err := h.requireInit("login"); err != nil {
+	lc := h.localClient("login")
+	if lc == nil {
 		return
 	}
 
@@ -469,14 +548,15 @@ func (h *Host) handleLogin() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := h.lc.StartLoginInteractive(ctx); err != nil {
+	if err := lc.StartLoginInteractive(ctx); err != nil {
 		h.sendError("login", fmt.Sprintf("failed to start login: %v", err))
 	}
 }
 
 // handleUp sets WantRunning=true to bring Tailscale up.
 func (h *Host) handleUp() {
-	if err := h.requireInit("up"); err != nil {
+	lc := h.localClient("up")
+	if lc == nil {
 		return
 	}
 
@@ -484,7 +564,7 @@ func (h *Host) handleUp() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_, err := h.lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+	_, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			WantRunning: true,
 		},
@@ -500,7 +580,8 @@ func (h *Host) handleUp() {
 
 // handleDown sets WantRunning=false to bring Tailscale down.
 func (h *Host) handleDown() {
-	if err := h.requireInit("down"); err != nil {
+	lc := h.localClient("down")
+	if lc == nil {
 		return
 	}
 
@@ -508,7 +589,7 @@ func (h *Host) handleDown() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_, err := h.lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+	_, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			WantRunning: false,
 		},
@@ -549,7 +630,8 @@ func (h *Host) handlePing() {
 }
 
 func (h *Host) handlePingPeer(req Request) {
-	if err := h.requireInit("ping-peer"); err != nil {
+	lc := h.localClient("ping-peer")
+	if lc == nil {
 		return
 	}
 	if req.NodeID == "" {
@@ -558,7 +640,7 @@ func (h *Host) handlePingPeer(req Request) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	st, err := h.lc.Status(ctx)
+	st, err := lc.Status(ctx)
 	if err != nil {
 		h.sendError("ping-peer", fmt.Sprintf("failed to get status: %v", err))
 		return
@@ -583,7 +665,7 @@ func (h *Host) handlePingPeer(req Request) {
 		return
 	}
 	ip := ps.TailscaleIPs[0]
-	res, err := h.lc.Ping(ctx, ip, tailcfg.PingDisco)
+	res, err := lc.Ping(ctx, ip, tailcfg.PingDisco)
 	if err != nil {
 		h.send(Reply{
 			Cmd: "ping-peer",
@@ -625,12 +707,13 @@ func (h *Host) handlePingPeer(req Request) {
 }
 
 func (h *Host) handleBugReport(req Request) {
-	if err := h.requireInit("bug-report"); err != nil {
+	lc := h.localClient("bug-report")
+	if lc == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	marker, err := h.lc.BugReport(ctx, req.Note)
+	marker, err := lc.BugReport(ctx, req.Note)
 	if err != nil {
 		h.sendError("bug-report", fmt.Sprintf("bug-report failed: %v", err))
 		return
@@ -645,7 +728,7 @@ func (h *Host) handleBugReport(req Request) {
 }
 
 func (h *Host) handleNetcheck() {
-	if err := h.requireInit("netcheck"); err != nil {
+	if h.localClient("netcheck") == nil {
 		return
 	}
 	h.send(Reply{
@@ -657,42 +740,40 @@ func (h *Host) handleNetcheck() {
 	})
 }
 
-// handleSetPrefs applies partial preference changes.
-func (h *Host) handleSetPrefs(req Request) {
-	if err := h.requireInit("set-prefs"); err != nil {
-		return
-	}
+type partialPrefsUpdate struct {
+	ControlURL             *string   `json:"controlURL,omitempty"`
+	ExitNodeID             *string   `json:"exitNodeID,omitempty"`
+	ExitNodeAllowLANAccess *bool     `json:"exitNodeAllowLANAccess,omitempty"`
+	CorpDNS                *bool     `json:"corpDNS,omitempty"`
+	RouteAll               *bool     `json:"routeAll,omitempty"`
+	ShieldsUp              *bool     `json:"shieldsUp,omitempty"`
+	WantRunning            *bool     `json:"wantRunning,omitempty"`
+	RunSSH                 *bool     `json:"runSSH,omitempty"`
+	Hostname               *string   `json:"hostname,omitempty"`
+	AdvertiseExitNode      *bool     `json:"advertiseExitNode,omitempty"`
+	AdvertiseRoutes        *[]string `json:"advertiseRoutes,omitempty"`
+}
 
-	if req.Prefs == nil {
-		h.sendError("set-prefs", "prefs field is required")
-		return
+func decodePartialPrefs(raw json.RawMessage) (partialPrefsUpdate, error) {
+	var partial partialPrefsUpdate
+	if err := json.Unmarshal(raw, &partial); err != nil {
+		return partial, fmt.Errorf("invalid prefs JSON: %w", err)
 	}
+	return partial, nil
+}
 
-	// Decode the partial prefs from the extension.
-	var partial struct {
-		ControlURL             *string   `json:"controlURL,omitempty"`
-		ExitNodeID             *string   `json:"exitNodeID,omitempty"`
-		ExitNodeAllowLANAccess *bool     `json:"exitNodeAllowLANAccess,omitempty"`
-		CorpDNS                *bool     `json:"corpDNS,omitempty"`
-		RouteAll               *bool     `json:"routeAll,omitempty"`
-		ShieldsUp              *bool     `json:"shieldsUp,omitempty"`
-		WantRunning            *bool     `json:"wantRunning,omitempty"`
-		RunSSH                 *bool     `json:"runSSH,omitempty"`
-		Hostname               *string   `json:"hostname,omitempty"`
-		AdvertiseExitNode      *bool     `json:"advertiseExitNode,omitempty"`
-		AdvertiseRoutes        *[]string `json:"advertiseRoutes,omitempty"`
-	}
-	if err := json.Unmarshal(req.Prefs, &partial); err != nil {
-		h.sendError("set-prefs", fmt.Sprintf("invalid prefs JSON: %v", err))
-		return
-	}
+func (p partialPrefsUpdate) needsCurrentPrefs() bool {
+	return p.AdvertiseRoutes != nil || p.AdvertiseExitNode != nil || p.ControlURL != nil
+}
 
+// maskedPrefsForUpdate converts a decoded browser update into the Tailscale
+// masked-prefs representation without mutating the current preference snapshot.
+func maskedPrefsForUpdate(partial partialPrefsUpdate, currentPrefs *ipn.Prefs) (*ipn.MaskedPrefs, bool, error) {
 	mp := &ipn.MaskedPrefs{}
 	if partial.ControlURL != nil {
 		normalized := controlURLForPrefs(*partial.ControlURL)
 		if normalized != "" && !isValidControlURL(normalized) {
-			h.sendError("set-prefs", fmt.Sprintf("invalid control server URL: %q", normalized))
-			return
+			return nil, false, fmt.Errorf("invalid control server URL: %q", normalized)
 		}
 		mp.ControlURLSet = true
 		mp.Prefs.ControlURL = normalized
@@ -718,7 +799,6 @@ func (h *Host) handleSetPrefs(req Request) {
 		mp.Prefs.ShieldsUp = *partial.ShieldsUp
 	}
 	if partial.WantRunning != nil {
-		h.cancelStartupCorrection()
 		mp.WantRunningSet = true
 		mp.Prefs.WantRunning = *partial.WantRunning
 	}
@@ -730,15 +810,65 @@ func (h *Host) handleSetPrefs(req Request) {
 		mp.HostnameSet = true
 		mp.Prefs.Hostname = *partial.Hostname
 	}
+
+	if partial.needsCurrentPrefs() && currentPrefs == nil {
+		return nil, false, fmt.Errorf("current prefs are required for this update")
+	}
+	if partial.AdvertiseRoutes != nil || partial.AdvertiseExitNode != nil {
+		routes := append([]netip.Prefix(nil), currentPrefs.AdvertiseRoutes...)
+		exitWas := currentPrefs.AdvertisesExitNode()
+		if partial.AdvertiseRoutes != nil {
+			routes = make([]netip.Prefix, 0, len(*partial.AdvertiseRoutes))
+			for _, route := range *partial.AdvertiseRoutes {
+				prefix, err := netip.ParsePrefix(route)
+				if err != nil {
+					return nil, false, fmt.Errorf("invalid advertise route CIDR %q: %w", route, err)
+				}
+				routes = append(routes, prefix)
+			}
+		}
+
+		advertiseExitNode := exitWas
+		if partial.AdvertiseExitNode != nil {
+			advertiseExitNode = *partial.AdvertiseExitNode
+		}
+		updated := *currentPrefs
+		updated.AdvertiseRoutes = routes
+		updated.SetAdvertiseExitNode(advertiseExitNode)
+		mp.AdvertiseRoutesSet = true
+		mp.Prefs.AdvertiseRoutes = append([]netip.Prefix(nil), updated.AdvertiseRoutes...)
+	}
+
+	controlURLChanged := partial.ControlURL != nil &&
+		controlURLCompareKey(mp.Prefs.ControlURL) != controlURLCompareKey(currentPrefs.ControlURL)
+	return mp, controlURLChanged, nil
+}
+
+// handleSetPrefs applies partial preference changes.
+func (h *Host) handleSetPrefs(req Request) {
+	lc := h.localClient("set-prefs")
+	if lc == nil {
+		return
+	}
+
+	if req.Prefs == nil {
+		h.sendError("set-prefs", "prefs field is required")
+		return
+	}
+
+	partial, err := decodePartialPrefs(req.Prefs)
+	if err != nil {
+		h.sendError("set-prefs", err.Error())
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Fetch current prefs when we need to merge against them (route advertise) or
 	// detect a real ControlURL change. Reuse the single GetPrefs call.
 	var currentPrefs *ipn.Prefs
-	needCurrent := partial.AdvertiseRoutes != nil || partial.AdvertiseExitNode != nil || partial.ControlURL != nil
-	if needCurrent {
-		cp, err := h.lc.GetPrefs(ctx)
+	if partial.needsCurrentPrefs() {
+		cp, err := lc.GetPrefs(ctx)
 		if err != nil {
 			h.sendError("set-prefs", fmt.Sprintf("failed to get current prefs: %v", err))
 			return
@@ -746,34 +876,17 @@ func (h *Host) handleSetPrefs(req Request) {
 		currentPrefs = cp
 	}
 
-	if partial.AdvertiseRoutes != nil || partial.AdvertiseExitNode != nil {
-		exitWas := currentPrefs.AdvertisesExitNode()
-		if partial.AdvertiseRoutes != nil {
-			prefixes := make([]netip.Prefix, 0, len(*partial.AdvertiseRoutes))
-			for _, s := range *partial.AdvertiseRoutes {
-				pfx, err := netip.ParsePrefix(s)
-				if err != nil {
-					h.sendError("set-prefs", fmt.Sprintf("invalid advertise route CIDR %q: %v", s, err))
-					return
-				}
-				prefixes = append(prefixes, pfx)
-			}
-			currentPrefs.AdvertiseRoutes = prefixes
-		}
-		if partial.AdvertiseExitNode != nil {
-			currentPrefs.SetAdvertiseExitNode(*partial.AdvertiseExitNode)
-		} else if partial.AdvertiseRoutes != nil && exitWas {
-			currentPrefs.SetAdvertiseExitNode(true)
-		}
-		mp.AdvertiseRoutesSet = true
-		mp.Prefs.AdvertiseRoutes = currentPrefs.AdvertiseRoutes
+	mp, controlURLChanged, err := maskedPrefsForUpdate(partial, currentPrefs)
+	if err != nil {
+		h.sendError("set-prefs", err.Error())
+		return
 	}
 
-	controlURLChanged := partial.ControlURL != nil &&
-		currentPrefs != nil &&
-		controlURLCompareKey(mp.Prefs.ControlURL) != controlURLCompareKey(currentPrefs.ControlURL)
+	if partial.WantRunning != nil {
+		h.cancelStartupCorrection()
+	}
 
-	updatedPrefs, err := h.lc.EditPrefs(ctx, mp)
+	updatedPrefs, err := lc.EditPrefs(ctx, mp)
 	if err != nil {
 		h.sendError("set-prefs", fmt.Sprintf("failed to set prefs: %v", err))
 		return
@@ -793,12 +906,12 @@ func (h *Host) handleSetPrefs(req Request) {
 		// new ControlURL would carry the old identity to the new server and
 		// the IPN engine could skip the interactive login prompt.
 		logoutCtx, logoutCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := h.lc.Logout(logoutCtx); err != nil {
+		if err := lc.Logout(logoutCtx); err != nil {
 			logoutCancel()
 			log.Printf("logout during controlURL change failed, restoring previous URL: %v", err)
 
 			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			rollbackErr := h.lc.Start(rollbackCtx, ipn.Options{UpdatePrefs: currentPrefs})
+			rollbackErr := lc.Start(rollbackCtx, ipn.Options{UpdatePrefs: currentPrefs})
 			rollbackCancel()
 			if rollbackErr != nil {
 				h.clearCachedStatus(currentPrefs)
@@ -814,12 +927,12 @@ func (h *Host) handleSetPrefs(req Request) {
 		logoutCancel()
 
 		restartCtx, restartCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		if err := h.lc.Start(restartCtx, ipn.Options{UpdatePrefs: updatedPrefs}); err != nil {
+		if err := lc.Start(restartCtx, ipn.Options{UpdatePrefs: updatedPrefs}); err != nil {
 			restartCancel()
 			log.Printf("restart with updated control URL failed, restoring previous URL: %v", err)
 
 			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			rollbackErr := h.lc.Start(rollbackCtx, ipn.Options{UpdatePrefs: currentPrefs})
+			rollbackErr := lc.Start(rollbackCtx, ipn.Options{UpdatePrefs: currentPrefs})
 			rollbackCancel()
 			if rollbackErr != nil {
 				h.clearCachedStatus(currentPrefs)
@@ -842,7 +955,8 @@ func (h *Host) handleSetPrefs(req Request) {
 
 // handleLogout logs out of the current Tailscale account.
 func (h *Host) handleLogout() {
-	if err := h.requireInit("logout"); err != nil {
+	lc := h.localClient("logout")
+	if lc == nil {
 		return
 	}
 
@@ -850,7 +964,7 @@ func (h *Host) handleLogout() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := h.lc.Logout(ctx); err != nil {
+	if err := lc.Logout(ctx); err != nil {
 		h.sendError("logout", fmt.Sprintf("failed to logout: %v", err))
 		return
 	}
@@ -859,9 +973,53 @@ func (h *Host) handleLogout() {
 // requireInit checks that the host has been initialized and sends an error if not.
 // Returns nil if initialized, an error otherwise.
 func (h *Host) requireInit(cmd string) error {
-	if h.lc == nil {
+	h.sessionMu.RLock()
+	lc := h.lc
+	h.sessionMu.RUnlock()
+	if lc == nil {
 		h.sendError(cmd, "host not initialized; send init command first")
 		return fmt.Errorf("not initialized")
 	}
 	return nil
+}
+
+func (h *Host) localClient(cmd string) *local.Client {
+	h.sessionMu.RLock()
+	lc := h.lc
+	h.sessionMu.RUnlock()
+	if lc == nil {
+		h.sendError(cmd, "host not initialized; send init command first")
+	}
+	return lc
+}
+
+func (h *Host) sessionSnapshot() (*tsnet.Server, *local.Client, uint64) {
+	h.sessionMu.RLock()
+	defer h.sessionMu.RUnlock()
+	return h.ts, h.lc, h.sessionGeneration
+}
+
+func (h *Host) isCurrentSession(lc *local.Client, generation uint64) bool {
+	h.sessionMu.RLock()
+	defer h.sessionMu.RUnlock()
+	return h.lc == lc && h.sessionGeneration == generation
+}
+
+func (h *Host) shutdownSession() {
+	h.sessionMu.Lock()
+	server := h.ts
+	cancelWatch := h.watchCancel
+	h.ts = nil
+	h.lc = nil
+	h.watchCancel = nil
+	h.sessionGeneration++
+	h.sessionMu.Unlock()
+
+	if cancelWatch != nil {
+		cancelWatch()
+	}
+	if server != nil {
+		server.Close()
+	}
+	h.cancelTransfers()
 }

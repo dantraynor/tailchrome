@@ -21,12 +21,12 @@ type Request struct {
 	WantRunning *bool `json:"wantRunning,omitempty"`
 
 	// For send-file
-	FileName     string `json:"fileName,omitempty"`
-	FileData     string `json:"fileData,omitempty"` // base64-encoded file content
-	FileSize     int64  `json:"fileSize,omitempty"`
-	TransferID   string `json:"transferID,omitempty"`
-	ChunkIndex   int    `json:"chunkIndex,omitempty"`
-	ChunkCount   int    `json:"chunkCount,omitempty"`
+	FileName   string `json:"fileName,omitempty"`
+	FileData   string `json:"fileData,omitempty"` // base64-encoded file content
+	FileSize   int64  `json:"fileSize,omitempty"`
+	TransferID string `json:"transferID,omitempty"`
+	ChunkIndex int    `json:"chunkIndex,omitempty"`
+	ChunkCount int    `json:"chunkCount,omitempty"`
 
 	// For profile management
 	ProfileID string `json:"profileID,omitempty"`
@@ -79,6 +79,8 @@ type StatusUpdate struct {
 	AuthURL        string     `json:"authURL,omitempty"`
 	ExitNode       *PeerInfo  `json:"exitNode,omitempty"`
 	Peers          []PeerInfo `json:"peers"`
+	PeersTruncated bool       `json:"peersTruncated,omitempty"`
+	TotalPeers     int        `json:"totalPeers,omitempty"`
 	Prefs          *PrefsView `json:"prefs,omitempty"`
 	Health         []string   `json:"health"`
 	Error          string     `json:"error,omitempty"`
@@ -86,15 +88,15 @@ type StatusUpdate struct {
 
 // PrefsView is a simplified view of the Tailscale preferences for the extension.
 type PrefsView struct {
-	ControlURL             string `json:"controlURL,omitempty"`
-	RouteAll               bool   `json:"routeAll"`
-	ExitNodeID             string `json:"exitNodeID,omitempty"`
-	ExitNodeAllowLANAccess bool   `json:"exitNodeAllowLANAccess"`
-	CorpDNS                bool   `json:"corpDNS"`
-	WantRunning            bool   `json:"wantRunning"`
-	ShieldsUp              bool   `json:"shieldsUp"`
-	Hostname               string `json:"hostname,omitempty"`
-	RunSSH                 bool   `json:"runSSH"`
+	ControlURL             string   `json:"controlURL,omitempty"`
+	RouteAll               bool     `json:"routeAll"`
+	ExitNodeID             string   `json:"exitNodeID,omitempty"`
+	ExitNodeAllowLANAccess bool     `json:"exitNodeAllowLANAccess"`
+	CorpDNS                bool     `json:"corpDNS"`
+	WantRunning            bool     `json:"wantRunning"`
+	ShieldsUp              bool     `json:"shieldsUp"`
+	Hostname               string   `json:"hostname,omitempty"`
+	RunSSH                 bool     `json:"runSSH"`
 	RunWebClient           bool     `json:"runWebClient"`
 	AdvertiseExitNode      bool     `json:"advertiseExitNode"`
 	AdvertiseRoutes        []string `json:"advertiseRoutes,omitempty"`
@@ -102,30 +104,30 @@ type PrefsView struct {
 
 // PeerInfo contains information about a Tailscale peer node.
 type PeerInfo struct {
-	ID                 string         `json:"id"`
-	Hostname           string         `json:"hostname"`
-	DNSName            string         `json:"dnsName"`
-	TailscaleIPs       []string       `json:"tailscaleIPs"`
-	OS                 string         `json:"os"`
-	Online             bool           `json:"online"`
-	Active             bool           `json:"active"`
-	ExitNode           bool           `json:"exitNode"`
-	ExitNodeOption     bool           `json:"exitNodeOption"`
-	IsSubnetRouter     bool           `json:"isSubnetRouter"`
-	Subnets            []string       `json:"subnets,omitempty"`
-	Tags               []string       `json:"tags,omitempty"`
-	RxBytes            int64          `json:"rxBytes"`
-	TxBytes            int64          `json:"txBytes"`
-	LastSeen           string         `json:"lastSeen,omitempty"`
-	LastHandshake      string         `json:"lastHandshake,omitempty"`
-	KeyExpiry          string         `json:"keyExpiry,omitempty"`
-	Location           *LocationInfo  `json:"location,omitempty"`
-	TaildropTarget     bool           `json:"taildropTarget"`
-	SSHHost            bool           `json:"sshHost"`
-	UserID             int64          `json:"userId"`
-	UserName           string         `json:"userName"`
-	UserLoginName      string         `json:"userLoginName"`
-	UserProfilePicURL  string         `json:"userProfilePicURL"`
+	ID                string        `json:"id"`
+	Hostname          string        `json:"hostname"`
+	DNSName           string        `json:"dnsName"`
+	TailscaleIPs      []string      `json:"tailscaleIPs"`
+	OS                string        `json:"os"`
+	Online            bool          `json:"online"`
+	Active            bool          `json:"active"`
+	ExitNode          bool          `json:"exitNode"`
+	ExitNodeOption    bool          `json:"exitNodeOption"`
+	IsSubnetRouter    bool          `json:"isSubnetRouter"`
+	Subnets           []string      `json:"subnets,omitempty"`
+	Tags              []string      `json:"tags,omitempty"`
+	RxBytes           int64         `json:"rxBytes"`
+	TxBytes           int64         `json:"txBytes"`
+	LastSeen          string        `json:"lastSeen,omitempty"`
+	LastHandshake     string        `json:"lastHandshake,omitempty"`
+	KeyExpiry         string        `json:"keyExpiry,omitempty"`
+	Location          *LocationInfo `json:"location,omitempty"`
+	TaildropTarget    bool          `json:"taildropTarget"`
+	SSHHost           bool          `json:"sshHost"`
+	UserID            int64         `json:"userId"`
+	UserName          string        `json:"userName"`
+	UserLoginName     string        `json:"userLoginName"`
+	UserProfilePicURL string        `json:"userProfilePicURL"`
 }
 
 // LocationInfo contains geographic location information for a node.

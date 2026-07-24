@@ -6,7 +6,9 @@
     Version="$(var.Version)"
     UpgradeCode="4ADE97ED-5BE9-43D2-B426-AAD1C67CEFF8"
     Scope="perUser">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of Tailchrome Helper is already installed." />
+    <MajorUpgrade
+      AllowSameVersionUpgrades="yes"
+      DowngradeErrorMessage="A newer version of Tailchrome Helper is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <StandardDirectory Id="LocalAppDataFolder">

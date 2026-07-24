@@ -15,6 +15,7 @@ const (
 	maxAssembledFileSize    = 50 << 20 // 50MiB cap for chunked reassembly
 	maxPendingTransferParts = 1024     // guard against untrusted chunkCount allocations
 	pendingTransferTTL      = 10 * time.Minute
+	fileTransferTimeout     = 15 * time.Minute
 )
 
 // fileTransferAccumulator holds in-progress chunked send-file payloads.
@@ -30,7 +31,7 @@ type fileTransferAccumulator struct {
 // handleSendFile decodes the base64 file data from the request and sends
 // it to the target node using the Taildrop PushFile API.
 func (h *Host) handleSendFile(req Request) {
-	if err := h.requireInit("send-file"); err != nil {
+	if h.localClient("send-file") == nil {
 		return
 	}
 
@@ -200,6 +201,24 @@ func (h *Host) schedulePendingTransferCleanupAfter(transferID string, delay time
 }
 
 func (h *Host) pushFileData(peerID string, targetID tailcfg.StableNodeID, name string, data []byte, startPercent float64) {
+	lc := h.localClient("send-file")
+	if lc == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), fileTransferTimeout)
+	transferID := h.registerActiveTransfer(cancel)
+	go func() {
+		defer func() {
+			cancel()
+			h.unregisterActiveTransfer(transferID)
+		}()
+		h.runPushFile(ctx, lc, peerID, targetID, name, data, startPercent)
+	}()
+}
+
+func (h *Host) runPushFile(ctx context.Context, lc interface {
+	PushFile(context.Context, tailcfg.StableNodeID, int64, string, io.Reader) error
+}, peerID string, targetID tailcfg.StableNodeID, name string, data []byte, startPercent float64) {
 	size := int64(len(data))
 
 	h.send(Reply{
@@ -235,8 +254,7 @@ func (h *Host) pushFileData(peerID string, targetID tailcfg.StableNodeID, name s
 		},
 	}
 
-	ctx := context.Background()
-	err := h.lc.PushFile(ctx, targetID, size, name, pr)
+	err := lc.PushFile(ctx, targetID, size, name, pr)
 	if err != nil {
 		h.send(Reply{
 			Cmd: "fileSendProgress",
@@ -260,6 +278,43 @@ func (h *Host) pushFileData(peerID string, targetID tailcfg.StableNodeID, name s
 			Done:         true,
 		},
 	})
+}
+
+func (h *Host) registerActiveTransfer(cancel context.CancelFunc) uint64 {
+	h.activeMu.Lock()
+	defer h.activeMu.Unlock()
+	if h.activeTransfers == nil {
+		h.activeTransfers = make(map[uint64]context.CancelFunc)
+	}
+	h.nextTransferID++
+	id := h.nextTransferID
+	h.activeTransfers[id] = cancel
+	return id
+}
+
+func (h *Host) unregisterActiveTransfer(id uint64) {
+	h.activeMu.Lock()
+	delete(h.activeTransfers, id)
+	h.activeMu.Unlock()
+}
+
+// cancelTransfers drops partial uploads and cancels active Taildrop requests.
+// It is called whenever a browser profile/session is replaced.
+func (h *Host) cancelTransfers() {
+	h.pendingMu.Lock()
+	h.pendingTransfers = nil
+	h.pendingMu.Unlock()
+
+	h.activeMu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(h.activeTransfers))
+	for _, cancel := range h.activeTransfers {
+		cancels = append(cancels, cancel)
+	}
+	h.activeTransfers = nil
+	h.activeMu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
 }
 
 // progressReader wraps an io.Reader and calls onProgress with the total

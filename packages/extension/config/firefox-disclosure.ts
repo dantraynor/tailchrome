@@ -1,6 +1,6 @@
 export interface FirefoxDataCollectionPermissions {
-  required: readonly string[];
-  optional?: readonly string[];
+  required: Array<"browsingActivity" | "websiteContent">;
+  optional?: Array<"browsingActivity" | "websiteContent">;
 }
 
 export type FirefoxDisclosure =

@@ -17,16 +17,24 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+replace_in_file() {
+  local expression="$1"
+  local file="$2"
+  # An attached backup suffix works with both BSD sed and GNU sed.
+  sed -i.bak "$expression" "$file"
+  rm -f "$file.bak"
+}
+
 EXTENSION_PKG="$ROOT/packages/extension/package.json"
-sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$EXTENSION_PKG"
+replace_in_file "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$EXTENSION_PKG"
 echo "Updated $EXTENSION_PKG"
 
 SHARED_PKG="$ROOT/packages/shared/package.json"
-sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$SHARED_PKG"
+replace_in_file "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$SHARED_PKG"
 echo "Updated $SHARED_PKG"
 
 CONSTANTS="$ROOT/packages/shared/src/constants.ts"
-sed -i '' "s/EXPECTED_HOST_VERSION = \"[^\"]*\"/EXPECTED_HOST_VERSION = \"$VERSION\"/" "$CONSTANTS"
+replace_in_file "s/EXPECTED_HOST_VERSION = \"[^\"]*\"/EXPECTED_HOST_VERSION = \"$VERSION\"/" "$CONSTANTS"
 echo "Updated $CONSTANTS"
 
 echo ""

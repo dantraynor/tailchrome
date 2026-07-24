@@ -82,7 +82,7 @@ export function viewForState(state: TailscaleState): string {
 /**
  * Renders the appropriate view into the root element based on the current state.
  */
-function render(state: TailscaleState): void {
+export function render(state: TailscaleState): void {
   const root = document.getElementById("root");
   if (!root) return;
 
@@ -124,6 +124,9 @@ function render(state: TailscaleState): void {
     updateDisconnected(root, state);
     return;
   }
+  if ((view === "needs-install" || view === "needs-update") && isSameView) {
+    return;
+  }
 
   // Full render for view transitions or simple views
   switch (view) {
@@ -146,11 +149,15 @@ function render(state: TailscaleState): void {
   }
 }
 
-function init(): void {
+async function init(): Promise<void> {
   // The HTML skeleton placeholder is shown until real state arrives.
 
-  // Load per-device custom URL settings in parallel (doesn't block port connection)
-  loadCustomUrls();
+  // Hydrate the cache before the background can synchronously send state.
+  try {
+    await loadCustomUrls();
+  } catch (err) {
+    console.warn("[popup] Failed to load custom URLs:", err);
+  }
 
   // Connect to the background service worker
   port = chrome.runtime.connect({ name: "popup" });
@@ -181,7 +188,7 @@ function init(): void {
 
 // Run when DOM is ready
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init);
+  document.addEventListener("DOMContentLoaded", () => void init());
 } else {
-  init();
+  void init();
 }

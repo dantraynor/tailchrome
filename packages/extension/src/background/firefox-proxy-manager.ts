@@ -3,7 +3,10 @@ import type {
   DomainSplitMode,
   TailscaleState,
 } from "@tailchrome/shared/types";
-import { TAILSCALE_SERVICE_IP } from "@tailchrome/shared/constants";
+import {
+  TAILSCALE_IPV6_PREFIX,
+  TAILSCALE_SERVICE_IP,
+} from "@tailchrome/shared/constants";
 import {
   parseCIDR,
   ipToNum,
@@ -50,6 +53,13 @@ declare const browser: {
 
 const STORAGE_KEY = "proxyConfig";
 
+// Upper bound on how long held requests wait for the helper to come back.
+// Reconnection retries forever (1s base backoff), so without a deadline a
+// helper that is gone for good would hold every browser request until the
+// user disables the extension. Past the deadline the gate fails open and
+// requests go direct, matching the authoritative stopped state.
+export const RECONNECT_GATE_TIMEOUT_MS = 10_000;
+
 interface StoredProxyConfig {
   proxyPort: number;
   magicDNSSuffix: string;
@@ -69,6 +79,9 @@ export class FirefoxProxyManager {
   private restorePromise: Promise<void> | null = null;
   private reconnectPromise: Promise<void> | null = null;
   private reconnectResolve: (() => void) | null = null;
+  private restoreGeneration = 0;
+  private restoreInFlight = false;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   readonly listener = (
     details: { url: string },
@@ -93,13 +106,37 @@ export class FirefoxProxyManager {
 
   apply(state: TailscaleState): void {
     if (!shouldProxyState(state)) {
-      this.clear();
-      if (state.hostConnected && state.backendState !== "Running") {
-        void browser.storage.session.remove(STORAGE_KEY);
+      // An install error means the helper cannot come back without user
+      // action, so it is authoritative even though the host is disconnected.
+      const transient =
+        !state.installError &&
+        (!state.hostConnected ||
+          state.backendState === "NoState" ||
+          state.backendState === "Starting");
+
+      if (transient) {
+        // During startup/reconnect, preserve the last known configuration and
+        // hold requests until Running, an authoritative stopped/login state,
+        // or the gate deadline.
+        if (
+          this.restoreInFlight ||
+          this.reconnectPromise ||
+          this.proxyPort !== 0 ||
+          this.magicDNSSuffix !== ""
+        ) {
+          this.proxyPort = 0;
+          this.beginReconnectGate();
+        }
+        return;
       }
+
+      this.restoreGeneration += 1;
+      this.clear();
+      void browser.storage.session.remove(STORAGE_KEY);
       return;
     }
 
+    this.restoreGeneration += 1;
     this.proxyPort = state.proxyPort!;
     this.exitNodeActive = state.exitNode !== null;
     this.magicDNSSuffix = sanitizeMagicDNSSuffix(state.magicDNSSuffix);
@@ -108,13 +145,7 @@ export class FirefoxProxyManager {
       .filter((r): r is { network: number; mask: number } => r !== null);
     this.splitMode = state.domainSplit.mode;
     this.splitDomains = sanitizeSplitDomains(state.domainSplit);
-    this.restorePromise = null;
-
-    if (this.reconnectResolve) {
-      this.reconnectResolve();
-      this.reconnectResolve = null;
-    }
-    this.reconnectPromise = null;
+    this.releaseReconnectGate();
 
     if (!browser.proxy.onRequest.hasListener(this.listener)) {
       browser.proxy.onRequest.addListener(this.listener, {
@@ -132,17 +163,17 @@ export class FirefoxProxyManager {
     this.subnetRanges = [];
     this.splitMode = "bypass";
     this.splitDomains = [];
-
-    if (this.reconnectResolve) {
-      this.reconnectResolve();
-      this.reconnectResolve = null;
-    }
-    this.reconnectPromise = null;
+    this.releaseReconnectGate();
   }
 
   restoreFromStorage(): Promise<boolean> {
+    const generation = this.restoreGeneration;
+    this.restoreInFlight = true;
     const restore = async (): Promise<boolean> => {
       const result = await browser.storage.session.get(STORAGE_KEY);
+      if (generation !== this.restoreGeneration) {
+        return false;
+      }
       const config = result[STORAGE_KEY] as StoredProxyConfig | undefined;
       if (!config || !config.proxyPort) {
         return false;
@@ -155,15 +186,54 @@ export class FirefoxProxyManager {
       this.splitDomains = Array.isArray(config.splitDomains)
         ? config.splitDomains
         : [];
-      this.reconnectPromise = new Promise<void>((resolve) => {
-        this.reconnectResolve = resolve;
-      });
+      this.beginReconnectGate();
       return true;
     };
 
     const promise = restore();
-    this.restorePromise = promise.then(() => {});
+    // Request listeners only need to wait until the attempt is finished. Keep
+    // restoration failures on the original promise so the startup logger owns
+    // them instead of creating a second unhandled rejection here.
+    this.restorePromise = promise.then(
+      () => {},
+      () => {},
+    );
+    void promise.then(
+      () => {
+        this.restoreInFlight = false;
+      },
+      () => {
+        this.restoreInFlight = false;
+      },
+    );
     return promise;
+  }
+
+  private beginReconnectGate(): void {
+    if (this.reconnectPromise) return;
+    this.reconnectPromise = new Promise<void>((resolve) => {
+      this.reconnectResolve = resolve;
+    });
+    // The gate and its held promises are in-memory, so they cannot outlive
+    // the event page — a plain timer is enough, no alarm needed.
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.restoreGeneration += 1;
+      this.clear();
+      void browser.storage.session.remove(STORAGE_KEY);
+    }, RECONNECT_GATE_TIMEOUT_MS);
+  }
+
+  private releaseReconnectGate(): void {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.reconnectResolve) {
+      this.reconnectResolve();
+      this.reconnectResolve = null;
+    }
+    this.reconnectPromise = null;
   }
 
   private async persistToStorage(): Promise<void> {
@@ -193,11 +263,15 @@ export class FirefoxProxyManager {
     let host: string;
     try {
       host = new URL(url).hostname;
+      if (host.startsWith("[") && host.endsWith("]")) {
+        host = host.slice(1, -1);
+      }
     } catch {
       return direct;
     }
 
     if (host === TAILSCALE_SERVICE_IP) return proxy;
+    if (host.toLowerCase().startsWith(TAILSCALE_IPV6_PREFIX)) return proxy;
 
     const hostNum = ipToNum(host);
     if (hostNum !== null && (hostNum & CGNAT_MASK) === CGNAT_NETWORK) {

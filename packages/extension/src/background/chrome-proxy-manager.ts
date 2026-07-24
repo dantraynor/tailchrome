@@ -1,5 +1,8 @@
 import type { DomainSplitConfig, TailscaleState } from "@tailchrome/shared/types";
-import { TAILSCALE_SERVICE_IP } from "@tailchrome/shared/constants";
+import {
+  TAILSCALE_IPV6_PREFIX,
+  TAILSCALE_SERVICE_IP,
+} from "@tailchrome/shared/constants";
 import {
   parseCIDR,
   sanitizeMagicDNSSuffix,
@@ -11,14 +14,20 @@ import {
 export class ChromeProxyManager {
   private currentlyEnabled = false;
   private lastProxyKey = "";
+  private reconciledBrowserState = false;
 
   apply(state: TailscaleState): void {
     if (!shouldProxyState(state)) {
-      if (this.currentlyEnabled) {
+      // A service-worker restart loses the in-memory enabled flag while Chrome
+      // can retain the PAC setting. Reconcile browser state once on startup.
+      if (this.currentlyEnabled || !this.reconciledBrowserState) {
         this.clear();
       }
+      this.reconciledBrowserState = true;
       return;
     }
+
+    this.reconciledBrowserState = true;
 
     const port = state.proxyPort!;
     const magicDNSSuffix = state.magicDNSSuffix;
@@ -99,7 +108,7 @@ export class ChromeProxyManager {
       .map((cidr) => {
         const parsed = parseCIDR(cidr, "string");
         if (!parsed) return null;
-        return `    if (isInNet(host, "${parsed.network}", "${parsed.mask}")) return "${proxy}";`;
+        return `    if (isIPv4 && isInNet(host, "${parsed.network}", "${parsed.mask}")) return "${proxy}";`;
       })
       .filter((line): line is string => line !== null)
       .join("\n");
@@ -125,10 +134,12 @@ export class ChromeProxyManager {
 
     return `function FindProxyForURL(url, host) {
   var proxy = "${proxy}";
+  var isIPv4 = /^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(host);
 
   if (host === "${TAILSCALE_SERVICE_IP}") return proxy;
-  if (isInNet(host, "100.64.0.0", "255.192.0.0")) return proxy;
 ${safeDNSSuffix ? `  if (dnsDomainIs(host, ".${safeDNSSuffix}") || host === "${safeDNSSuffix}") return proxy;` : "  // No MagicDNS suffix configured"}
+  if (host.toLowerCase().indexOf("${TAILSCALE_IPV6_PREFIX}") === 0) return proxy;
+  if (isIPv4 && isInNet(host, "100.64.0.0", "255.192.0.0")) return proxy;
 
 ${subnetChecks || "  // No subnet routes"}
 

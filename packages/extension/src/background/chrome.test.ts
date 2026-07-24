@@ -4,6 +4,7 @@ import { CHROME_NATIVE_HOST_ID } from "../constants";
 const mocks = vi.hoisted(() => ({
   initBackground: vi.fn(),
   ChromeProxyManager: vi.fn(),
+  ChromeAlarmTimerService: vi.fn(),
 }));
 
 vi.mock("@tailchrome/shared/background/background", () => ({
@@ -14,6 +15,10 @@ vi.mock("./chrome-proxy-manager", () => ({
   ChromeProxyManager: mocks.ChromeProxyManager,
 }));
 
+vi.mock("@tailchrome/shared/background/chrome-alarm-timer-service", () => ({
+  ChromeAlarmTimerService: mocks.ChromeAlarmTimerService,
+}));
+
 import { startChromeBackground } from "./chrome";
 
 describe("startChromeBackground", () => {
@@ -21,6 +26,7 @@ describe("startChromeBackground", () => {
   let onSuspendAddListener: ReturnType<typeof vi.fn>;
   let suspendListener: (() => void) | null;
   let proxyManagerInstance: { clear: ReturnType<typeof vi.fn> };
+  let timerServiceInstance: Record<string, never>;
 
   const runtime = (
     globalThis.chrome as unknown as { runtime: Record<string, unknown> }
@@ -46,6 +52,11 @@ describe("startChromeBackground", () => {
       reconnect: vi.fn(),
       sendKeepalive: vi.fn(),
     }));
+    timerServiceInstance = {};
+    mocks.ChromeAlarmTimerService.mockReset();
+    mocks.ChromeAlarmTimerService.mockImplementation(function () {
+      return timerServiceInstance;
+    });
   });
 
   afterEach(() => {
@@ -67,7 +78,7 @@ describe("startChromeBackground", () => {
     expect(mocks.initBackground).toHaveBeenCalledWith(
       proxyManagerInstance,
       CHROME_NATIVE_HOST_ID,
-      { browserKind: "chrome" },
+      { browserKind: "chrome", timerService: timerServiceInstance },
     );
   });
 

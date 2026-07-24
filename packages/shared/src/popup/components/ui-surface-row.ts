@@ -14,7 +14,7 @@ export async function renderUiSurfaceRow(parent: HTMLElement): Promise<void> {
   const toggle = createToggle(current === "sidePanel", (checked) => {
     const next: UiSurface = checked ? "sidePanel" : "popup";
     void writeUiSurface(next);
-  });
+  }, "Open as side panel");
   row.appendChild(toggle);
   parent.appendChild(row);
 }

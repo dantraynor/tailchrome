@@ -55,10 +55,15 @@ describe("ChromeProxyManager", () => {
       expect(lastCall.value.mode).toBe("direct");
     });
 
-    it("does nothing when proxy was never enabled and state is stopped", () => {
+    it("clears a potentially persisted PAC on the first stopped state", () => {
       const spy = vi.spyOn(chrome.proxy.settings, "set");
       pm.apply(baseState({ backendState: "Stopped" }));
-      expect(spy).not.toHaveBeenCalled();
+      expect(spy).toHaveBeenCalledTimes(1);
+      const call = spy.mock.calls[0]![0] as { value: { mode: string } };
+      expect(call.value.mode).toBe("direct");
+
+      pm.apply(baseState({ backendState: "Stopped" }));
+      expect(spy).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -162,6 +167,35 @@ describe("ChromeProxyManager", () => {
       expect(route("http://notexample.ts.net", "notexample.ts.net")).toBe(
         "DIRECT",
       );
+    });
+
+    it("routes Tailscale IPv6 literals through the proxy", () => {
+      const route = evalPAC(pm, baseState());
+      expect(
+        route(
+          "http://[fd7a:115c:a1e0::1234]/",
+          "fd7a:115c:a1e0::1234",
+        ),
+      ).toBe("SOCKS5 127.0.0.1:1055");
+    });
+
+    it("never calls isInNet for a DNS hostname", () => {
+      const pac = capturePAC(pm, baseState())!;
+      const isInNet = (host: string): boolean => {
+        if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) {
+          throw new Error("isInNet attempted DNS resolution");
+        }
+        return false;
+      };
+      const dnsDomainIs = (host: string, suffix: string): boolean =>
+        host === suffix.slice(1) || host.endsWith(suffix);
+      const fn = new Function(
+        "isInNet",
+        "dnsDomainIs",
+        `${pac}\nreturn FindProxyForURL;`,
+      )(isInNet, dnsDomainIs) as (url: string, host: string) => string;
+
+      expect(fn("https://example.com", "example.com")).toBe("DIRECT");
     });
 
     it("routes everything through proxy when exit node is active", () => {

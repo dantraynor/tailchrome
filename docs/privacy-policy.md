@@ -1,6 +1,6 @@
 # Tailchrome Privacy Policy
 
-Last updated: 2026-05-28
+Last updated: 2026-07-20
 
 ## Summary
 
@@ -15,6 +15,7 @@ Tailchrome stores the following data locally in browser storage:
 - `customUrls`: per-device custom open targets configured by the user.
 - `domainSplitConfig`: split-tunneling mode and domain list configured by the user.
 - `autoConnectOnStart`: the user's auto-connect preference.
+- `uiSurface`: whether the toolbar opens Tailchrome as a popup or in the browser's side panel/sidebar.
 - `autoConnectHandled` in session storage: a per-session flag used to avoid reconnecting automatically after an explicit manual disconnect.
 - `proxyConfig` in Firefox session storage: the active proxy port, MagicDNS suffix, exit-node state, and subnet ranges needed to restore routing after the Firefox background context is suspended.
 
@@ -27,14 +28,14 @@ When the extension is enabled, Tailchrome communicates with a local native helpe
 Depending on the features the user enables, Tailchrome may transmit:
 
 - Browsing activity and website content needed to proxy tailnet-bound traffic, exit-node traffic, and Taildrop transfers.
-- Authentication and session data needed to sign in to Tailscale.
+- Authentication and session data needed to sign in to Tailscale or a custom coordination server the user configures.
 - Device and network metadata required to discover peers, MagicDNS names, subnet routes, and exit nodes.
 - User-initiated file contents when the user sends a file with Taildrop.
 
 Tailchrome sends this data only to:
 
 - the local native helper on the same machine,
-- the user's Tailscale tailnet and Tailscale control plane, and
+- the user's tailnet and configured coordination plane (Tailscale by default), and
 - the sites or services the user chooses to access through Tailchrome.
 
 ## Data Tailchrome Does Not Collect

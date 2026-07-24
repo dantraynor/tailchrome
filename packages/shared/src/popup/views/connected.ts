@@ -140,7 +140,8 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   settings.className = "quick-settings";
 
   // Exit Node
-  const exitRow = document.createElement("div");
+  const exitRow = document.createElement("button");
+  exitRow.type = "button";
   exitRow.className = "setting-row setting-row--clickable";
 
   const exitLabel = document.createElement("span");
@@ -186,7 +187,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   const shieldsUp = state.prefs?.shieldsUp ?? false;
   const shieldsToggle = createToggle(shieldsUp, (checked) => {
     sendMessage({ type: "set-pref", key: "shieldsUp", value: checked });
-  });
+  }, "Shields Up");
   shieldsToggle.querySelector("input")?.classList.add("quick-settings-pref");
   shieldsRow.appendChild(shieldsToggle);
   settings.appendChild(shieldsRow);
@@ -203,7 +204,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   const corpDNSEnabled = state.prefs?.corpDNS ?? true;
   const dnsToggle = createToggle(corpDNSEnabled, (checked) => {
     sendMessage({ type: "set-pref", key: "corpDNS", value: checked });
-  });
+  }, "MagicDNS");
   dnsToggle.querySelector("input")?.classList.add("quick-settings-pref");
   dnsRow.appendChild(dnsToggle);
   settings.appendChild(dnsRow);
@@ -219,7 +220,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   const autoConnectToggle = createToggle(state.autoConnectOnStart, (checked) => {
     sendMessage({ type: "set-auto-connect-on-start", value: checked });
-  });
+  }, "Auto-connect on start");
   autoConnectToggle.querySelector("input")?.classList.add("quick-settings-pref");
   autoConnectRow.appendChild(autoConnectToggle);
   settings.appendChild(autoConnectRow);
@@ -241,7 +242,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   const advertisingExit = state.prefs?.advertiseExitNode ?? false;
   const exitAdToggle = createToggle(advertisingExit, (checked) => {
     sendMessage({ type: "set-pref", key: "advertiseExitNode", value: checked });
-  });
+  }, "Run as Exit Node");
   exitAdToggle.querySelector("input")?.classList.add("quick-settings-pref");
   exitAdRow.appendChild(exitAdToggle);
   advancedPanel.appendChild(exitAdRow);
@@ -308,7 +309,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
         );
       }
     }
-  });
+  }, "Show advanced settings");
   advancedHeaderRow.appendChild(advancedExpandToggle);
   settings.appendChild(advancedHeaderRow);
   settings.appendChild(advancedPanel);
@@ -322,7 +323,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   const routesExpandToggle = createToggle(advertiseRoutesEditorOpen, (checked) => {
     advertiseRoutesEditorOpen = checked;
     editorSection.classList.toggle("hidden", !checked);
-  });
+  }, "Show advertised subnet settings");
   routesHeaderRow.appendChild(routesExpandToggle);
   settings.appendChild(routesHeaderRow);
 
@@ -353,7 +354,8 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   // Profile switcher row (only show when multiple profiles exist)
   if (state.profiles.length > 0) {
-    const profileRow = document.createElement("div");
+    const profileRow = document.createElement("button");
+    profileRow.type = "button";
     profileRow.className = "setting-row setting-row--clickable setting-row-profile";
 
     const profileLabel = document.createElement("span");
@@ -554,7 +556,7 @@ function renderSplitTunnelingSection(
   const expandToggle = createToggle(splitTunnelingEditorOpen, (checked) => {
     splitTunnelingEditorOpen = checked;
     editorSection.classList.toggle("hidden", !checked);
-  });
+  }, "Show split tunneling settings");
   headerRow.appendChild(expandToggle);
   parent.appendChild(headerRow);
 
@@ -595,6 +597,10 @@ function renderSplitTunnelingSection(
   ta.spellcheck = false;
   ta.placeholder = "e.g. teams.microsoft.com\noutlook.office.com";
   ta.value = formatDomainsValue(state.domainSplit.domains);
+  ta.dataset.dirty = "false";
+  ta.addEventListener("input", () => {
+    ta.dataset.dirty = "true";
+  });
   editorSection.appendChild(ta);
 
   const warning = document.createElement("p");
@@ -606,6 +612,7 @@ function renderSplitTunnelingSection(
     const parsed = parseDomainsInput(ta.value);
     const mode = activeModeFromSection(editorSection);
     applyConfig(editorSection, { mode, domains: parsed.domains });
+    ta.dataset.dirty = "false";
     warning.textContent =
       parsed.invalid.length > 0
         ? `Ignored invalid: ${parsed.invalid.join(", ")}`
@@ -824,7 +831,11 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
       const splitTa = splitSection.querySelector<HTMLTextAreaElement>(
         ".split-tunneling-input",
       );
-      if (splitTa && document.activeElement !== splitTa) {
+      if (
+        splitTa &&
+        document.activeElement !== splitTa &&
+        splitTa.dataset.dirty !== "true"
+      ) {
         const next = formatDomainsValue(state.domainSplit.domains);
         if (splitTa.value !== next) splitTa.value = next;
       }

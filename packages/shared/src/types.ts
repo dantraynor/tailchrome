@@ -76,6 +76,10 @@ export interface StatusUpdate {
   authURL?: string;
   exitNode: ExitNodeInfo | null;
   peers: PeerInfo[];
+  /** True when the native-message size limit required omitting some peers. */
+  peersTruncated?: boolean;
+  /** Full peer count before truncation. */
+  totalPeers?: number;
   prefs: TailscalePrefs | null;
   health: string[];
   error: string | null;

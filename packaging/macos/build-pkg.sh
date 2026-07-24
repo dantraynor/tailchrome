@@ -7,8 +7,8 @@
 # Usage: from repo root, ./packaging/macos/build-pkg.sh
 # Optional: VERSION=1.2.3 ./packaging/macos/build-pkg.sh
 #
-# Signing (optional): set MACOS_SIGN_IDENTITY (Developer ID Application: ...), then run
-#   packaging/macos/sign-component.sh  (see packaging/macos/README.md)
+# Signing (optional): set MACOS_SIGN_APPLICATION_IDENTITY and
+# MACOS_SIGN_INSTALLER_IDENTITY (see packaging/macos/README.md).
 
 set -euo pipefail
 export COPYFILE_DISABLE=1
@@ -50,6 +50,9 @@ chmod 755 "$STAGE/pkgroot/Library/Application Support/Tailscale/BrowserExt/tails
 echo "Staging Tailchrome Helper.app..."
 cp -R "$ROOT/packaging/macos/TailchromeHelper.app" "$STAGE/pkgroot/Applications/Tailchrome Helper.app"
 chmod 755 "$STAGE/pkgroot/Applications/Tailchrome Helper.app/Contents/MacOS/tailchrome-helper"
+APP_PLIST="$STAGE/pkgroot/Applications/Tailchrome Helper.app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION_PKG" "$APP_PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION_PKG" "$APP_PLIST"
 
 echo "Staging postinstall script..."
 cp "$ROOT/packaging/macos/scripts/postinstall" "$STAGE/scripts/postinstall"

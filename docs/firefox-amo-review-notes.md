@@ -37,6 +37,7 @@ Required to keep stable per-profile state and user preferences:
 - `customUrls`
 - `domainSplitConfig`
 - `autoConnectOnStart`
+- `uiSurface`
 - session-only `autoConnectHandled`
 - Firefox session-only `proxyConfig` restore state
 
@@ -46,7 +47,7 @@ Required for the "Send page URL to Tailscale device" menu item.
 
 ### `alarms`
 
-Firefox-only. Required to keep the background context alive long enough to maintain the native host connection and recover routing state after service-worker suspension.
+Required in Firefox to keep the background context alive long enough to maintain the native host connection and recover routing state after suspension. The cross-browser extension also uses an alarm-backed reconnect timeout on Chrome so a suspended Manifest V3 worker does not permanently stop native-helper retries.
 
 ## Data Transmission Disclosure
 

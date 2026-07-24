@@ -517,14 +517,15 @@ export function initBackground(
       ) {
         exitNodeRestoreAttempted = true;
         chrome.storage.local.get("lastExitNodeID").then((result) => {
-          if (result["lastExitNodeID"]) {
+          const lastExitNodeID = result["lastExitNodeID"];
+          if (typeof lastExitNodeID === "string" && lastExitNodeID) {
             console.log(
               "[Background] Restoring saved exit node:",
-              result["lastExitNodeID"]
+              lastExitNodeID
             );
             nativeHost.send({
               cmd: "set-exit-node",
-              nodeID: result["lastExitNodeID"],
+              nodeID: lastExitNodeID,
             });
           }
         });
@@ -578,7 +579,11 @@ export function initBackground(
     // Error from native host
     if (msg.error) {
       if (msg.error.message === "install_error") {
-        store.update({ installError: true, hostConnected: false });
+        store.update({
+          installError: true,
+          hostConnected: false,
+          reconnecting: false,
+        });
       } else if (msg.error.cmd === "suggest-exit-node") {
         // Recommendation is a passive feature: log the failure but don't
         // pollute the popup with a toast or set a sticky error.

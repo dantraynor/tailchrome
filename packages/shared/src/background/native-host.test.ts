@@ -5,6 +5,13 @@ import {
   type NativeStateChangeHandler,
 } from "./native-host";
 
+// @types/chrome 0.2.x declares runtime.lastError as a `const` (read-only)
+// binding, so tests that simulate connectNative errors have to go through an
+// unknown-typed view of chrome.runtime to assign it.
+function setChromeLastError(error: chrome.runtime.LastError | undefined): void {
+  (chrome.runtime as unknown as { lastError: chrome.runtime.LastError | undefined }).lastError = error;
+}
+
 // Helper to create a mock port with accessible listener arrays
 function createMockPort() {
   const messageListeners: Array<(msg: unknown) => void> = [];
@@ -47,7 +54,7 @@ describe("NativeHostConnection", () => {
     chrome.runtime.connectNative = connectNativeSpy as unknown as typeof chrome.runtime.connectNative;
     chrome.storage.local.get = storageGetSpy as unknown as typeof chrome.storage.local.get;
     chrome.storage.local.set = storageSetSpy as unknown as typeof chrome.storage.local.set;
-    chrome.runtime.lastError = undefined;
+    setChromeLastError(undefined);
 
     onMessage = vi.fn<NativeMessageHandler>();
     onStateChange = vi.fn<NativeStateChangeHandler>();
@@ -99,6 +106,47 @@ describe("NativeHostConnection", () => {
 
       await conn.connect();
       expect(firstPort.disconnect).toHaveBeenCalled();
+    });
+
+    it("serializes overlapping connects while profile storage is pending", async () => {
+      let resolveStorage!: (value: { profileId: string }) => void;
+      storageGetSpy.mockReturnValue(
+        new Promise((resolve) => {
+          resolveStorage = resolve;
+        }),
+      );
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+      );
+
+      const first = conn.connect();
+      const second = conn.connect();
+      expect(first).toBe(second);
+      expect(connectNativeSpy).not.toHaveBeenCalled();
+
+      resolveStorage({ profileId: "test-profile-id" });
+      await Promise.all([first, second]);
+      expect(connectNativeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("ignores disconnect events from a replaced port", async () => {
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+      );
+      await conn.connect();
+      const first = mockPort;
+
+      const second = createMockPort();
+      connectNativeSpy.mockReturnValue(second.port);
+      await conn.connect();
+
+      first.disconnectListeners[0]!(first.port);
+      second.messageListeners[0]!({ pong: {} });
+      expect(onStateChange).toHaveBeenLastCalledWith(true);
     });
   });
 
@@ -407,16 +455,16 @@ describe("NativeHostConnection", () => {
       await conn.connect();
 
       // Simulate disconnect with "not found" error
-      chrome.runtime.lastError = {
+      setChromeLastError({
         message: "Specified native messaging host not found",
-      };
+      });
       mockPort.disconnectListeners[0]!(mockPort.port);
 
       expect(onMessage).toHaveBeenCalledWith({
         error: { cmd: "connect", message: "install_error" },
       });
 
-      chrome.runtime.lastError = undefined;
+      setChromeLastError(undefined);
       vi.restoreAllMocks();
     });
 
@@ -428,12 +476,11 @@ describe("NativeHostConnection", () => {
       await conn.connect();
 
       // Firefox-style error via port.error
-      chrome.runtime.lastError = undefined;
-      const portWithError = {
-        ...mockPort.port,
+      setChromeLastError(undefined);
+      Object.assign(mockPort.port, {
         error: { message: "No such native application com.tailscale.test" },
-      };
-      mockPort.disconnectListeners[0]!(portWithError);
+      });
+      mockPort.disconnectListeners[0]!(mockPort.port);
 
       expect(onMessage).toHaveBeenCalledWith({
         error: { cmd: "connect", message: "install_error" },

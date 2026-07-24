@@ -15,6 +15,7 @@ export class NativeHostConnection {
   private intentionalDisconnect = false;
   private connectedNotified = false;
   private timerService: TimerService;
+  private connectPromise: Promise<void> | null = null;
 
   constructor(
     private nativeHostId: string,
@@ -31,19 +32,31 @@ export class NativeHostConnection {
     this.timerService = timerService ?? new DefaultTimerService();
   }
 
-  async connect(): Promise<void> {
+  connect(): Promise<void> {
+    if (this.connectPromise) return this.connectPromise;
+
+    const pending = this.performConnect().finally(() => {
+      if (this.connectPromise === pending) {
+        this.connectPromise = null;
+      }
+    });
+    this.connectPromise = pending;
+    return pending;
+  }
+
+  private async performConnect(): Promise<void> {
     this.intentionalDisconnect = false;
 
     // Cancel any pending reconnect to avoid overlapping connect calls
     this.timerService.clear("reconnect");
 
-    // Clean up any existing port
-    if (this.port) {
-      this.port.disconnect();
-      this.port = null;
-    }
-
     this.profileID = await this.getOrCreateProfileID();
+
+    // Clean up only after asynchronous profile hydration. connect() is
+    // serialized, so another caller cannot create a second live port here.
+    const previousPort = this.port;
+    this.port = null;
+    previousPort?.disconnect();
 
     // Resolve before opening the port so init is the first thing sent.
     let wantRunning: boolean | undefined;
@@ -55,18 +68,19 @@ export class NativeHostConnection {
       }
     }
 
-    this.port = chrome.runtime.connectNative(this.nativeHostId);
+    const port = chrome.runtime.connectNative(this.nativeHostId);
+    this.port = port;
 
-    this.port.onMessage.addListener((msg: NativeReply) => {
-      this.handleMessage(msg);
+    port.onMessage.addListener((msg: NativeReply) => {
+      this.handleMessage(port, msg);
     });
 
-    this.port.onDisconnect.addListener((disconnectedPort: chrome.runtime.Port) => {
-      this.handleDisconnect(disconnectedPort);
+    port.onDisconnect.addListener(() => {
+      this.handleDisconnect(port);
     });
 
     // Send init message with profile ID
-    this.send({
+    port.postMessage({
       cmd: "init",
       initID: this.profileID,
       ...(wantRunning !== undefined ? { wantRunning } : {}),
@@ -76,10 +90,9 @@ export class NativeHostConnection {
   disconnect(): void {
     this.intentionalDisconnect = true;
     this.timerService.clear("reconnect");
-    if (this.port) {
-      this.port.disconnect();
-      this.port = null;
-    }
+    const port = this.port;
+    this.port = null;
+    port?.disconnect();
     this.connectedNotified = false;
     this.onStateChange(false);
   }
@@ -98,7 +111,8 @@ export class NativeHostConnection {
     }
   }
 
-  private handleMessage(msg: NativeReply): void {
+  private handleMessage(sourcePort: chrome.runtime.Port, msg: NativeReply): void {
+    if (sourcePort !== this.port) return;
     // A message from the host means the connection is healthy — reset backoff
     this.reconnectDelay = RECONNECT_BASE_MS;
     if (!this.connectedNotified) {
@@ -109,6 +123,7 @@ export class NativeHostConnection {
   }
 
   private handleDisconnect(disconnectedPort: chrome.runtime.Port): void {
+    if (disconnectedPort !== this.port) return;
     // Chrome reports errors via chrome.runtime.lastError
     // Firefox reports errors via port.error
     const lastError = chrome.runtime.lastError;

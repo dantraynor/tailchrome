@@ -30,8 +30,6 @@ const KEEPALIVE_PERIOD_MINUTES = KEEPALIVE_INTERVAL_MS / 60_000;
 export function startFirefoxBackground(): void {
   const proxyManager = new FirefoxProxyManager();
   let backgroundHandle: BackgroundHandle | null = null;
-  let sawBrowserStartup = false;
-  let installedReason: chrome.runtime.InstalledDetails["reason"] | undefined;
 
   // Register the sidebar opener synchronously at top-level so a toolbar
   // click that wakes a dormant service worker is delivered to the listener.
@@ -41,16 +39,7 @@ export function startFirefoxBackground(): void {
 
   // Wake the background at browser launch so the restore chain below runs
   // auto-connect without waiting for the popup (#90).
-  registerStartupWakeListener(() => {
-    sawBrowserStartup = true;
-  });
-
-  // initBackground is intentionally delayed until proxy restoration finishes,
-  // but runtime events that wake an MV3 worker are not replayed for listeners
-  // registered after that await. Capture updates now and forward the signal.
-  chrome.runtime.onInstalled?.addListener((details) => {
-    installedReason = details.reason;
-  });
+  registerStartupWakeListener();
 
   browser.proxy.onRequest.addListener(proxyManager.listener, {
     urls: ["<all_urls>"],
@@ -62,22 +51,21 @@ export function startFirefoxBackground(): void {
     }
   });
 
-  void proxyManager
-    .restoreFromStorage()
-    .then(() => {
-      backgroundHandle = initBackground(proxyManager, FIREFOX_NATIVE_HOST_ID, {
-        skipKeepalive: true,
-        browserKind: "firefox",
-        initialRuntimeLifecycle: {
-          browserStartup: sawBrowserStartup,
-          installedReason,
-        },
-      });
+  // Begin restoration before the shared background can emit state, but
+  // register every runtime listener synchronously during initial evaluation.
+  // Startup/installed events dispatch after this tick, so the shared
+  // background's own synchronously registered listeners observe them all.
+  const restorePromise = proxyManager.restoreFromStorage();
+  backgroundHandle = initBackground(proxyManager, FIREFOX_NATIVE_HOST_ID, {
+    skipKeepalive: true,
+    browserKind: "firefox",
+  });
 
-      browser.alarms.create("keepalive", {
-        periodInMinutes: KEEPALIVE_PERIOD_MINUTES,
-      });
-    })
+  browser.alarms.create("keepalive", {
+    periodInMinutes: KEEPALIVE_PERIOD_MINUTES,
+  });
+
+  void restorePromise
     .catch((err) => {
       console.error("[Firefox] Background start failed:", err);
     });

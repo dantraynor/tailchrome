@@ -11,6 +11,11 @@ const { chromeExtensionId, firefoxAddonId } = JSON.parse(
 );
 
 const firefoxExtensionUuid = "6f0f1dbf-8f16-4c9b-a902-3e47e22d5d27";
+// Firefox 153 blocks WebDriver BiDi from navigating a regular tab to a
+// moz-extension URL (https://bugzilla.mozilla.org/show_bug.cgi?id=1959376).
+// Keep the suite reproducible on the latest compatible release until Firefox
+// exposes extension pages to BiDi.
+const defaultFirefoxBuildId = "stable_152.0";
 
 function shCapture(command, args) {
   const result = spawnSync(command, args, {
@@ -26,16 +31,16 @@ function shCapture(command, args) {
   return result.stdout.trim();
 }
 
-function hasChromeInstalled() {
+async function hasChromeInstalled() {
   try {
-    return existsSync(puppeteer.executablePath());
+    return existsSync(await puppeteer.executablePath());
   } catch {
     return false;
   }
 }
 
-function ensureChromeInstalled() {
-  if (hasChromeInstalled()) return;
+async function ensureChromeInstalled() {
+  if (await hasChromeInstalled()) return;
 
   console.log("> pnpm exec puppeteer browsers install chrome");
   const result = spawnSync(
@@ -52,7 +57,7 @@ function ensureChromeInstalled() {
   }
 }
 
-function chromeExecutablePath() {
+async function chromeExecutablePath() {
   if (process.env.CHROME_BINARY) return process.env.CHROME_BINARY;
   return puppeteer.executablePath();
 }
@@ -66,12 +71,14 @@ function ensureFirefoxInstalled() {
     return firefoxBinary;
   }
 
+  const firefoxBuildId =
+    process.env.FIREFOX_BUILD_ID ?? defaultFirefoxBuildId;
   return shCapture("pnpm", [
     "exec",
     "puppeteer",
     "browsers",
     "install",
-    "firefox@stable",
+    `firefox@${firefoxBuildId}`,
     "--format",
     "{{path}}",
   ])
@@ -88,13 +95,13 @@ function isNavigationTimeout(err) {
 }
 
 async function launchChrome(extensionDir) {
-  ensureChromeInstalled();
+  await ensureChromeInstalled();
 
   const headless = process.env.HEADLESS !== "false";
   const userDataDir = mkdtempSync(resolve(tmpdir(), "tailchrome-chrome-profile-"));
   const browser = await puppeteer.launch({
     headless,
-    executablePath: chromeExecutablePath(),
+    executablePath: await chromeExecutablePath(),
     userDataDir,
     args: [
       `--disable-extensions-except=${extensionDir}`,

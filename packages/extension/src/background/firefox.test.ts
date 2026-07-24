@@ -135,7 +135,7 @@ describe("startFirefoxBackground", () => {
     expect(onStartupAddListener).toHaveBeenCalledWith(expect.any(Function));
   });
 
-  it("waits for restore before starting the shared background and keepalive alarm", async () => {
+  it("starts the shared background and keepalive alarm synchronously while restore is pending", async () => {
     let resolveRestore!: (value: boolean) => void;
     mocks.restoreFromStorage.mockReturnValue(
       new Promise<boolean>((resolve) => {
@@ -145,30 +145,24 @@ describe("startFirefoxBackground", () => {
 
     startFirefoxBackground();
 
-    expect(mocks.initBackground).not.toHaveBeenCalled();
-    expect(alarmsCreate).not.toHaveBeenCalled();
-
-    resolveRestore(true);
-    await flushMicrotasks();
-
     expect(mocks.initBackground).toHaveBeenCalledWith(
       mocks.proxyManagerInstance,
       FIREFOX_NATIVE_HOST_ID,
       {
         browserKind: "firefox",
         skipKeepalive: true,
-        initialRuntimeLifecycle: {
-          browserStartup: false,
-          installedReason: undefined,
-        },
       },
     );
     expect(alarmsCreate).toHaveBeenCalledWith("keepalive", {
       periodInMinutes: 25_000 / 60_000,
     });
+
+    resolveRestore(true);
+    await flushMicrotasks();
+    expect(mocks.initBackground).toHaveBeenCalledTimes(1);
   });
 
-  it("forwards lifecycle events received while proxy restoration is pending", async () => {
+  it("leaves startup options unchanged when lifecycle events arrive during restore", async () => {
     let resolveRestore!: (value: boolean) => void;
     mocks.restoreFromStorage.mockReturnValue(
       new Promise<boolean>((resolve) => {
@@ -183,43 +177,14 @@ describe("startFirefoxBackground", () => {
     resolveRestore(true);
     await flushMicrotasks();
 
+    expect(mocks.initBackground).toHaveBeenCalledTimes(1);
     expect(mocks.initBackground).toHaveBeenCalledWith(
       mocks.proxyManagerInstance,
       FIREFOX_NATIVE_HOST_ID,
       {
         browserKind: "firefox",
         skipKeepalive: true,
-        initialRuntimeLifecycle: {
-          browserStartup: true,
-          installedReason: "update",
-        },
       },
-    );
-  });
-
-  it("forwards a fresh-install event received before proxy restoration", async () => {
-    let resolveRestore!: (value: boolean) => void;
-    mocks.restoreFromStorage.mockReturnValue(
-      new Promise<boolean>((resolve) => {
-        resolveRestore = resolve;
-      }),
-    );
-
-    startFirefoxBackground();
-    installedListener?.({ reason: "install" } as chrome.runtime.InstalledDetails);
-
-    resolveRestore(true);
-    await flushMicrotasks();
-
-    expect(mocks.initBackground).toHaveBeenCalledWith(
-      mocks.proxyManagerInstance,
-      FIREFOX_NATIVE_HOST_ID,
-      expect.objectContaining({
-        initialRuntimeLifecycle: {
-          browserStartup: false,
-          installedReason: "install",
-        },
-      }),
     );
   });
 

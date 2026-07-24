@@ -5,6 +5,7 @@
 export function createToggle(
   checked: boolean,
   onChange: (checked: boolean) => void,
+  accessibleName: string,
   disabled = false,
 ): HTMLElement {
   const label = document.createElement("label");
@@ -14,6 +15,7 @@ export function createToggle(
   input.type = "checkbox";
   input.checked = checked;
   input.disabled = disabled;
+  input.setAttribute("aria-label", accessibleName);
 
   const track = document.createElement("span");
   track.className = "toggle-track";

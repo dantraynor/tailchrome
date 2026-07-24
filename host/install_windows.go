@@ -157,6 +157,9 @@ func replaceBinary(destPath string, src io.Reader, perm os.FileMode) error {
 	// copyFile opens the destination before reading src, so the failed attempt
 	// above did not consume src; it is still positioned to be written here.
 	oldPath := destPath + ".old"
+	// A previous update may have left this sidecar behind until its process
+	// exited. Best-effort cleanup keeps the fixed rename target reusable.
+	_ = os.Remove(oldPath)
 	if err := os.Rename(destPath, oldPath); err != nil {
 		return fmt.Errorf("failed to move running binary aside: %w", err)
 	}
@@ -169,15 +172,9 @@ func replaceBinary(destPath string, src io.Reader, perm os.FileMode) error {
 	return nil
 }
 
-// scheduleOldBinaryCleanup removes the moved-aside binary. It is usually still
-// running (that is why it had to be moved), so deleting it now typically fails;
-// in that case schedule it for removal on the next reboot. Best-effort: a
-// lingering ".old" file never blocks a successful update.
+// scheduleOldBinaryCleanup removes the moved-aside binary if the old process
+// has already exited. Otherwise cleanupStaleBinary retries on each launch of
+// the new helper, avoiding an administrator-only reboot cleanup mechanism.
 func scheduleOldBinaryCleanup(oldPath string) {
-	if err := os.Remove(oldPath); err == nil {
-		return
-	}
-	if p, err := windows.UTF16PtrFromString(oldPath); err == nil {
-		_ = windows.MoveFileEx(p, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
-	}
+	_ = os.Remove(oldPath)
 }
