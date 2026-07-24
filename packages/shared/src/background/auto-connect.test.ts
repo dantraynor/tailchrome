@@ -2,20 +2,27 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { BackendState } from "../types";
 import {
   AUTO_CONNECT_PREF_KEY,
+  clearPersistedIntent,
+  clearSessionIntent,
   isAutoConnectHandled,
   markAutoConnectHandled,
   readAutoConnectPref,
+  readPersistedIntent,
+  readSessionIntent,
   shouldAutoConnect,
   writeAutoConnectPref,
+  writePersistedIntent,
+  writeSessionIntent,
 } from "./auto-connect";
 
 type GetFn = (key: string) => Promise<Record<string, unknown>>;
 type SetFn = (items: Record<string, unknown>) => Promise<void>;
+type RemoveFn = (key: string) => Promise<void>;
 
 // Treat `chrome.storage.session` as optional so the tests can swap it for a
 // stub or remove it entirely (to exercise the missing-API fallback path).
 type StorageWithSession = Omit<typeof chrome.storage, "session"> & {
-  session?: { get: GetFn; set: SetFn };
+  session?: { get: GetFn; set: SetFn; remove?: RemoveFn };
 };
 const storage = chrome.storage as unknown as StorageWithSession;
 
@@ -124,5 +131,121 @@ describe("auto-connect session flag fallback (no chrome.storage.session)", () =>
 
   it("markAutoConnectHandled is a no-op when session API is unavailable", async () => {
     await expect(markAutoConnectHandled()).resolves.toBeUndefined();
+  });
+});
+
+describe("session intent (storage.session)", () => {
+  let getSpy: ReturnType<typeof vi.fn>;
+  let setSpy: ReturnType<typeof vi.fn>;
+  let removeSpy: ReturnType<typeof vi.fn>;
+  let originalSession: StorageWithSession["session"];
+
+  beforeEach(() => {
+    originalSession = storage.session;
+    getSpy = vi.fn(((_key: string) => Promise.resolve({})) as GetFn);
+    setSpy = vi.fn(((_items: Record<string, unknown>) => Promise.resolve()) as SetFn);
+    removeSpy = vi.fn(((_key: string) => Promise.resolve()) as RemoveFn);
+    storage.session = {
+      get: getSpy as unknown as GetFn,
+      set: setSpy as unknown as SetFn,
+      remove: removeSpy as unknown as RemoveFn,
+    };
+  });
+
+  afterEach(() => {
+    storage.session = originalSession;
+  });
+
+  it("round-trips a value written with writeSessionIntent", async () => {
+    await writeSessionIntent(true);
+    expect(setSpy).toHaveBeenCalledWith({ desiredWantRunning: true });
+
+    getSpy.mockResolvedValueOnce({ desiredWantRunning: true });
+    expect(await readSessionIntent()).toBe(true);
+
+    await writeSessionIntent(false);
+    expect(setSpy).toHaveBeenCalledWith({ desiredWantRunning: false });
+
+    getSpy.mockResolvedValueOnce({ desiredWantRunning: false });
+    expect(await readSessionIntent()).toBe(false);
+  });
+
+  it("readSessionIntent returns undefined when the key is missing", async () => {
+    expect(await readSessionIntent()).toBeUndefined();
+  });
+
+  it("readSessionIntent returns undefined for non-boolean stored values", async () => {
+    getSpy.mockResolvedValueOnce({ desiredWantRunning: "yes" });
+    expect(await readSessionIntent()).toBeUndefined();
+  });
+
+  it("clearSessionIntent removes the key", async () => {
+    await clearSessionIntent();
+    expect(removeSpy).toHaveBeenCalledWith("desiredWantRunning");
+  });
+});
+
+describe("session intent fallback (no chrome.storage.session)", () => {
+  let originalSession: { get: GetFn; set: SetFn } | undefined;
+
+  beforeEach(() => {
+    originalSession = storage.session;
+    storage.session = undefined;
+  });
+
+  afterEach(() => {
+    storage.session = originalSession;
+  });
+
+  it("readSessionIntent returns undefined when session API is unavailable", async () => {
+    expect(await readSessionIntent()).toBeUndefined();
+  });
+
+  it("writeSessionIntent is a no-op when session API is unavailable", async () => {
+    await expect(writeSessionIntent(true)).resolves.toBeUndefined();
+  });
+
+  it("clearSessionIntent is a no-op when session API is unavailable", async () => {
+    await expect(clearSessionIntent()).resolves.toBeUndefined();
+  });
+});
+
+describe("persisted intent (storage.local)", () => {
+  let getSpy: ReturnType<typeof vi.fn>;
+  let setSpy: ReturnType<typeof vi.fn>;
+  let removeSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    getSpy = vi.fn(() => Promise.resolve({}));
+    setSpy = vi.fn(() => Promise.resolve());
+    removeSpy = vi.fn(() => Promise.resolve());
+    (chrome.storage.local.get as unknown as ReturnType<typeof vi.fn>) = getSpy;
+    (chrome.storage.local.set as unknown as ReturnType<typeof vi.fn>) = setSpy;
+    (chrome.storage.local.remove as unknown as ReturnType<typeof vi.fn>) = removeSpy;
+  });
+
+  it("round-trips a value written with writePersistedIntent", async () => {
+    await writePersistedIntent(true);
+    expect(setSpy).toHaveBeenCalledWith({ lastSessionWantRunning: true });
+
+    getSpy.mockResolvedValueOnce({ lastSessionWantRunning: true });
+    expect(await readPersistedIntent()).toBe(true);
+
+    getSpy.mockResolvedValueOnce({ lastSessionWantRunning: false });
+    expect(await readPersistedIntent()).toBe(false);
+  });
+
+  it("readPersistedIntent returns undefined when the key is missing", async () => {
+    expect(await readPersistedIntent()).toBeUndefined();
+  });
+
+  it("readPersistedIntent returns undefined for non-boolean stored values", async () => {
+    getSpy.mockResolvedValueOnce({ lastSessionWantRunning: "yes" });
+    expect(await readPersistedIntent()).toBeUndefined();
+  });
+
+  it("clearPersistedIntent removes the key", async () => {
+    await clearPersistedIntent();
+    expect(removeSpy).toHaveBeenCalledWith("lastSessionWantRunning");
   });
 });

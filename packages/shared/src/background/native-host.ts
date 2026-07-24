@@ -21,6 +21,12 @@ export class NativeHostConnection {
     private onMessage: NativeMessageHandler,
     private onStateChange: NativeStateChangeHandler,
     timerService?: TimerService,
+    // Resolves the wantRunning hint sent with init. The host starts a fresh
+    // tsnet node with WantRunning forced on, so init must say when the node
+    // should stay down (auto-connect off, or an in-session disconnect).
+    // Helpers that predate this field ignore it; the background compensates
+    // by sending an explicit `down` if the node comes up against the hint.
+    private getWantRunning?: () => Promise<boolean | undefined>,
   ) {
     this.timerService = timerService ?? new DefaultTimerService();
   }
@@ -39,6 +45,16 @@ export class NativeHostConnection {
 
     this.profileID = await this.getOrCreateProfileID();
 
+    // Resolve before opening the port so init is the first thing sent.
+    let wantRunning: boolean | undefined;
+    if (this.getWantRunning) {
+      try {
+        wantRunning = await this.getWantRunning();
+      } catch (err) {
+        console.warn("[NativeHost] wantRunning resolution failed:", err);
+      }
+    }
+
     this.port = chrome.runtime.connectNative(this.nativeHostId);
 
     this.port.onMessage.addListener((msg: NativeReply) => {
@@ -50,7 +66,11 @@ export class NativeHostConnection {
     });
 
     // Send init message with profile ID
-    this.send({ cmd: "init", initID: this.profileID });
+    this.send({
+      cmd: "init",
+      initID: this.profileID,
+      ...(wantRunning !== undefined ? { wantRunning } : {}),
+    });
   }
 
   disconnect(): void {

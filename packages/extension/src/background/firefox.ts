@@ -30,6 +30,8 @@ const KEEPALIVE_PERIOD_MINUTES = KEEPALIVE_INTERVAL_MS / 60_000;
 export function startFirefoxBackground(): void {
   const proxyManager = new FirefoxProxyManager();
   let backgroundHandle: BackgroundHandle | null = null;
+  let sawBrowserStartup = false;
+  let installedReason: chrome.runtime.InstalledDetails["reason"] | undefined;
 
   // Register the sidebar opener synchronously at top-level so a toolbar
   // click that wakes a dormant service worker is delivered to the listener.
@@ -39,7 +41,16 @@ export function startFirefoxBackground(): void {
 
   // Wake the background at browser launch so the restore chain below runs
   // auto-connect without waiting for the popup (#90).
-  registerStartupWakeListener();
+  registerStartupWakeListener(() => {
+    sawBrowserStartup = true;
+  });
+
+  // initBackground is intentionally delayed until proxy restoration finishes,
+  // but runtime events that wake an MV3 worker are not replayed for listeners
+  // registered after that await. Capture updates now and forward the signal.
+  chrome.runtime.onInstalled?.addListener((details) => {
+    installedReason = details.reason;
+  });
 
   browser.proxy.onRequest.addListener(proxyManager.listener, {
     urls: ["<all_urls>"],
@@ -57,6 +68,10 @@ export function startFirefoxBackground(): void {
       backgroundHandle = initBackground(proxyManager, FIREFOX_NATIVE_HOST_ID, {
         skipKeepalive: true,
         browserKind: "firefox",
+        initialRuntimeLifecycle: {
+          browserStartup: sawBrowserStartup,
+          installedReason,
+        },
       });
 
       browser.alarms.create("keepalive", {

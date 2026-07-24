@@ -14,6 +14,12 @@ type Request struct {
 	Prefs  json.RawMessage `json:"prefs,omitempty"`  // partial prefs JSON, used with "set-prefs"
 	Note   string          `json:"note,omitempty"`   // optional note for "bug-report"
 
+	// WantRunning is an optional hint used with "init": whether the node
+	// should be running after startup. tsnet forces WantRunning=true on every
+	// Start, so without this hint the node connects on every browser launch
+	// even when auto-connect is off (#90). Nil preserves that legacy behavior.
+	WantRunning *bool `json:"wantRunning,omitempty"`
+
 	// For send-file
 	FileName     string `json:"fileName,omitempty"`
 	FileData     string `json:"fileData,omitempty"` // base64-encoded file content

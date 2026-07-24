@@ -101,6 +101,8 @@ describe("initBackground", () => {
   let proxyManager: ProxyManager;
   let nativePort: MockPort;
   let connectListeners: Array<(port: unknown) => void>;
+  let installedListeners: Array<(details: chrome.runtime.InstalledDetails) => void>;
+  let startupListeners: Array<() => void>;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -112,14 +114,21 @@ describe("initBackground", () => {
 
     nativePort = createNativeMockPort();
     connectListeners = [];
+    installedListeners = [];
+    startupListeners = [];
 
     chrome.runtime.connectNative = vi.fn().mockReturnValue(nativePort) as unknown as typeof chrome.runtime.connectNative;
     chrome.runtime.onConnect = {
       addListener: (fn: (port: unknown) => void) => { connectListeners.push(fn); },
     } as unknown as chrome.runtime.ExtensionConnectEvent;
     chrome.runtime.onInstalled = {
-      addListener: vi.fn(),
+      addListener: (fn: (details: chrome.runtime.InstalledDetails) => void) => {
+        installedListeners.push(fn);
+      },
     } as unknown as chrome.events.Event<(details: chrome.runtime.InstalledDetails) => void>;
+    chrome.runtime.onStartup = {
+      addListener: (fn: () => void) => { startupListeners.push(fn); },
+    } as unknown as chrome.events.Event<() => void>;
     chrome.contextMenus = {
       create: vi.fn(),
       onClicked: { addListener: vi.fn() },
@@ -129,6 +138,7 @@ describe("initBackground", () => {
     chrome.storage.local.remove = vi.fn().mockResolvedValue(undefined) as unknown as typeof chrome.storage.local.remove;
     chrome.storage.session.get = vi.fn().mockResolvedValue({}) as unknown as typeof chrome.storage.session.get;
     chrome.storage.session.set = vi.fn().mockResolvedValue(undefined) as unknown as typeof chrome.storage.session.set;
+    chrome.storage.session.remove = vi.fn().mockResolvedValue(undefined) as unknown as typeof chrome.storage.session.remove;
     chrome.tabs.create = vi.fn().mockResolvedValue(undefined) as unknown as typeof chrome.tabs.create;
   });
 
@@ -181,9 +191,13 @@ describe("initBackground", () => {
 
   it("sends init message with profile ID", async () => {
     await setupBackground();
+    // With no session intent and the auto-connect pref off (default test
+    // mocks), the startup wantRunning resolution yields false and the
+    // NativeHostConnection includes it in the init message.
     expect(nativePort.postMessage).toHaveBeenCalledWith({
       cmd: "init",
       initID: "test-id",
+      wantRunning: false,
     });
   });
 
@@ -2257,6 +2271,13 @@ describe("initBackground", () => {
           return Promise.resolve({});
         },
       );
+      // Give the startup wantRunning resolution a recorded session intent so
+      // its own read of the (still-hydrating) pref is short-circuited and connect()
+      // isn't blocked on `autoConnectPref` before this test resolves it — the
+      // pending-pref scenario under test is the separate store-hydration read.
+      (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+        desiredWantRunning: true,
+      });
 
       await setupBackground();
       nativePort.postMessage.mockClear();
@@ -2310,6 +2331,10 @@ describe("initBackground", () => {
     it("does not send `up` when the pref is off", async () => {
       await setupBackground();
       nativePort.postMessage.mockClear();
+      // setupBackground() itself records the (off) pref as the session intent
+      // via the startup wantRunning resolution; clear that so this assertion
+      // is only about the auto-connect decision under test.
+      (chrome.storage.session.set as ReturnType<typeof vi.fn>).mockClear();
 
       sendNativeMessage(stoppedStatus());
       await vi.advanceTimersByTimeAsync(0);
@@ -2367,7 +2392,58 @@ describe("initBackground", () => {
       popupPort.onMessage._listeners[0]!({ type: "toggle" });
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(chrome.storage.session.set).not.toHaveBeenCalled();
+      // A manual connect from Stopped does record the desired-running intent
+      // (see "writes desiredWantRunning: true on toggle-connect" below), but
+      // it must not mark the auto-connect-handled flag — that's reserved for
+      // an explicit disconnect overriding a future auto-connect.
+      expect(chrome.storage.session.set).not.toHaveBeenCalledWith({
+        autoConnectHandled: true,
+      });
+    });
+
+    it("writes desiredWantRunning: true to session storage on toggle-connect", async () => {
+      await setupBackground();
+      (chrome.storage.session.set as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "toggle" });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(chrome.storage.session.set).toHaveBeenCalledWith({
+        desiredWantRunning: true,
+      });
+    });
+
+    it("writes desiredWantRunning: false to session storage on toggle-disconnect", async () => {
+      await setupBackground();
+      sendNativeMessage(statusWith("Running"));
+      (chrome.storage.session.set as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "toggle" });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(chrome.storage.session.set).toHaveBeenCalledWith({
+        desiredWantRunning: false,
+      });
+    });
+
+    it("writes desiredWantRunning: true to session storage on login", async () => {
+      await setupBackground();
+      (chrome.storage.session.set as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+      await vi.advanceTimersByTimeAsync(0);
+
+      // The intent is recorded even when the login request itself can't
+      // proceed (default state has no login URL and no helper support).
+      expect(chrome.storage.session.set).toHaveBeenCalledWith({
+        desiredWantRunning: true,
+      });
     });
 
     it("set-auto-connect-on-start persists to storage and broadcasts state", async () => {
@@ -2404,6 +2480,520 @@ describe("initBackground", () => {
       expect(proxyManager.apply).toHaveBeenCalledWith(
         expect.objectContaining({ autoConnectOnStart: true }),
       );
+    });
+
+    describe("auto-disconnect fallback", () => {
+      function countDownCalls(): number {
+        return nativePort.postMessage.mock.calls.filter(
+          (call) => (call[0] as { cmd: string }).cmd === "down",
+        ).length;
+      }
+
+      it("sends `down` when the node comes up Running against a stay-down intent", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("sends `down` when the node comes up Starting against a stay-down intent", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith("Starting"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("does not send `down` when the recorded intent is to run", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: true,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("sends `down` when the startup resolution said stay-down but no session record landed", async () => {
+        // Default mocks: empty session storage, pref off. The resolved
+        // stay-down decision is held in memory for the whole background
+        // lifetime, so the fallback still works when the session-storage
+        // cache write is lost (or the API is missing entirely).
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("does not send `down` when the intent could not be resolved at all", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockRejectedValue(
+          new Error("session storage unavailable"),
+        );
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("still sends `down` when a popup connected but the user took no action", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        // Opening the popup to glance at status says nothing about whether
+        // the node should run; only a recorded decision does.
+        const popupPort = createPopupPort();
+        connectListeners[0]!(popupPort);
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("does not send `down` after the user connects from the popup", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        const popupPort = createPopupPort();
+        connectListeners[0]!(popupPort);
+        // Default state is NoState, so the toggle sends `up` and records the
+        // new decision synchronously — the states that follow it must never
+        // be "corrected" back down.
+        popupPort.onMessage._listeners[0]!({ type: "toggle" });
+        await vi.advanceTimersByTimeAsync(0);
+
+        sendNativeMessage(statusWith("Starting"));
+        await vi.advanceTimersByTimeAsync(0);
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "up" });
+        expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("corrects again when a respawned host auto-ups against the same intent", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(countDownCalls()).toBe(1);
+
+        // Helper crash: the port drops and the backoff loop respawns a fresh
+        // host process, which force-starts the node again at init.
+        nativePort.onDisconnect._listeners[0]!(nativePort);
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(countDownCalls()).toBe(2);
+      });
+
+      it("sends `down` only once across repeated qualifying statuses", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(countDownCalls()).toBe(1);
+      });
+
+      it("does not send `down` against a profile the user just switched to", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        // The stay-down decision was made for the previous profile; the
+        // switched-to profile's own saved prefs may legitimately bring the
+        // node up (e.g. it was running when the browser last quit).
+        const popupPort = createPopupPort();
+        connectListeners[0]!(popupPort);
+        popupPort.onMessage._listeners[0]!({
+          type: "switch-profile",
+          profileID: "other-profile",
+        });
+        await vi.advanceTimersByTimeAsync(0);
+
+        sendNativeMessage(statusWith("Starting"));
+        await vi.advanceTimersByTimeAsync(0);
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({
+          cmd: "switch-profile",
+          profileID: "other-profile",
+        });
+        expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "down" });
+        // The stale decision is also dropped from storage so a later host
+        // respawn or update restore doesn't apply it to the new profile.
+        expect(chrome.storage.session.remove).toHaveBeenCalledWith(
+          "desiredWantRunning",
+        );
+        expect(chrome.storage.local.remove).toHaveBeenCalledWith(
+          "lastSessionWantRunning",
+        );
+      });
+
+      it("keeps the stay-down intent when deleting a non-current profile", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        sendNativeMessage({
+          profiles: {
+            current: { id: "p1", name: "A" },
+            profiles: [
+              { id: "p1", name: "A" },
+              { id: "p2", name: "B" },
+            ],
+          },
+        });
+        nativePort.postMessage.mockClear();
+
+        const popupPort = createPopupPort();
+        connectListeners[0]!(popupPort);
+        popupPort.onMessage._listeners[0]!({
+          type: "delete-profile",
+          profileID: "p2",
+        });
+        await vi.advanceTimersByTimeAsync(0);
+
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        // The current profile is untouched, so its decision stays in force
+        // and the fallback still corrects an unwanted auto-up.
+        expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "down" });
+      });
+
+      it("lets a decision made right after a profile switch supersede the queued clear", async () => {
+        (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          desiredWantRunning: false,
+        });
+
+        await setupBackground();
+        (chrome.storage.session.set as ReturnType<typeof vi.fn>).mockClear();
+        (chrome.storage.session.remove as ReturnType<typeof vi.fn>).mockClear();
+
+        const popupPort = createPopupPort();
+        connectListeners[0]!(popupPort);
+        popupPort.onMessage._listeners[0]!({
+          type: "switch-profile",
+          profileID: "other-profile",
+        });
+        // Default state is NoState, so the toggle sends `up` and records a
+        // fresh decision before the queued intent clear has run.
+        popupPort.onMessage._listeners[0]!({ type: "toggle" });
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(chrome.storage.session.remove).not.toHaveBeenCalled();
+        expect(chrome.storage.session.set).toHaveBeenCalledWith({
+          desiredWantRunning: true,
+        });
+      });
+    });
+
+    it("persists the toggle decision to local storage for update recovery", async () => {
+      await setupBackground();
+      (chrome.storage.local.set as ReturnType<typeof vi.fn>).mockClear();
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "toggle" });
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(chrome.storage.local.set).toHaveBeenCalledWith({
+        lastSessionWantRunning: true,
+      });
+    });
+
+    it("keeps a user decision made while startup preference resolution is pending", async () => {
+      let resolvePref!: (value: Record<string, unknown>) => void;
+      const pendingPref = new Promise<Record<string, unknown>>((resolve) => {
+        resolvePref = resolve;
+      });
+      (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockImplementation(
+        (key: string) => {
+          if (key === "autoConnectOnStart") return pendingPref;
+          if (key === "profileId") {
+            return Promise.resolve({ profileId: "test-id" });
+          }
+          return Promise.resolve({});
+        },
+      );
+
+      initBackground(proxyManager, "com.tailscale.test");
+      await vi.advanceTimersByTimeAsync(0);
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "toggle" });
+
+      resolvePref({});
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(nativePort.postMessage).toHaveBeenCalledWith({
+        cmd: "init",
+        initID: "test-id",
+        wantRunning: true,
+      });
+      const intentWrites = (
+        chrome.storage.session.set as ReturnType<typeof vi.fn>
+      ).mock.calls.filter(
+        ([value]) => "desiredWantRunning" in (value as Record<string, unknown>),
+      );
+      expect(intentWrites.at(-1)?.[0]).toEqual({
+        desiredWantRunning: true,
+      });
+    });
+
+    describe("update intent restore", () => {
+      function fireInstalled(reason: string): void {
+        installedListeners.forEach((fn) =>
+          fn({ reason } as chrome.runtime.InstalledDetails),
+        );
+      }
+
+      it("restores a connection the update's session-storage wipe forgot", async () => {
+        (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          profileId: "test-id",
+          lastSessionWantRunning: true,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        fireInstalled("update");
+        await vi.advanceTimersByTimeAsync(250);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({
+          cmd: "init",
+          initID: "test-id",
+          wantRunning: true,
+        });
+        expect(chrome.storage.session.set).toHaveBeenCalledWith({
+          desiredWantRunning: true,
+        });
+      });
+
+      it("corrects a wrong restore when onStartup arrives after the settle window", async () => {
+        (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          profileId: "test-id",
+          lastSessionWantRunning: true,
+        });
+
+        await setupBackground();
+        fireInstalled("update");
+        await vi.advanceTimersByTimeAsync(250);
+        expect(nativePort.postMessage).toHaveBeenCalledWith({
+          cmd: "init",
+          initID: "test-id",
+          wantRunning: true,
+        });
+        nativePort.postMessage.mockClear();
+
+        // The update actually applied at a browser launch; onStartup was just
+        // delivered after the settle window had already elapsed.
+        startupListeners.forEach((fn) => fn());
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "down" });
+        expect(chrome.storage.local.remove).toHaveBeenCalledWith(
+          "lastSessionWantRunning",
+        );
+      });
+
+      it("restores late when onInstalled arrives after the settle window", async () => {
+        (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          profileId: "test-id",
+          lastSessionWantRunning: true,
+        });
+
+        await setupBackground();
+        await vi.advanceTimersByTimeAsync(250);
+        expect(nativePort.postMessage).toHaveBeenCalledWith({
+          cmd: "init",
+          initID: "test-id",
+          wantRunning: false,
+        });
+        nativePort.postMessage.mockClear();
+
+        fireInstalled("update");
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "up" });
+        expect(chrome.storage.session.set).toHaveBeenCalledWith({
+          desiredWantRunning: true,
+        });
+      });
+
+      it("corrects a late restore when onStartup arrives even later", async () => {
+        (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          profileId: "test-id",
+          lastSessionWantRunning: true,
+        });
+
+        await setupBackground();
+        await vi.advanceTimersByTimeAsync(250);
+        nativePort.postMessage.mockClear();
+
+        // Both lifecycle events are delivered after the settle window, in
+        // update-then-startup order: the restore fires first, then the
+        // startup signal reveals this was a fresh browser launch after all.
+        fireInstalled("update");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "up" });
+
+        startupListeners.forEach((fn) => fn());
+        sendNativeMessage(statusWith("Running"));
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "down" });
+        expect(chrome.storage.local.remove).toHaveBeenCalledWith(
+          "lastSessionWantRunning",
+        );
+      });
+
+      it("does not restore when the update applied at browser launch", async () => {
+        (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          profileId: "test-id",
+          lastSessionWantRunning: true,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        startupListeners.forEach((fn) => fn());
+        fireInstalled("update");
+        await vi.advanceTimersByTimeAsync(250);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({
+          cmd: "init",
+          initID: "test-id",
+          wantRunning: false,
+        });
+        expect(chrome.storage.local.remove).toHaveBeenCalledWith(
+          "lastSessionWantRunning",
+        );
+      });
+
+      it("restores a stay-down decision even when auto-connect is on", async () => {
+        (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          profileId: "test-id",
+          lastSessionWantRunning: false,
+          autoConnectOnStart: true,
+        });
+
+        await setupBackground();
+        fireInstalled("update");
+        await vi.advanceTimersByTimeAsync(250);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({
+          cmd: "init",
+          initID: "test-id",
+          wantRunning: false,
+        });
+        expect(chrome.storage.session.set).toHaveBeenCalledWith({
+          desiredWantRunning: false,
+        });
+
+        nativePort.postMessage.mockClear();
+        sendNativeMessage(statusWith("Stopped"));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "up" });
+      });
+
+      it("does not restore on a fresh install", async () => {
+        (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          profileId: "test-id",
+          lastSessionWantRunning: true,
+        });
+
+        await setupBackground();
+        nativePort.postMessage.mockClear();
+
+        fireInstalled("install");
+        await vi.advanceTimersByTimeAsync(250);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({
+          cmd: "init",
+          initID: "test-id",
+          wantRunning: false,
+        });
+        expect(chrome.contextMenus.create).toHaveBeenCalled();
+      });
+
+      it("keeps a fresh explicit decision over the pre-update record", async () => {
+        (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+          profileId: "test-id",
+          lastSessionWantRunning: false,
+        });
+
+        await setupBackground();
+        fireInstalled("update");
+
+        // Before the settle window elapses the user explicitly connects.
+        const popupPort = createPopupPort();
+        connectListeners[0]!(popupPort);
+        popupPort.onMessage._listeners[0]!({ type: "toggle" });
+
+        await vi.advanceTimersByTimeAsync(250);
+
+        expect(nativePort.postMessage).toHaveBeenCalledWith({
+          cmd: "init",
+          initID: "test-id",
+          wantRunning: true,
+        });
+      });
     });
   });
 
