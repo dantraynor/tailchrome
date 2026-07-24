@@ -148,7 +148,7 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 - **Keyboard navigation** -- peer list supports arrow key navigation
 - **Platform-aware** -- detects macOS for platform-specific UI hints
 - **Side panel mode** -- opt-in toggle ("Open as side panel") that switches the UI from popup to Chrome side panel / Firefox sidebar; a single quick-settings row controls it on either browser
-- **Auto-connect on start** -- opt-in quick-settings toggle that brings the tailnet up on the first status after init when the backend is `Stopped`/`NoState`; a session-scoped flag preserves an explicit disconnect across service-worker restarts within the same browser session. The background registers a `runtime.onStartup` listener so the browser wakes it at launch -- without it the connection would wait for the popup to open. The extension also sends a session-scoped `wantRunning` hint with host init (the preference at browser launch, or the last explicit toggle afterwards) so the host can suppress tsnet's forced auto-up when the node should stay down; if the node comes up against a "stay down" hint anyway (a helper that predates the field, or a failed prefs edit) and no popup has opened, the background sends an explicit `down` as a fallback
+- **Auto-connect on start** -- opt-in quick-settings toggle that brings the tailnet up on the first status after init when the backend is `Stopped`/`NoState`; a session-scoped flag preserves an explicit disconnect across service-worker restarts within the same browser session. The background registers a `runtime.onStartup` listener so the browser wakes it at launch -- without it the connection would wait for the popup to open. The extension also sends a session-scoped `wantRunning` hint with host init (the preference at browser launch, or the last explicit toggle afterwards) so the host can suppress tsnet's forced auto-up when the node should stay down; if the node comes up against a "stay down" decision anyway (a helper that predates the field, or a failed prefs edit), the background sends an explicit `down` as a fallback -- once per host connection, never overriding a newer user action. Switching (or creating) a profile clears the recorded intent -- the decision belonged to the previous profile, and the incoming profile's own saved prefs decide its run state
 
 ### Parity and backlog
 
@@ -255,7 +255,7 @@ The shared package contains all the platform-agnostic logic. The extension packa
 | `badge-manager.ts`  | 105   | Extension icon/badge updates for online, offline, warning, and exit-node states                                |
 | `proxy-utils.ts`    | 117   | IP/CIDR helpers, MagicDNS suffix sanitization, split-domain sanitization, subnet collection, proxy decisions    |
 | `domain-split.ts`   | 51    | Split-tunneling config storage and normalization                                                               |
-| `auto-connect.ts`   | 70    | Auto-connect preference, per-session handled flag, and session connection intent (`wantRunning` init hint)     |
+| `auto-connect.ts`   | 85    | Auto-connect preference, per-session handled flag, and session connection intent (`wantRunning` init hint)     |
 | `timer-service.ts`  | 54    | Abstract `TimerService` interface; `DefaultTimerService` wraps native `setInterval`/`clearInterval`            |
 
 

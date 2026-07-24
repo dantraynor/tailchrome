@@ -51,6 +51,12 @@ export async function writeSessionIntent(value: boolean): Promise<void> {
   await area.set({ [INTENT_KEY]: value });
 }
 
+export async function clearSessionIntent(): Promise<void> {
+  const area = sessionArea();
+  if (!area) return;
+  await area.remove(INTENT_KEY);
+}
+
 // Local-storage copy of the session intent. chrome.storage.session is wiped
 // not only at browser restart but also when the extension is updated or
 // reloaded mid-session; this copy is what lets the update corrector in
@@ -69,16 +75,6 @@ export async function writePersistedIntent(value: boolean): Promise<void> {
 
 export async function clearPersistedIntent(): Promise<void> {
   await chrome.storage.local.remove(LAST_INTENT_KEY);
-}
-
-// Resolves the `wantRunning` hint for host init: the in-session intent when
-// one is recorded, otherwise the persisted auto-connect preference. The
-// caller records the final value after arbitrating it against any user action
-// that arrived while these asynchronous reads were in flight.
-export async function resolveStartupWantRunning(): Promise<boolean> {
-  const intent = await readSessionIntent();
-  if (intent !== undefined) return intent;
-  return readAutoConnectPref();
 }
 
 // Backend states where sending `up` is the right action to bring the node online.

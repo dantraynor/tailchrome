@@ -21,6 +21,7 @@ import { DefaultTimerService, type TimerService } from "./timer-service";
 import { applyUiSurface, readUiSurface, type BrowserKind } from "./ui-surface";
 import {
   clearPersistedIntent,
+  clearSessionIntent,
   isAutoConnectHandled,
   markAutoConnectHandled,
   readAutoConnectPref,
@@ -246,6 +247,19 @@ export function initBackground(
   // host disconnects (see handleNativeStateChange) and the next connection
   // gets its own corrective window.
   let autoDisconnectAttempted = false;
+  // True once the mirror holds a deliberate decision (user action, login,
+  // auto-connect, profile switch) rather than the pref-derived startup
+  // resolution. Late lifecycle events must never override a deliberate choice.
+  let intentExplicitlyDecided = false;
+  // What the startup resolution decided when it had to guess without a
+  // conclusive lifecycle signal. Event delivery has no deadline, so the
+  // settle window is only a fast path: an onStartup/onInstalled arriving
+  // after it re-runs the part of this decision it would have changed.
+  let startupResolution: {
+    pref: boolean;
+    persisted: boolean | undefined;
+    usedRecovery: boolean;
+  } | null = null;
 
   // Register runtime lifecycle listeners before the first asynchronous host
   // initialization step. An update clears storage.session, so the native init
@@ -267,6 +281,21 @@ export function initBackground(
       }
     });
     startupClearPromise = intentWriteChain;
+    // Arriving after the settle window means this was a browser launch after
+    // all: if the resolution restored the persisted intent in the meantime,
+    // that restore was wrong — a fresh session follows the preference alone.
+    // Re-decide, unless the user has made a deliberate choice since.
+    if (
+      startupResolution?.usedRecovery &&
+      !intentExplicitlyDecided &&
+      sessionIntentMirror !== startupResolution.pref
+    ) {
+      sessionIntentMirror = startupResolution.pref;
+      void enqueueIntentWrite(false);
+      if (latestBackendState !== null) {
+        maybeAutoDisconnect(latestBackendState);
+      }
+    }
   };
   const handleInstalled = (
     reason: chrome.runtime.InstalledDetails["reason"],
@@ -276,7 +305,37 @@ export function initBackground(
       title: "Send page URL to Tailscale device",
       contexts: ["page"],
     });
-    if (reason === "update") sawExtensionUpdate = true;
+    if (reason !== "update") return;
+    sawExtensionUpdate = true;
+    // Arriving after the settle window means the resolution already fell
+    // back to the preference, and the host may have forced the node down
+    // against a persisted run intent — the wipe this recovery exists for.
+    // Restore it now, unless a browser startup was observed (fresh session,
+    // preference governs) or the user has made a deliberate choice since.
+    if (
+      startupResolution !== null &&
+      !startupResolution.usedRecovery &&
+      startupResolution.persisted === true &&
+      !sawBrowserStartup &&
+      !intentExplicitlyDecided
+    ) {
+      // This restore is still the lifecycle guess, not a user decision: mark
+      // the resolution as recovery-based (so an even later onStartup can
+      // re-derive to the preference) and leave intentExplicitlyDecided unset
+      // — recordIntent would freeze the guess as if the user had chosen.
+      startupResolution.usedRecovery = true;
+      sessionIntentMirror = true;
+      void enqueueIntentWrite(true);
+      if (
+        latestBackendState === null ||
+        shouldAutoConnect(latestBackendState)
+      ) {
+        // No status yet means the host is still initializing and the `up`
+        // lands right after its init. User-driven states like NeedsLogin
+        // keep their own flows; the recorded intent covers later respawns.
+        nativeHost.send({ cmd: "up" });
+      }
+    }
   };
   chrome.runtime.onStartup?.addListener(handleBrowserStartup);
   chrome.runtime.onInstalled?.addListener((details) => {
@@ -604,7 +663,35 @@ export function initBackground(
 
   function recordIntent(value: boolean): void {
     sessionIntentMirror = value;
+    intentExplicitlyDecided = true;
     void enqueueIntentWrite(true);
+  }
+
+  // Forgets the recorded decision when the user changes profiles: it was made
+  // for the previous profile, and the incoming profile's own saved prefs
+  // decide its run state (the host cancels its startup correction for the
+  // same reason). Also closes the corrective-down window for this connection
+  // synchronously — a stay-down intent from the old profile must not yank
+  // down a profile the user just switched to, even from a storage read
+  // already in flight.
+  function clearIntent(): void {
+    sessionIntentMirror = undefined;
+    intentExplicitlyDecided = true;
+    autoDisconnectAttempted = true;
+    intentWriteChain = intentWriteChain.then(async () => {
+      // A decision recorded after this clear was queued is newer — keep it.
+      if (sessionIntentMirror !== undefined) return;
+      try {
+        await clearSessionIntent();
+      } catch (err) {
+        console.warn("[Background] clearSessionIntent failed:", err);
+      }
+      try {
+        await clearPersistedIntent();
+      } catch (err) {
+        console.warn("[Background] clearPersistedIntent failed:", err);
+      }
+    });
   }
 
   const nativeHost = new NativeHostConnection(
@@ -634,6 +721,11 @@ export function initBackground(
         const recoverUpdateIntent =
           persisted !== undefined && sawExtensionUpdate && !sawBrowserStartup;
         resolved = recoverUpdateIntent ? persisted : pref;
+        startupResolution = {
+          pref,
+          persisted,
+          usedRecovery: recoverUpdateIntent,
+        };
       }
       // A user action that landed while the resolution was in flight wins.
       sessionIntentMirror ??= resolved;
@@ -945,16 +1037,23 @@ export function initBackground(
       }
 
       case "switch-profile": {
+        clearIntent();
         nativeHost.send({ cmd: "switch-profile", profileID: msg.profileID });
         break;
       }
 
       case "new-profile": {
+        clearIntent();
         nativeHost.send({ cmd: "new-profile" });
         break;
       }
 
       case "delete-profile": {
+        // Deleting the current profile implicitly switches profiles; deleting
+        // another profile leaves the current decision in force.
+        if (state.currentProfile?.id === msg.profileID) {
+          clearIntent();
+        }
         nativeHost.send({
           cmd: "delete-profile",
           profileID: msg.profileID,
