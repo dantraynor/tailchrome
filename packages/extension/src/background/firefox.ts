@@ -53,6 +53,8 @@ export function startFirefoxBackground(): void {
 
   // Begin restoration before the shared background can emit state, but
   // register every runtime listener synchronously during initial evaluation.
+  // Startup/installed events dispatch after this tick, so the shared
+  // background's own synchronously registered listeners observe them all.
   const restorePromise = proxyManager.restoreFromStorage();
   backgroundHandle = initBackground(proxyManager, FIREFOX_NATIVE_HOST_ID, {
     skipKeepalive: true,

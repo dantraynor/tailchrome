@@ -32,6 +32,10 @@ describe("startFirefoxBackground", () => {
   let alarmsCreate: ReturnType<typeof vi.fn>;
   let alarmListener: ((alarm: { name: string }) => void) | null;
   let onStartupAddListener: ReturnType<typeof vi.fn>;
+  let startupListener: (() => void) | null;
+  let installedListener:
+    | ((details: chrome.runtime.InstalledDetails) => void)
+    | null;
   let originalBrowser: unknown;
 
   const chromeRuntime = (
@@ -56,8 +60,19 @@ describe("startFirefoxBackground", () => {
       alarmListener = listener;
     });
     alarmsCreate = vi.fn();
-    onStartupAddListener = vi.fn();
+    startupListener = null;
+    installedListener = null;
+    onStartupAddListener = vi.fn((listener: () => void) => {
+      startupListener = listener;
+    });
     chromeRuntime["onStartup"] = { addListener: onStartupAddListener };
+    chromeRuntime["onInstalled"] = {
+      addListener: vi.fn(
+        (listener: (details: chrome.runtime.InstalledDetails) => void) => {
+          installedListener = listener;
+        },
+      ),
+    };
 
     originalBrowser = getBrowser();
     setBrowser({
@@ -95,6 +110,7 @@ describe("startFirefoxBackground", () => {
   afterEach(() => {
     setBrowser(originalBrowser);
     delete chromeRuntime["onStartup"];
+    delete chromeRuntime["onInstalled"];
   });
 
   it("registers the Firefox proxy and alarm listeners immediately", () => {
@@ -132,7 +148,10 @@ describe("startFirefoxBackground", () => {
     expect(mocks.initBackground).toHaveBeenCalledWith(
       mocks.proxyManagerInstance,
       FIREFOX_NATIVE_HOST_ID,
-      { browserKind: "firefox", skipKeepalive: true },
+      {
+        browserKind: "firefox",
+        skipKeepalive: true,
+      },
     );
     expect(alarmsCreate).toHaveBeenCalledWith("keepalive", {
       periodInMinutes: 25_000 / 60_000,
@@ -141,6 +160,32 @@ describe("startFirefoxBackground", () => {
     resolveRestore(true);
     await flushMicrotasks();
     expect(mocks.initBackground).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves startup options unchanged when lifecycle events arrive during restore", async () => {
+    let resolveRestore!: (value: boolean) => void;
+    mocks.restoreFromStorage.mockReturnValue(
+      new Promise<boolean>((resolve) => {
+        resolveRestore = resolve;
+      }),
+    );
+
+    startFirefoxBackground();
+    startupListener?.();
+    installedListener?.({ reason: "update" } as chrome.runtime.InstalledDetails);
+
+    resolveRestore(true);
+    await flushMicrotasks();
+
+    expect(mocks.initBackground).toHaveBeenCalledTimes(1);
+    expect(mocks.initBackground).toHaveBeenCalledWith(
+      mocks.proxyManagerInstance,
+      FIREFOX_NATIVE_HOST_ID,
+      {
+        browserKind: "firefox",
+        skipKeepalive: true,
+      },
+    );
   });
 
   it("forwards keepalive alarms to the shared background handle", async () => {

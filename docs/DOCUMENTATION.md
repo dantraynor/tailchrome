@@ -98,7 +98,7 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 ### Data Flow
 
 1. **Startup:** Extension opens native messaging connection. Host starts, binds a SOCKS5/HTTP proxy on a random local port, and sends `procRunning` with the port number and version.
-2. **Init:** Extension sends `init` with a browser-profile UUID (`initID`). Host creates (or reuses) a `tsnet.Server` with state stored at `~/.config/tailscale-browser-ext/<initID>/`.
+2. **Init:** Extension sends `init` with a browser-profile UUID (`initID`) and an optional `wantRunning` hint. Host creates (or reuses) a `tsnet.Server` with state stored at `~/.config/tailscale-browser-ext/<initID>/`. Because `tsnet.Start` forces `WantRunning=true`, the host applies `WantRunning=false` right after starting a fresh server when the hint is `false` — this is what keeps the node down at browser launch when auto-connect is off.
 3. **State watching:** Host starts a goroutine (`watchIPNBus`) that monitors the IPN notification bus for state, prefs, netmap, browse-to-URL, and health changes. On any change, it fetches full status and sends a `StatusUpdate` to the extension.
 4. **Proxy routing:** The background service worker receives the status, passes it to the `ProxyManager`, which configures browser-level proxy rules (PAC script on Chrome, `proxy.onRequest` on Firefox).
 5. **Popup:** When the user opens the popup, it connects via a `chrome.runtime.Port` named `"popup"`. The background immediately sends current `TailscaleState`. User actions dispatch `BackgroundMessage` types which the background translates to `NativeRequest` commands.
@@ -149,7 +149,7 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 - **Keyboard navigation** -- peer list supports arrow key navigation
 - **Platform-aware** -- detects macOS for platform-specific UI hints
 - **Side panel mode** -- opt-in toggle ("Open as side panel") that switches the UI from popup to Chrome side panel / Firefox sidebar; a single quick-settings row controls it on either browser
-- **Auto-connect on start** -- opt-in quick-settings toggle that brings the tailnet up on the first status after init when the backend is `Stopped`/`NoState`; a session-scoped flag preserves an explicit disconnect across service-worker restarts within the same browser session. The background registers a `runtime.onStartup` listener so the browser wakes it at launch -- without it the connection would wait for the popup to open
+- **Auto-connect on start** -- opt-in quick-settings toggle that brings the tailnet up on the first status after init when the backend is `Stopped`/`NoState`; a session-scoped flag preserves an explicit disconnect across service-worker restarts within the same browser session. The background registers a `runtime.onStartup` listener so the browser wakes it at launch -- without it the connection would wait for the popup to open. The extension also sends a session-scoped `wantRunning` hint with host init (the preference at browser launch, or the last explicit toggle afterwards) so the host can suppress tsnet's forced auto-up when the node should stay down; if the node comes up against a "stay down" decision anyway (a helper that predates the field, or a failed prefs edit), the background sends an explicit `down` as a fallback -- once per host connection, never overriding a newer user action. Switching (or creating) a profile clears the recorded intent -- the decision belonged to the previous profile, and the incoming profile's own saved prefs decide its run state
 
 ### Parity and backlog
 
@@ -166,7 +166,7 @@ Communication uses the Chrome native messaging wire format: a **4-byte little-en
 
 | Command             | Fields                                          | Description                                      |
 | ------------------- | ----------------------------------------------- | ------------------------------------------------ |
-| `init`              | `initID: string`                                | Initialize tsnet.Server for browser profile UUID |
+| `init`              | `initID: string`, `wantRunning?: boolean`       | Initialize tsnet.Server for browser profile UUID; optional hint for whether the node should run after startup |
 | `login`             | --                                              | Request a fresh Tailscale login URL              |
 | `up`                | --                                              | Set `WantRunning=true`                           |
 | `down`              | --                                              | Set `WantRunning=false`                          |
@@ -263,7 +263,7 @@ The shared package contains all the platform-agnostic logic. The extension packa
 | `badge-manager.ts` | Extension icon/badge updates for online, offline, warning, and exit-node states |
 | `proxy-utils.ts` | IPv4/CIDR helpers, MagicDNS/split-domain sanitization, subnet collection, and proxy decisions |
 | `domain-split.ts` | Split-tunneling config storage and normalization |
-| `auto-connect.ts` | Auto-connect preference and per-session handled flag |
+| `auto-connect.ts` | Auto-connect preference, per-session handled flag, and session connection intent (`wantRunning` init hint) |
 | `timer-service.ts` | Browser-neutral timer interface and native-timer implementation |
 | `chrome-alarm-timer-service.ts` | Chrome alarm-backed one-shot timers that survive MV3 worker suspension |
 | `startup-wake.ts` | Synchronous browser-start wake listener registration |
@@ -944,6 +944,7 @@ The Puppeteer harness lives in `scripts/e2e/`; see [puppeteer-testing-suite.md](
 | `autoConnectOnStart`  | `chrome.storage.local`                   | Opt-in preference for auto-connecting the tailnet on browser start      |
 | `uiSurface`           | `chrome.storage.local`                   | Toolbar surface: `popup` or `sidePanel`/Firefox sidebar                 |
 | `autoConnectHandled`  | `chrome.storage.session`                 | Per-session flag that prevents auto-connect from overriding an explicit manual disconnect |
+| `desiredWantRunning`  | `chrome.storage.session`                 | Per-session connection intent sent as the `wantRunning` hint with host init |
 | `proxyConfig`         | `browser.storage.session` (Firefox only) | Proxy state for surviving background suspension                         |
 
 
@@ -1067,8 +1068,8 @@ Full guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 Key dependencies in `host/go.mod`:
 
 
-| Dependency          | Version | Purpose                                                |
-| ------------------- | ------- | ------------------------------------------------------ |
+| Dependency          | Version  | Purpose                                                |
+| ------------------- | -------- | ------------------------------------------------------ |
 | `tailscale.com`     | v1.100.0 | tsnet, local client, IPN, socks5, proxymux, web client |
 | `golang.org/x/term` | v0.43.0  | Terminal detection for auto-install                    |
 | `golang.org/x/sys`  | v0.45.0  | System calls                                           |

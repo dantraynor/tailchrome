@@ -48,6 +48,8 @@ func (h *Host) handleSwitchProfile(profileID string) {
 		return
 	}
 
+	h.cancelStartupCorrection()
+
 	ctx := context.Background()
 	if err := lc.SwitchProfile(ctx, ipn.ProfileID(profileID)); err != nil {
 		h.sendError("switch-profile", fmt.Sprintf("failed to switch profile: %v", err))
@@ -64,6 +66,8 @@ func (h *Host) handleNewProfile() {
 	if lc == nil {
 		return
 	}
+
+	h.cancelStartupCorrection()
 
 	ctx := context.Background()
 	if err := lc.SwitchToEmptyProfile(ctx); err != nil {
@@ -86,6 +90,8 @@ func (h *Host) handleDeleteProfile(profileID string) {
 		h.sendError("delete-profile", "profileID is required")
 		return
 	}
+
+	h.cancelStartupCorrection()
 
 	ctx := context.Background()
 	if err := lc.DeleteProfile(ctx, ipn.ProfileID(profileID)); err != nil {

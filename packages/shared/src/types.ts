@@ -11,7 +11,7 @@ export type BackendState =
 // === Native Messaging Protocol ===
 
 export type NativeRequest =
-  | { cmd: "init"; initID: string }
+  | { cmd: "init"; initID: string; wantRunning?: boolean }
   | { cmd: "login" }
   | { cmd: "up" }
   | { cmd: "down" }

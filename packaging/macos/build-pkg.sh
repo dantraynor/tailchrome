@@ -17,6 +17,8 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 VERSION="${VERSION:-$(git describe --tags --always 2>/dev/null || echo dev)}"
+TS_VERSION="${TS_VERSION:-$(cd host && go list -m -f '{{.Version}}' tailscale.com | sed 's/^v//')}"
+HOST_LDFLAGS="-X main.version=${VERSION} -X tailscale.com/version.shortStamp=${TS_VERSION} -X tailscale.com/version.longStamp=${TS_VERSION}"
 # pkgbuild --version expects a simple dotted string (no git metadata)
 VERSION_PKG="${VERSION#v}"
 VERSION_PKG="${VERSION_PKG%%-*}"
@@ -37,8 +39,8 @@ mkdir -p "$DIST_DIR" "$STAGE/pkgroot/Library/Application Support/Tailscale/Brows
 echo "Building universal binary (version $VERSION)..."
 (
   cd "$HOST_DIR"
-  GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o "$STAGE/tailscale-browser-ext-arm64" .
-  GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-X main.version=${VERSION}" -o "$STAGE/tailscale-browser-ext-amd64" .
+  GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$HOST_LDFLAGS" -o "$STAGE/tailscale-browser-ext-arm64" .
+  GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$HOST_LDFLAGS" -o "$STAGE/tailscale-browser-ext-amd64" .
 )
 lipo -create -output "$STAGE/pkgroot/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext" \
   "$STAGE/tailscale-browser-ext-arm64" \
