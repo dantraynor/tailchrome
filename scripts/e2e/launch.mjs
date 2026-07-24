@@ -31,16 +31,16 @@ function shCapture(command, args) {
   return result.stdout.trim();
 }
 
-function hasChromeInstalled() {
+async function hasChromeInstalled() {
   try {
-    return existsSync(puppeteer.executablePath());
+    return existsSync(await puppeteer.executablePath());
   } catch {
     return false;
   }
 }
 
-function ensureChromeInstalled() {
-  if (hasChromeInstalled()) return;
+async function ensureChromeInstalled() {
+  if (await hasChromeInstalled()) return;
 
   console.log("> pnpm exec puppeteer browsers install chrome");
   const result = spawnSync(
@@ -57,7 +57,7 @@ function ensureChromeInstalled() {
   }
 }
 
-function chromeExecutablePath() {
+async function chromeExecutablePath() {
   if (process.env.CHROME_BINARY) return process.env.CHROME_BINARY;
   return puppeteer.executablePath();
 }
@@ -95,13 +95,13 @@ function isNavigationTimeout(err) {
 }
 
 async function launchChrome(extensionDir) {
-  ensureChromeInstalled();
+  await ensureChromeInstalled();
 
   const headless = process.env.HEADLESS !== "false";
   const userDataDir = mkdtempSync(resolve(tmpdir(), "tailchrome-chrome-profile-"));
   const browser = await puppeteer.launch({
     headless,
-    executablePath: chromeExecutablePath(),
+    executablePath: await chromeExecutablePath(),
     userDataDir,
     args: [
       `--disable-extensions-except=${extensionDir}`,

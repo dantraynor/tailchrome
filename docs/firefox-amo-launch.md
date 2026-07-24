@@ -3,7 +3,7 @@
 ## Listing Basics
 
 - Add-on name: `Tailchrome`
-- Category: `Privacy & Security`
+- Category: `Privacy & Security, Other`
 - Distribution: `Listed`
 - Platform scope: desktop Firefox only
 - Minimum Firefox version: `140.0`

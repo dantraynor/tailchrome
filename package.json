@@ -43,6 +43,6 @@
     }
   },
   "devDependencies": {
-    "puppeteer": "^24.42.0"
+    "puppeteer": "^25.3.0"
   }
 }

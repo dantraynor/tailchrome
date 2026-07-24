@@ -12,6 +12,13 @@ interface MockPort {
   onDisconnect: { addListener: (fn: DisconnectListener) => void; _listeners: DisconnectListener[] };
 }
 
+// @types/chrome 0.2.x declares runtime.onConnect/onInstalled/lastError as
+// `const` (read-only) bindings, so tests that swap in mock implementations
+// have to go through an unknown-typed view of chrome.runtime to assign them.
+function setChromeLastError(error: chrome.runtime.LastError | undefined): void {
+  (chrome.runtime as unknown as { lastError: chrome.runtime.LastError | undefined }).lastError = error;
+}
+
 function createNativeMockPort(): MockPort {
   const msgListeners: MessageListener[] = [];
   const disListeners: DisconnectListener[] = [];
@@ -114,12 +121,16 @@ describe("initBackground", () => {
     connectListeners = [];
 
     chrome.runtime.connectNative = vi.fn().mockReturnValue(nativePort) as unknown as typeof chrome.runtime.connectNative;
-    chrome.runtime.onConnect = {
+    (chrome.runtime as unknown as {
+      onConnect: { addListener: (fn: (port: unknown) => void) => void };
+    }).onConnect = {
       addListener: (fn: (port: unknown) => void) => { connectListeners.push(fn); },
-    } as unknown as chrome.runtime.ExtensionConnectEvent;
-    chrome.runtime.onInstalled = {
+    };
+    (chrome.runtime as unknown as {
+      onInstalled: { addListener: (fn: () => void) => void };
+    }).onInstalled = {
       addListener: vi.fn(),
-    } as unknown as chrome.events.Event<(details: chrome.runtime.InstalledDetails) => void>;
+    };
     chrome.contextMenus = {
       create: vi.fn(),
       onClicked: { addListener: vi.fn() },
@@ -1975,9 +1986,9 @@ describe("initBackground", () => {
     it("settles on install error rather than contradictory reconnecting state", async () => {
       await setupBackground();
       sendNativeMessage({ pong: {} });
-      chrome.runtime.lastError = {
+      setChromeLastError({
         message: "Specified native messaging host not found",
-      };
+      });
 
       nativePort.onDisconnect._listeners[0]!(nativePort);
 
@@ -1988,7 +1999,7 @@ describe("initBackground", () => {
           reconnecting: false,
         }),
       );
-      chrome.runtime.lastError = undefined;
+      setChromeLastError(undefined);
     });
 
     it("clears state when disconnected", async () => {

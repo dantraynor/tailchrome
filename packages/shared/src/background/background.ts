@@ -372,14 +372,15 @@ export function initBackground(
       ) {
         exitNodeRestoreAttempted = true;
         chrome.storage.local.get("lastExitNodeID").then((result) => {
-          if (result["lastExitNodeID"]) {
+          const lastExitNodeID = result["lastExitNodeID"];
+          if (typeof lastExitNodeID === "string" && lastExitNodeID) {
             console.log(
               "[Background] Restoring saved exit node:",
-              result["lastExitNodeID"]
+              lastExitNodeID
             );
             nativeHost.send({
               cmd: "set-exit-node",
-              nodeID: result["lastExitNodeID"],
+              nodeID: lastExitNodeID,
             });
           }
         });

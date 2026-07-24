@@ -28,6 +28,9 @@ func TestReadMessagesContinuesAfterInvalidJSON(t *testing.T) {
 	if len(replies) != 2 || replies[0].Error == nil || replies[1].Pong == nil {
 		t.Fatalf("unexpected replies: %#v", replies)
 	}
+	if !strings.Contains(replies[0].Error.Message, "invalid JSON") {
+		t.Fatalf("error message = %q, want it to identify invalid JSON", replies[0].Error.Message)
+	}
 }
 
 func TestReadMessagesDrainsOversizedFrame(t *testing.T) {
@@ -78,6 +81,27 @@ func TestSendTruncatesOversizedStatus(t *testing.T) {
 	}
 	if len(reply.Status.Peers) >= len(peers) {
 		t.Fatalf("peer list was not truncated: %d", len(reply.Status.Peers))
+	}
+}
+
+func TestSendDropsReplyStillOversizedAfterTruncation(t *testing.T) {
+	var out bytes.Buffer
+	h := newHost(nil, &out)
+	peers := make([]PeerInfo, 100)
+	for i := range peers {
+		peers[i] = PeerInfo{
+			ID:       strings.Repeat("i", 64),
+			Hostname: strings.Repeat("h", 64),
+		}
+	}
+	// Health alone is larger than maxMessageSize, so truncateStatusReply can
+	// drop every peer and the reply still won't fit.
+	oversizedHealth := []string{strings.Repeat("h", maxMessageSize*2)}
+
+	h.send(Reply{Cmd: "status", Status: &StatusUpdate{Peers: peers, Health: oversizedHealth}})
+
+	if out.Len() != 0 {
+		t.Fatalf("expected oversized reply to be dropped, but %d bytes were written", out.Len())
 	}
 }
 
