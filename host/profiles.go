@@ -10,12 +10,13 @@ import (
 // handleListProfiles fetches the current profile and all profiles, and sends
 // them to the extension.
 func (h *Host) handleListProfiles() {
-	if err := h.requireInit("list-profiles"); err != nil {
+	lc := h.localClient("list-profiles")
+	if lc == nil {
 		return
 	}
 
 	ctx := context.Background()
-	current, all, err := h.lc.ProfileStatus(ctx)
+	current, all, err := lc.ProfileStatus(ctx)
 	if err != nil {
 		h.sendError("list-profiles", fmt.Sprintf("failed to list profiles: %v", err))
 		return
@@ -37,7 +38,8 @@ func (h *Host) handleListProfiles() {
 
 // handleSwitchProfile switches to the given profile ID.
 func (h *Host) handleSwitchProfile(profileID string) {
-	if err := h.requireInit("switch-profile"); err != nil {
+	lc := h.localClient("switch-profile")
+	if lc == nil {
 		return
 	}
 
@@ -47,7 +49,7 @@ func (h *Host) handleSwitchProfile(profileID string) {
 	}
 
 	ctx := context.Background()
-	if err := h.lc.SwitchProfile(ctx, ipn.ProfileID(profileID)); err != nil {
+	if err := lc.SwitchProfile(ctx, ipn.ProfileID(profileID)); err != nil {
 		h.sendError("switch-profile", fmt.Sprintf("failed to switch profile: %v", err))
 		return
 	}
@@ -58,12 +60,13 @@ func (h *Host) handleSwitchProfile(profileID string) {
 
 // handleNewProfile creates a new empty profile and switches to it.
 func (h *Host) handleNewProfile() {
-	if err := h.requireInit("new-profile"); err != nil {
+	lc := h.localClient("new-profile")
+	if lc == nil {
 		return
 	}
 
 	ctx := context.Background()
-	if err := h.lc.SwitchToEmptyProfile(ctx); err != nil {
+	if err := lc.SwitchToEmptyProfile(ctx); err != nil {
 		h.sendError("new-profile", fmt.Sprintf("failed to create new profile: %v", err))
 		return
 	}
@@ -74,7 +77,8 @@ func (h *Host) handleNewProfile() {
 
 // handleDeleteProfile deletes the profile with the given ID.
 func (h *Host) handleDeleteProfile(profileID string) {
-	if err := h.requireInit("delete-profile"); err != nil {
+	lc := h.localClient("delete-profile")
+	if lc == nil {
 		return
 	}
 
@@ -84,7 +88,7 @@ func (h *Host) handleDeleteProfile(profileID string) {
 	}
 
 	ctx := context.Background()
-	if err := h.lc.DeleteProfile(ctx, ipn.ProfileID(profileID)); err != nil {
+	if err := lc.DeleteProfile(ctx, ipn.ProfileID(profileID)); err != nil {
 		h.sendError("delete-profile", fmt.Sprintf("failed to delete profile: %v", err))
 		return
 	}

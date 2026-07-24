@@ -9,9 +9,8 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.0.300",
-    "esbuild": "^0.28.1",
-    "happy-dom": "^20.9.0",
+    "happy-dom": "^20.11.1",
     "typescript": "^5.7.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.10"
   }
 }

@@ -103,7 +103,7 @@ export default defineConfig({
         "storage",
         "nativeMessaging",
         "contextMenus",
-        ...(browser === "firefox" ? ["alarms"] : []),
+        "alarms",
         ...(browser === "chrome" ? ["sidePanel" as const] : []),
       ],
       action: {

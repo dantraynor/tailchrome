@@ -12,15 +12,22 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       host: ${{ steps.filter.outputs.host }}
+      packaging: ${{ steps.filter.outputs.packaging }}
     steps:
       - uses: actions/checkout@v5
-      - uses: dorny/paths-filter@v3
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
         id: filter
         with:
           filters: |
             host:
               - 'host/**'
               - 'Makefile'
+            packaging:
+              - 'host/**'
+              - 'packaging/**'
+              - 'Makefile'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/release.yml'
 
   extension-tests:
     runs-on: ubuntu-latest
@@ -35,6 +42,19 @@ jobs:
       - run: pnpm validate:ids
       - run: pnpm typecheck
       - run: pnpm test
+
+  e2e-chrome:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm e2e:chrome
 
   build-chrome:
     runs-on: ubuntu-latest
@@ -80,8 +100,42 @@ jobs:
           cache-dependency-path: host/go.sum
       - run: go mod download
         working-directory: host
+      - run: go vet ./...
+        working-directory: host
+      - run: go test ./...
+        working-directory: host
       - run: make host
       - uses: actions/upload-artifact@v6
         with:
           name: host-binary
           path: dist/tailscale-browser-ext
+
+  host-windows-tests:
+    needs: changes
+    if: needs.changes.outputs.host == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: host/go.mod
+          cache-dependency-path: host/go.sum
+      - run: go test ./...
+        working-directory: host
+
+  package-linux:
+    needs: changes
+    if: needs.changes.outputs.packaging == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: host/go.mod
+          cache-dependency-path: host/go.sum
+      - name: Install nFPM
+        env:
+          GOTOOLCHAIN: auto
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+      - run: make host-linux-amd64
+      - run: VERSION=0.0.0 ./packaging/linux/build-packages.sh

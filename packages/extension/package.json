@@ -24,8 +24,8 @@
   "devDependencies": {
     "@types/chrome": "^0.0.300",
     "typescript": "^5.7.0",
-    "vitest": "^4.1.0",
-    "web-ext": "^10.1.0",
-    "wxt": "^0.20.20"
+    "vitest": "^4.1.10",
+    "web-ext": "^10.5.0",
+    "wxt": "^0.20.27"
   }
 }

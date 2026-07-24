@@ -1,5 +1,10 @@
 import { clickHeaderToggle, expectText, waitForPopup, waitForRequest } from "../assertions.mjs";
-import { makeControl, makeNeedsLoginState, makeStoppedState } from "../fixtures.mjs";
+import {
+  makeControl,
+  makeNeedsLoginState,
+  makeRunningState,
+  makeStoppedState,
+} from "../fixtures.mjs";
 
 export const suite = "full";
 export const browsers = ["chrome", "firefox"];
@@ -7,7 +12,10 @@ export const browsers = ["chrome", "firefox"];
 export const cases = [
   {
     name: "connected toggle sends down",
-    control: () => makeControl(),
+    control: () =>
+      makeControl({
+        commandReplies: { down: { status: makeStoppedState() } },
+      }),
     run: async ({ openPopup, nativeHost }) => {
       const page = await openPopup();
       try {
@@ -16,6 +24,7 @@ export const cases = [
         nativeHost.clearRequests();
         await clickHeaderToggle(page);
         await waitForRequest(nativeHost, "down");
+        await expectText(page, "Tailscale is not connected");
       } finally {
         await page.close();
       }
@@ -23,7 +32,11 @@ export const cases = [
   },
   {
     name: "stopped toggle sends up",
-    control: () => makeControl({ status: makeStoppedState() }),
+    control: () =>
+      makeControl({
+        status: makeStoppedState(),
+        commandReplies: { up: { status: makeRunningState() } },
+      }),
     run: async ({ openPopup, nativeHost }) => {
       const page = await openPopup();
       try {
@@ -31,6 +44,7 @@ export const cases = [
         nativeHost.clearRequests();
         await clickHeaderToggle(page);
         await waitForRequest(nativeHost, "up");
+        await expectText(page, "example.ts.net");
       } finally {
         await page.close();
       }

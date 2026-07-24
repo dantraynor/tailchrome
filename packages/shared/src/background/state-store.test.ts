@@ -34,6 +34,17 @@ describe("StateStore", () => {
       store.update({ proxyPort: 2080 });
       expect(store.getState().proxyPort).toBe(2080);
     });
+
+    it("does not increment or notify for a shallow no-op", () => {
+      const store = new StateStore();
+      const listener = vi.fn();
+      store.subscribe(listener);
+
+      store.update({ hostConnected: false, proxyPort: null });
+
+      expect(store.getState().stateVersion).toBe(0);
+      expect(listener).not.toHaveBeenCalled();
+    });
   });
 
   describe("subscribe", () => {
@@ -83,6 +94,30 @@ describe("StateStore", () => {
   });
 
   describe("applyStatusUpdate", () => {
+    it("surfaces native peer-list truncation as a health warning", () => {
+      const store = new StateStore();
+      store.applyStatusUpdate({
+        backendState: "Running",
+        running: true,
+        tailnet: "t",
+        magicDNSSuffix: "",
+        selfNode: null,
+        needsLogin: false,
+        browseToURL: "",
+        exitNode: null,
+        peers: [],
+        peersTruncated: true,
+        totalPeers: 12000,
+        prefs: null,
+        health: [],
+        error: null,
+      });
+
+      expect(store.getState().health).toEqual([
+        expect.stringContaining("0 of 12000 devices"),
+      ]);
+    });
+
     it("maps status fields to state", () => {
       const store = new StateStore();
       const status: StatusUpdate = {

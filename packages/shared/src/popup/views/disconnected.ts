@@ -52,7 +52,11 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
     if (state.error) {
       showError = true;
       subtitleText = state.error;
-    } else if (!state.hostConnected && state.backendState !== "Starting") {
+    } else if (
+      !state.reconnecting &&
+      !state.hostConnected &&
+      state.backendState !== "Starting"
+    ) {
       showError = true;
       subtitleText = "Unable to reach the helper app.";
     }

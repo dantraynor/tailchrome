@@ -17,6 +17,7 @@ var version = "dev"
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	cleanupStaleBinary()
 
 	installFlag := flag.String("install", "", "install native messaging host manifest; value is C<extensionID> for Chrome or F<extensionID> for Firefox")
 	installNowFlag := flag.Bool("install-now", false, "install Chrome and Firefox native messaging manifests for the current user (non-interactive; used by the macOS Helper app)")
@@ -117,6 +118,7 @@ func main() {
 	})
 
 	h.readMessages()
+	h.shutdownSession()
 }
 
 func errString(err error) string {

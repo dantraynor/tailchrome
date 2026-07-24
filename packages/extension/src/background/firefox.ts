@@ -51,18 +51,19 @@ export function startFirefoxBackground(): void {
     }
   });
 
-  void proxyManager
-    .restoreFromStorage()
-    .then(() => {
-      backgroundHandle = initBackground(proxyManager, FIREFOX_NATIVE_HOST_ID, {
-        skipKeepalive: true,
-        browserKind: "firefox",
-      });
+  // Begin restoration before the shared background can emit state, but
+  // register every runtime listener synchronously during initial evaluation.
+  const restorePromise = proxyManager.restoreFromStorage();
+  backgroundHandle = initBackground(proxyManager, FIREFOX_NATIVE_HOST_ID, {
+    skipKeepalive: true,
+    browserKind: "firefox",
+  });
 
-      browser.alarms.create("keepalive", {
-        periodInMinutes: KEEPALIVE_PERIOD_MINUTES,
-      });
-    })
+  browser.alarms.create("keepalive", {
+    periodInMinutes: KEEPALIVE_PERIOD_MINUTES,
+  });
+
+  void restorePromise
     .catch((err) => {
       console.error("[Firefox] Background start failed:", err);
     });

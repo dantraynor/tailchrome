@@ -19,25 +19,7 @@
 
 ## AMO Listing Copy
 
-### Summary
-
-Access your Tailscale network directly from Firefox without changing system-wide networking.
-
-### Description
-
-Tailchrome runs a full Tailscale node per browser profile and routes tailnet traffic through a local helper, so Firefox can reach MagicDNS names, subnet routes, exit nodes, and Taildrop targets without requiring a system VPN.
-
-Features:
-
-- per-profile Tailscale identity
-- MagicDNS and tailnet IP access
-- subnet routing
-- exit nodes, including split-tunneling domain rules
-- optional auto-connect on browser start
-- Taildrop
-- multiple profiles
-
-Tailchrome requires a separate native helper downloaded from GitHub Releases. The helper installer registers the Firefox native messaging manifest and installs the local Tailscale proxy used by the extension.
+Copy the **Firefox AMO** Summary, Description, and Categories from [STORE_LISTING.md](STORE_LISTING.md) verbatim. That file is the single source of truth for store-visible listing text, including custom coordination server, sidebar, split-tunneling, and auto-connect support.
 
 ### Privacy Disclosure Notes
 

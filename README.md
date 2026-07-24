@@ -20,6 +20,7 @@ Tailchrome runs a full Tailscale node per browser profile, without touching syst
 - **MagicDNS** — access devices by name, not IP
 - **Subnet routing** — reach resources behind subnet routers
 - **Profiles** — create and switch between multiple Tailscale identities
+- **Custom coordination servers** — connect a browser profile to a self-hosted control server such as Headscale
 - **Side panel** — opt in to keep the UI docked while you browse (Chrome side panel, Firefox sidebar)
 - **Auto-connect on start** — optional toggle that brings the tailnet up when the browser launches
 - **Shields Up** — block incoming connections for extra security
@@ -56,7 +57,7 @@ make dev              # Chrome extension (watch mode)
 make host             # Native host binary
 ```
 
-PRs run CI (lint, typecheck, tests, Firefox review gate). Tagged releases build all artifacts and publish to the Chrome Web Store and Firefox Add-ons. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for full setup and build commands.
+PRs run CI (lint, typecheck, TypeScript and Go tests, Chrome browser smoke tests, packaging checks, and the Firefox review gate). Tagged releases build all artifacts and publish to the Chrome Web Store and Firefox Add-ons. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for full setup and build commands.
 
 ## Contributing
 

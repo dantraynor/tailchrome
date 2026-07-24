@@ -1,12 +1,12 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 # Tailscale library version, read from go.mod and stamped into the binary so the
-# embedded tsnet node reports a clean version (e.g. "1.94.2") instead of the
+# embedded tsnet node reports a clean release version instead of the
 # "-ERR-BuildInfo"/"-dev" fallback that a plain `go build` produces. Derived (not
 # hardcoded) so it tracks the pinned dependency automatically when it is bumped.
 TS_VERSION = $(shell cd host && go list -m -f '{{.Version}}' tailscale.com 2>/dev/null | sed 's/^v//')
 LDFLAGS = -ldflags "-X main.version=$(VERSION) -X tailscale.com/version.shortStamp=$(TS_VERSION) -X tailscale.com/version.longStamp=$(TS_VERSION)"
 
-.PHONY: all extension extension-chrome extension-firefox host host-all macos-pkg windows-msi linux-packages clean dev zip zip-chrome zip-firefox
+.PHONY: all extension extension-chrome extension-firefox host host-linux-amd64 host-all macos-pkg windows-msi linux-packages clean dev zip zip-chrome zip-firefox
 
 all: extension host
 
@@ -20,6 +20,9 @@ extension-firefox:
 
 host:
 	cd host && CGO_ENABLED=0 go build $(LDFLAGS) -o ../dist/tailscale-browser-ext .
+
+host-linux-amd64:
+	cd host && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o ../dist/tailscale-browser-ext-linux-amd64 .
 
 host-all:
 	cd host && GOOS=darwin  GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o ../dist/tailscale-browser-ext-darwin-amd64 .

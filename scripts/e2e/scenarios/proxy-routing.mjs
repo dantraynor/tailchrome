@@ -1,7 +1,7 @@
 import { expectText, waitForPopup } from "../assertions.mjs";
 import { makeControl } from "../fixtures.mjs";
 
-export const suite = "full";
+export const suite = "smoke";
 export const browsers = ["chrome"];
 
 export const control = () => makeControl();
@@ -30,6 +30,7 @@ export async function run({ openPopup }) {
       "SOCKS5 127.0.0.1:1055",
       "100.100.100.100",
       "100.64.0.0",
+      "fd7a:115c:a1e0:",
       ".example.ts.net",
       "192.168.50.0",
     ]) {

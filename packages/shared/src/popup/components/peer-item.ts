@@ -78,6 +78,7 @@ export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void
   container.dataset.machineName = displayName;
   container.dataset.shortDns = shortDNS;
   container.dataset.openTarget = peer.online ? shortDNS || firstIP : "";
+  container.dataset.firstIp = firstIP;
 
   const nameEl = container.querySelector(".peer-name");
   if (nameEl) nameEl.textContent = displayName;
@@ -98,6 +99,15 @@ export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void
     const textSpan = metaEl.querySelectorAll("span");
     if (textSpan.length >= 2) {
       textSpan[1]!.textContent = peer.online ? "online" : formatRelativeTime(peer.lastSeen);
+    }
+    const existingExitLabel = metaEl.querySelector(".peer-exit-label");
+    if (peer.exitNode && !existingExitLabel) {
+      const exitLabel = document.createElement("span");
+      exitLabel.className = "peer-exit-label";
+      exitLabel.textContent = " \u2022 exit node";
+      metaEl.appendChild(exitLabel);
+    } else if (!peer.exitNode) {
+      existingExitLabel?.remove();
     }
   }
 
@@ -156,12 +166,14 @@ export function createPeerItem(
   container.dataset.machineName = displayName;
   container.dataset.shortDns = shortDNS;
   container.dataset.openTarget = initialOpenTarget;
+  container.dataset.firstIp = firstIP;
   // Action handlers read the dataset instead of closing over display fields:
   // updatePeerItemText refreshes cached DOM in place, so a rename would
   // otherwise leave the handlers pointing at the old machine/DNS name.
   const currentName = () => container.dataset.machineName || displayName;
   const currentShortDNS = () => container.dataset.shortDns || "";
   const currentOpenTarget = () => container.dataset.openTarget || "";
+  const currentFirstIP = () => container.dataset.firstIp || "";
   container.dataset.hostPingCap = supportsPingPeer ? "1" : "0";
   container.dataset.showPeerSsh = showPeerSSH ? "1" : "0";
   container.dataset.actionsKey = peerActionsKey(peer, supportsPingPeer, showPeerSSH);
@@ -230,8 +242,10 @@ export function createPeerItem(
 
   if (firstIP) {
     actions.appendChild(createActionButton("Copy IP", () => {
-      copyToClipboard(firstIP);
-      showToast("Copied " + firstIP);
+      const ip = currentFirstIP();
+      if (!ip) return;
+      copyToClipboard(ip);
+      showToast("Copied " + ip);
     }));
   }
 

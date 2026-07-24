@@ -190,6 +190,13 @@ func uninstall() error {
 			firstErr = fmt.Errorf("failed to remove installed binary: %w", err)
 		}
 	}
+	// Windows updates can leave a moved-aside runtime executable until the old
+	// browser-spawned process exits. Remove that sidecar on the next uninstall.
+	if err := os.Remove(installedBinaryPath() + ".old"); err != nil && !os.IsNotExist(err) {
+		if firstErr == nil {
+			firstErr = fmt.Errorf("failed to remove old installed binary: %w", err)
+		}
+	}
 
 	return firstErr
 }
@@ -202,6 +209,15 @@ func installedBinaryPath() string {
 		binaryName += ".exe"
 	}
 	return filepath.Join(binaryInstallDir(), binaryName)
+}
+
+// cleanupStaleBinary retries cleanup of a Windows update sidecar whenever the
+// new helper starts. This needs no elevated reboot-time file operation: once
+// the old browser-spawned process exits, the next helper launch removes it.
+func cleanupStaleBinary() {
+	if runtime.GOOS == "windows" {
+		_ = os.Remove(installedBinaryPath() + ".old")
+	}
 }
 
 // installBinary copies the current binary to the install directory and returns

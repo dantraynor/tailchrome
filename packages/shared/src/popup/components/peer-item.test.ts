@@ -209,6 +209,39 @@ describe("createPeerItem", () => {
     });
   });
 
+  it("Copy IP uses the current address after an in-place update", () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    const peer = makePeer({ tailscaleIPs: ["100.64.0.10"] });
+    const item = createPeerItem(peer, false, false);
+
+    updatePeerItemText(item, { ...peer, tailscaleIPs: ["100.64.0.11"] });
+    const copy = Array.from(
+      item.querySelectorAll<HTMLButtonElement>(".peer-action-btn"),
+    ).find((btn) => btn.textContent === "Copy IP");
+    copy!.click();
+
+    expect(item.querySelector(".peer-ip")?.textContent).toBe("100.64.0.11");
+    expect(writeText).toHaveBeenCalledWith("100.64.0.11");
+  });
+
+  it("adds and removes the exit-node badge during in-place updates", () => {
+    const peer = makePeer({ exitNode: false });
+    const item = createPeerItem(peer, false, false);
+    expect(item.querySelector(".peer-exit-label")).toBeNull();
+
+    updatePeerItemText(item, { ...peer, exitNode: true });
+    expect(item.querySelector(".peer-exit-label")?.textContent).toContain(
+      "exit node",
+    );
+
+    updatePeerItemText(item, { ...peer, exitNode: false });
+    expect(item.querySelector(".peer-exit-label")).toBeNull();
+  });
+
   it("Send File toast uses the new machine name after an in-place rename update", async () => {
     const peer = makePeer({
       hostname: "os-host",

@@ -29,6 +29,8 @@ jobs:
     if: ${{ inputs.targets == 'chrome' || inputs.targets == 'both' }}
     runs-on: ubuntu-latest
     environment: chrome-web-store
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -42,8 +44,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           mkdir -p dist
-          gh release download "${{ inputs.release_tag }}" --dir dist --pattern chrome.zip --pattern SHA256SUMS.txt
+          gh release download "$RELEASE_TAG" --dir dist --pattern chrome.zip --pattern SHA256SUMS.txt
       - name: Verify checksums
         run: |
           set -euo pipefail
@@ -68,7 +71,7 @@ jobs:
           {
             echo "## Chrome Web Store Submission"
             echo
-            echo "Release tag: \`${{ inputs.release_tag }}\`"
+            echo "Release tag: \`$RELEASE_TAG\`"
             echo
             echo '```'
             cat dist/chrome-submit.log
@@ -79,6 +82,9 @@ jobs:
     if: ${{ inputs.targets == 'firefox' || inputs.targets == 'both' }}
     runs-on: ubuntu-latest
     environment: firefox-amo
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -92,8 +98,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           mkdir -p dist/firefox-unpacked
-          gh release download "${{ inputs.release_tag }}" --dir dist --pattern firefox.zip --pattern firefox-sources.zip --pattern SHA256SUMS.txt
+          gh release download "$RELEASE_TAG" --dir dist --pattern firefox.zip --pattern firefox-sources.zip --pattern SHA256SUMS.txt
           unzip -q dist/firefox.zip -d dist/firefox-unpacked
       - name: Verify checksums
         run: |
@@ -121,7 +128,7 @@ jobs:
             --firefox-sources-zip "$REPO_ROOT/dist/firefox-sources.zip"
             --firefox-channel listed
           )
-          if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+          if [[ "$DRY_RUN" == "true" ]]; then
             submit_args+=(--dry-run)
           fi
           pnpm wxt submit \
@@ -132,8 +139,8 @@ jobs:
           {
             echo "## Firefox AMO Submission"
             echo
-            echo "Release tag: \`${{ inputs.release_tag }}\`"
-            echo "Dry run: \`${{ inputs.dry_run }}\`"
+            echo "Release tag: \`$RELEASE_TAG\`"
+            echo "Dry run: \`$DRY_RUN\`"
             echo
             echo '```'
             cat dist/firefox-submit.log

@@ -119,7 +119,7 @@ describe("startFirefoxBackground", () => {
     expect(onStartupAddListener).toHaveBeenCalledWith(expect.any(Function));
   });
 
-  it("waits for restore before starting the shared background and keepalive alarm", async () => {
+  it("starts the shared background and keepalive alarm synchronously while restore is pending", async () => {
     let resolveRestore!: (value: boolean) => void;
     mocks.restoreFromStorage.mockReturnValue(
       new Promise<boolean>((resolve) => {
@@ -129,12 +129,6 @@ describe("startFirefoxBackground", () => {
 
     startFirefoxBackground();
 
-    expect(mocks.initBackground).not.toHaveBeenCalled();
-    expect(alarmsCreate).not.toHaveBeenCalled();
-
-    resolveRestore(true);
-    await flushMicrotasks();
-
     expect(mocks.initBackground).toHaveBeenCalledWith(
       mocks.proxyManagerInstance,
       FIREFOX_NATIVE_HOST_ID,
@@ -143,6 +137,10 @@ describe("startFirefoxBackground", () => {
     expect(alarmsCreate).toHaveBeenCalledWith("keepalive", {
       periodInMinutes: 25_000 / 60_000,
     });
+
+    resolveRestore(true);
+    await flushMicrotasks();
+    expect(mocks.initBackground).toHaveBeenCalledTimes(1);
   });
 
   it("forwards keepalive alarms to the shared background handle", async () => {

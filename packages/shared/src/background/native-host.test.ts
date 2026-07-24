@@ -100,6 +100,47 @@ describe("NativeHostConnection", () => {
       await conn.connect();
       expect(firstPort.disconnect).toHaveBeenCalled();
     });
+
+    it("serializes overlapping connects while profile storage is pending", async () => {
+      let resolveStorage!: (value: { profileId: string }) => void;
+      storageGetSpy.mockReturnValue(
+        new Promise((resolve) => {
+          resolveStorage = resolve;
+        }),
+      );
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+      );
+
+      const first = conn.connect();
+      const second = conn.connect();
+      expect(first).toBe(second);
+      expect(connectNativeSpy).not.toHaveBeenCalled();
+
+      resolveStorage({ profileId: "test-profile-id" });
+      await Promise.all([first, second]);
+      expect(connectNativeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("ignores disconnect events from a replaced port", async () => {
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+      );
+      await conn.connect();
+      const first = mockPort;
+
+      const second = createMockPort();
+      connectNativeSpy.mockReturnValue(second.port);
+      await conn.connect();
+
+      first.disconnectListeners[0]!(first.port);
+      second.messageListeners[0]!({ pong: {} });
+      expect(onStateChange).toHaveBeenLastCalledWith(true);
+    });
   });
 
   describe("message handling", () => {
@@ -313,11 +354,10 @@ describe("NativeHostConnection", () => {
 
       // Firefox-style error via port.error
       chrome.runtime.lastError = undefined;
-      const portWithError = {
-        ...mockPort.port,
+      Object.assign(mockPort.port, {
         error: { message: "No such native application com.tailscale.test" },
-      };
-      mockPort.disconnectListeners[0]!(portWithError);
+      });
+      mockPort.disconnectListeners[0]!(mockPort.port);
 
       expect(onMessage).toHaveBeenCalledWith({
         error: { cmd: "connect", message: "install_error" },

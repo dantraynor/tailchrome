@@ -44,7 +44,7 @@ export function createCoordinationServerRow(
     isOpen = checked;
     editor.classList.toggle("hidden", !checked);
     onOpenChange?.(checked);
-  });
+  }, "Show coordination server settings");
   header.appendChild(expand);
 
   const input = document.createElement("input");

@@ -11,6 +11,11 @@ const { chromeExtensionId, firefoxAddonId } = JSON.parse(
 );
 
 const firefoxExtensionUuid = "6f0f1dbf-8f16-4c9b-a902-3e47e22d5d27";
+// Firefox 153 blocks WebDriver BiDi from navigating a regular tab to a
+// moz-extension URL (https://bugzilla.mozilla.org/show_bug.cgi?id=1959376).
+// Keep the suite reproducible on the latest compatible release until Firefox
+// exposes extension pages to BiDi.
+const defaultFirefoxBuildId = "stable_152.0";
 
 function shCapture(command, args) {
   const result = spawnSync(command, args, {
@@ -66,12 +71,14 @@ function ensureFirefoxInstalled() {
     return firefoxBinary;
   }
 
+  const firefoxBuildId =
+    process.env.FIREFOX_BUILD_ID ?? defaultFirefoxBuildId;
   return shCapture("pnpm", [
     "exec",
     "puppeteer",
     "browsers",
     "install",
-    "firefox@stable",
+    `firefox@${firefoxBuildId}`,
     "--format",
     "{{path}}",
   ])

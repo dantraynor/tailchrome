@@ -47,6 +47,10 @@ export class StateStore {
   }
 
   update(partial: Partial<TailscaleState>): void {
+    const changed = (Object.keys(partial) as Array<keyof TailscaleState>).some(
+      (key) => !Object.is(this.state[key], partial[key]),
+    );
+    if (!changed) return;
     this.state = { ...this.state, ...partial, stateVersion: this.state.stateVersion + 1 };
     this.notifyListeners();
   }
@@ -66,13 +70,21 @@ export class StateStore {
       confirmedExitNodeID,
     );
 
+    const peers = status.peers ?? [];
+    const health = [...(status.health ?? [])];
+    if (status.peersTruncated) {
+      health.push(
+        `Showing ${peers.length} of ${status.totalPeers ?? peers.length} devices because the tailnet status exceeded the browser message limit.`,
+      );
+    }
+
     this.update({
       backendState: status.backendState,
       tailnet: status.tailnet,
       selfNode: status.selfNode
         ? { ...status.selfNode, tailscaleIPs: status.selfNode.tailscaleIPs ?? [] }
         : null,
-      peers: (status.peers ?? []).map((p: PeerInfo) => ({
+      peers: peers.map((p: PeerInfo) => ({
         ...p,
         tailscaleIPs: p.tailscaleIPs ?? [],
         subnets: p.subnets ?? [],
@@ -82,7 +94,7 @@ export class StateStore {
       magicDNSSuffix: status.magicDNSSuffix,
       browseToURL: status.browseToURL || status.authURL || null,
       prefs: status.prefs,
-      health: status.health ?? [],
+      health,
       error: status.error,
       pendingExitNodeID,
     });

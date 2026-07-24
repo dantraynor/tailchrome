@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -312,5 +313,25 @@ func TestScheduleCleanupReschedulesForActiveTransfer(t *testing.T) {
 
 	if stillThere {
 		t.Fatal("transfer should be cleaned up by rescheduled timer after expiry")
+	}
+}
+
+func TestCancelTransfersClearsPartialDataAndCancelsActivePushes(t *testing.T) {
+	h := newHost(nil, &bytes.Buffer{})
+	h.pendingTransfers = map[string]*fileTransferAccumulator{
+		"partial": {updatedAt: time.Now()},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	h.registerActiveTransfer(cancel)
+
+	h.cancelTransfers()
+
+	if len(h.pendingTransfers) != 0 {
+		t.Fatalf("pending transfers were not cleared: %#v", h.pendingTransfers)
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("active transfer was not cancelled")
 	}
 }

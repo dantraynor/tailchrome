@@ -1,3 +1,14 @@
+import { readFileSync } from "node:fs";
+
+const extensionPackage = JSON.parse(
+  readFileSync(
+    new URL("../../packages/extension/package.json", import.meta.url),
+    "utf8",
+  ),
+);
+
+export const expectedHostVersion = extensionPackage.version;
+
 export function makePeer(overrides = {}) {
   return {
     id: "peer-router",
@@ -202,8 +213,8 @@ export function makeControl(overrides = {}) {
   const status = overrides.status ?? makeRunningState();
   return {
     proxyPort: 1055,
-    hostVersion: "0.1.12",
-    supportsNetcheck: true,
+    hostVersion: expectedHostVersion,
+    supportsNetcheck: false,
     supportsPingPeer: true,
     supportsLogin: true,
     supportsCustomControlURL: true,

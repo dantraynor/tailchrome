@@ -11,12 +11,13 @@ import (
 // handleSetExitNode sets the exit node to the given node ID.
 // An empty nodeID clears the exit node.
 func (h *Host) handleSetExitNode(nodeID string) {
-	if err := h.requireInit("set-exit-node"); err != nil {
+	lc := h.localClient("set-exit-node")
+	if lc == nil {
 		return
 	}
 
 	ctx := context.Background()
-	_, err := h.lc.EditPrefs(ctx, &ipn.MaskedPrefs{
+	_, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
 			ExitNodeID: tailcfg.StableNodeID(nodeID),
 		},
@@ -34,12 +35,13 @@ func (h *Host) handleSetExitNode(nodeID string) {
 // handleSuggestExitNode calls the local client's SuggestExitNode API and
 // sends the suggestion to the extension.
 func (h *Host) handleSuggestExitNode() {
-	if err := h.requireInit("suggest-exit-node"); err != nil {
+	lc := h.localClient("suggest-exit-node")
+	if lc == nil {
 		return
 	}
 
 	ctx := context.Background()
-	suggestion, err := h.lc.SuggestExitNode(ctx)
+	suggestion, err := lc.SuggestExitNode(ctx)
 	if err != nil {
 		h.sendError("suggest-exit-node", fmt.Sprintf("failed to suggest exit node: %v", err))
 		return

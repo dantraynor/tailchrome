@@ -309,7 +309,11 @@ describe("initBackground", () => {
       sendNativeMessage({ error: { cmd: "connect", message: "install_error" } });
 
       expect(proxyManager.apply).toHaveBeenCalledWith(
-        expect.objectContaining({ installError: true, hostConnected: false })
+        expect.objectContaining({
+          installError: true,
+          hostConnected: false,
+          reconnecting: false,
+        })
       );
     });
 
@@ -1968,6 +1972,25 @@ describe("initBackground", () => {
   });
 
   describe("native host state change", () => {
+    it("settles on install error rather than contradictory reconnecting state", async () => {
+      await setupBackground();
+      sendNativeMessage({ pong: {} });
+      chrome.runtime.lastError = {
+        message: "Specified native messaging host not found",
+      };
+
+      nativePort.onDisconnect._listeners[0]!(nativePort);
+
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          hostConnected: false,
+          installError: true,
+          reconnecting: false,
+        }),
+      );
+      chrome.runtime.lastError = undefined;
+    });
+
     it("clears state when disconnected", async () => {
       await setupBackground();
 

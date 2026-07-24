@@ -45,3 +45,22 @@ Store Apple credentials in GitHub Actions secrets for automated release; do not 
 ## GitHub Actions
 
 The release workflow runs `build-pkg.sh` on `macos-latest`, signs and notarizes the package with the configured Apple secrets, and uploads the `.pkg` to the GitHub Release.
+
+## Uninstall
+
+First remove the current user's native-messaging registrations and runtime copy:
+
+```bash
+"/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext" -uninstall
+```
+
+Then remove the system package payload and receipt:
+
+```bash
+sudo rm -f "/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext"
+sudo rmdir "/Library/Application Support/Tailscale/BrowserExt" 2>/dev/null || true
+sudo rm -rf "/Applications/Tailchrome Helper.app"
+sudo pkgutil --forget org.tesseras.tailchrome.helper
+```
+
+Run the first command once in each macOS user account that used Tailchrome, because native-messaging registrations are per user.

@@ -5,35 +5,74 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
+	"tailscale.com/client/local"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 )
 
 // watchIPNBus watches the IPN notification bus for state changes and sends
 // status updates to the extension. It runs in its own goroutine.
-func (h *Host) watchIPNBus(ctx context.Context) {
-	watcher, err := h.lc.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialPrefs|ipn.NotifyInitialNetMap)
+func (h *Host) watchIPNBus(ctx context.Context, lc *local.Client, generation uint64) {
+	backoff := time.Second
+	for {
+		err := h.watchIPNBusSession(ctx, lc, generation)
+		if ctx.Err() != nil || !h.isCurrentSession(lc, generation) {
+			return
+		}
+		log.Printf("IPN bus watcher error: %v; retrying in %v", err, backoff)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		if backoff < 30*time.Second {
+			backoff *= 2
+			if backoff > 30*time.Second {
+				backoff = 30 * time.Second
+			}
+		}
+	}
+}
+
+func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generation uint64) error {
+	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialPrefs|ipn.NotifyInitialNetMap)
 	if err != nil {
-		log.Printf("failed to watch IPN bus: %v", err)
-		return
+		return err
 	}
 	defer watcher.Close()
 
 	// debounce coalesces rapid IPN notifications into a single status refresh.
 	const debounceDuration = 150 * time.Millisecond
 	var debounceTimer *time.Timer
+	var debounceMu sync.Mutex
+	stopDebounce := func() {
+		debounceMu.Lock()
+		defer debounceMu.Unlock()
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+			debounceTimer = nil
+		}
+	}
+	defer stopDebounce()
 
 	// sendDebounced schedules a status refresh after debounceDuration,
 	// resetting any pending timer so only the last event in a burst fires.
 	sendDebounced := func() {
+		debounceMu.Lock()
+		defer debounceMu.Unlock()
 		if debounceTimer != nil {
-			debounceTimer.Reset(debounceDuration)
-			return
+			debounceTimer.Stop()
 		}
 		debounceTimer = time.AfterFunc(debounceDuration, func() {
-			status, err := h.refreshFullStatus()
+			debounceMu.Lock()
+			debounceTimer = nil
+			debounceMu.Unlock()
+			status, err := h.refreshFullStatusFor(lc, generation)
 			if err != nil {
 				log.Printf("failed to refresh status after IPN bus change: %v", err)
 				return
@@ -49,69 +88,64 @@ func (h *Host) watchIPNBus(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			log.Printf("IPN bus watcher cancelled")
-			if debounceTimer != nil {
-				debounceTimer.Stop()
-			}
-			return
+			return ctx.Err()
 		default:
 		}
 
 		n, err := watcher.Next()
 		if err != nil {
 			if ctx.Err() != nil {
-				if debounceTimer != nil {
-					debounceTimer.Stop()
-				}
-				return // cancelled
+				return ctx.Err()
 			}
-			log.Printf("IPN bus watcher error: %v", err)
-			return
+			return err
+		}
+		if !h.isCurrentSession(lc, generation) {
+			return context.Canceled
 		}
 
-		changed := false
-
-		if n.State != nil {
-			h.stateMu.Lock()
-			h.lastState = n.State.String()
-			h.stateMu.Unlock()
-			changed = true
+		stateChanged := n.State != nil
+		prefsChanged := n.Prefs != nil && n.Prefs.Valid()
+		browseURLChanged := n.BrowseToURL != nil
+		healthChanged := n.Health != nil
+		changed := stateChanged || prefsChanged || browseURLChanged || n.NetMap != nil || healthChanged
+		var prefs *PrefsView
+		if prefsChanged {
+			prefs = prefsViewFromIPN(*n.Prefs)
 		}
-
-		if n.Prefs != nil && n.Prefs.Valid() {
-			pv := prefsViewFromIPN(*n.Prefs)
-			h.stateMu.Lock()
-			h.lastPrefs = pv
-			h.stateMu.Unlock()
-			changed = true
-		}
-
-		if n.BrowseToURL != nil {
-			h.stateMu.Lock()
-			h.lastBrowseToURL = *n.BrowseToURL
-			h.stateMu.Unlock()
-			changed = true
-		}
-
-		if n.NetMap != nil {
-			changed = true
-		}
-
+		var health []string
 		if n.Health != nil {
-			var msgs []string
 			for _, w := range n.Health.Warnings {
 				// tsnet doesn't manage system DNS; suppress irrelevant warnings
 				if strings.Contains(w.Text, "getting OS base config is not supported") {
 					continue
 				}
-				msgs = append(msgs, w.Text)
+				health = append(health, w.Text)
 			}
-			h.stateMu.Lock()
-			h.lastHealth = msgs
-			h.stateMu.Unlock()
-			changed = true
 		}
 
 		if changed {
+			// Hold the session read lock while updating the cache. A re-init must
+			// therefore wait, then clears these values after replacing the session.
+			h.sessionMu.RLock()
+			if h.lc != lc || h.sessionGeneration != generation {
+				h.sessionMu.RUnlock()
+				return context.Canceled
+			}
+			h.stateMu.Lock()
+			if stateChanged {
+				h.lastState = n.State.String()
+			}
+			if prefsChanged {
+				h.lastPrefs = prefs
+			}
+			if browseURLChanged {
+				h.lastBrowseToURL = *n.BrowseToURL
+			}
+			if healthChanged {
+				h.lastHealth = health
+			}
+			h.stateMu.Unlock()
+			h.sessionMu.RUnlock()
 			sendDebounced()
 		}
 	}
@@ -146,10 +180,14 @@ func prefsViewFromIPN(p ipn.PrefsView) *PrefsView {
 // refreshFullStatus calls the local client Status API and builds a full
 // StatusUpdate from the enriched peer info plus cached IPN bus state.
 func (h *Host) refreshFullStatus() (*StatusUpdate, error) {
-	lc := h.lc // snapshot to avoid nil deref if handleInit tears down concurrently
+	_, lc, generation := h.sessionSnapshot()
 	if lc == nil {
 		return nil, fmt.Errorf("local client not initialized")
 	}
+	return h.refreshFullStatusFor(lc, generation)
+}
+
+func (h *Host) refreshFullStatusFor(lc *local.Client, generation uint64) (*StatusUpdate, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -158,8 +196,15 @@ func (h *Host) refreshFullStatus() (*StatusUpdate, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !h.isCurrentSession(lc, generation) {
+		return nil, fmt.Errorf("session changed while refreshing status")
+	}
 
-	return h.buildStatusUpdate(st), nil
+	update := h.buildStatusUpdate(st)
+	if !h.isCurrentSession(lc, generation) {
+		return nil, fmt.Errorf("session changed while building status")
+	}
+	return update, nil
 }
 
 // buildStatusUpdate constructs a StatusUpdate from the ipnstate.Status

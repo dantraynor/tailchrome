@@ -1,5 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { viewForState } from "./popup";
+// @vitest-environment happy-dom
+import { describe, it, expect, vi } from "vitest";
+import {
+  enterSubView,
+  leaveSubView,
+  render,
+  viewForState,
+} from "./popup";
 import { baseState } from "../__test__/fixtures";
 
 describe("viewForState", () => {
@@ -29,6 +35,23 @@ describe("viewForState", () => {
     expect(viewForState(baseState({ installError: true }))).toBe("needs-install");
   });
 
+  it("returns 'needs-update' when the helper version mismatches", () => {
+    expect(viewForState(baseState({ hostVersionMismatch: true }))).toBe(
+      "needs-update",
+    );
+  });
+
+  it("needs-update takes precedence over NeedsLogin", () => {
+    expect(
+      viewForState(
+        baseState({
+          backendState: "NeedsLogin",
+          hostVersionMismatch: true,
+        }),
+      ),
+    ).toBe("needs-update");
+  });
+
   it("installError takes precedence over Running backendState", () => {
     expect(
       viewForState(baseState({ installError: true, backendState: "Running" }))
@@ -56,6 +79,32 @@ describe("viewForState", () => {
   it("returns 'disconnected' for InUseOtherUser backendState", () => {
     expect(viewForState(baseState({ backendState: "InUseOtherUser" }))).toBe(
       "disconnected"
+    );
+  });
+});
+
+describe("sub-view state orchestration", () => {
+  it("live-updates once per state version and renders the latest deferred state on exit", () => {
+    document.body.innerHTML = '<div id="root"></div>';
+    const initial = baseState({ stateVersion: 100, tailnet: "initial.ts.net" });
+    render(initial);
+    const updater = vi.fn();
+    enterSubView(updater);
+
+    const first = baseState({ stateVersion: 101, tailnet: "first.ts.net" });
+    render(first);
+    render({ ...first, tailnet: "same-version.ts.net" });
+    const latest = baseState({ stateVersion: 102, tailnet: "latest.ts.net" });
+    render(latest);
+
+    expect(updater).toHaveBeenCalledTimes(2);
+    expect(document.getElementById("root")?.textContent).toContain(
+      "initial.ts.net",
+    );
+
+    leaveSubView();
+    expect(document.getElementById("root")?.textContent).toContain(
+      "latest.ts.net",
     );
   });
 });

@@ -1,4 +1,6 @@
 export const TAILSCALE_SERVICE_IP = "100.100.100.100";
+/** IPv6 prefix used for Tailscale node addresses. */
+export const TAILSCALE_IPV6_PREFIX = "fd7a:115c:a1e0:";
 export const KEEPALIVE_INTERVAL_MS = 25_000;
 export const RECONNECT_BASE_MS = 1_000;
 export const RECONNECT_MAX_MS = 30_000;

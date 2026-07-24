@@ -10,6 +10,7 @@ import {
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expectedHostVersion } from "./fixtures.mjs";
 
 export function createNativeHost(_browserName, control, { enabled = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), "tailchrome-e2e-"));
@@ -129,7 +130,18 @@ function mockSource(baseUrl, initialControl) {
     };
   }
 
+  const commandReplyIndexes = Object.create(null);
+
   function replyForRequest(request, c) {
+    const scripted = c.commandReplies?.[request.cmd];
+    if (scripted !== undefined) {
+      if (Array.isArray(scripted)) {
+        const index = commandReplyIndexes[request.cmd] ?? 0;
+        commandReplyIndexes[request.cmd] = index + 1;
+        return scripted[Math.min(index, scripted.length - 1)] ?? null;
+      }
+      return scripted;
+    }
     switch (request.cmd) {
       case "init":
         return { init: c.init ?? {} };
@@ -170,7 +182,7 @@ function mockSource(baseUrl, initialControl) {
         return {
           diagnostic: {
             title: "Netcheck",
-            body: "UDP: true\\nIPv4: yes\\nIPv6: no",
+            body: "Netcheck is not available in the browser helper; use the Tailscale CLI on a full install.",
           },
         };
       case "send-file":
@@ -222,9 +234,9 @@ function mockSource(baseUrl, initialControl) {
         procRunning: {
           port: control.proxyPort ?? 1055,
           pid: 1,
-          version: control.hostVersion ?? "0.1.12",
+          version: control.hostVersion ?? ${JSON.stringify(expectedHostVersion)},
           error: control.startupError,
-          supportsNetcheck: control.supportsNetcheck !== false,
+          supportsNetcheck: control.supportsNetcheck === true,
           supportsPingPeer: control.supportsPingPeer !== false,
           supportsLogin: control.supportsLogin !== false,
           supportsCustomControlURL: control.supportsCustomControlURL !== false,
