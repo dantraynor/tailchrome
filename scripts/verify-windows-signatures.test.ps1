@@ -61,13 +61,13 @@ function New-TestCertificate {
   $CerPath = Join-Path $TestRoot "$Name.cer"
   Export-Certificate -Cert $Certificate -FilePath $CerPath | Out-Null
   foreach ($StoreName in @("Root", "TrustedPublisher")) {
-    Write-Host "Trusting test certificate in CurrentUser\$StoreName..."
+    Write-Host "Trusting test certificate in LocalMachine\$StoreName..."
     Invoke-NativeCommand `
-      -Command { & certutil.exe -user -f -Silent -addstore $StoreName $CerPath } `
-      -FailureMessage "certutil could not add the test certificate to CurrentUser\$StoreName" | Out-Null
-    $CertificatePath = "Cert:\CurrentUser\$StoreName\$($Certificate.Thumbprint)"
+      -Command { & certutil.exe -f -addstore $StoreName $CerPath } `
+      -FailureMessage "certutil could not add the test certificate to LocalMachine\$StoreName" | Out-Null
+    $CertificatePath = "Cert:\LocalMachine\$StoreName\$($Certificate.Thumbprint)"
     if (-not (Test-Path -LiteralPath $CertificatePath)) {
-      throw "The test certificate was not installed in CurrentUser\$StoreName."
+      throw "The test certificate was not installed in LocalMachine\$StoreName."
     }
   }
 
@@ -285,10 +285,24 @@ try {
   Write-Host "Windows signature verifier tests passed."
 } finally {
   foreach ($Certificate in $Certificates) {
-    foreach ($StoreName in @("My", "Root", "TrustedPublisher")) {
+    $StoreLocations = @(
+      [ordered]@{
+        Name = "My"
+        Location = [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+      },
+      [ordered]@{
+        Name = "Root"
+        Location = [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
+      },
+      [ordered]@{
+        Name = "TrustedPublisher"
+        Location = [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
+      }
+    )
+    foreach ($StoreLocation in $StoreLocations) {
       $Store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
-        $StoreName,
-        [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+        $StoreLocation.Name,
+        $StoreLocation.Location
       )
       try {
         $Store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
