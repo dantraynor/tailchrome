@@ -108,6 +108,10 @@ async function launchChrome(extensionDir) {
       `--load-extension=${extensionDir}`,
       "--no-first-run",
       "--no-default-browser-check",
+      // GitHub-hosted Linux runners do not expose a usable Chrome sandbox.
+      ...(process.platform === "linux" && process.env.CI === "true"
+        ? ["--no-sandbox", "--disable-setuid-sandbox"]
+        : []),
     ],
   });
 

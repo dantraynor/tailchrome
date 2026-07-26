@@ -303,8 +303,12 @@ jobs:
           test -z "$(rpm -qp --scripts dist/tailchrome-helper-linux-x86_64.rpm)"
           rpm -qlp dist/tailchrome-helper-linux-x86_64.rpm |
             tee /tmp/tailchrome-rpm-contents.txt
-          ! grep -E '(^|/)(home|Users)/' /tmp/tailchrome-deb-contents.txt
-          ! grep -E '(^|/)(home|Users)/' /tmp/tailchrome-rpm-contents.txt
+          if grep -E '(^|/)(home|Users)/' \
+            /tmp/tailchrome-deb-contents.txt \
+            /tmp/tailchrome-rpm-contents.txt; then
+            echo "Linux packages contain an unexpected user-home path." >&2
+            exit 1
+          fi
       - name: Upload final Linux packages
         uses: actions/upload-artifact@v6
         with:
