@@ -60,15 +60,28 @@ function New-TestCertificate {
 
   $CerPath = Join-Path $TestRoot "$Name.cer"
   Export-Certificate -Cert $Certificate -FilePath $CerPath | Out-Null
-  foreach ($StoreName in @("Root", "TrustedPublisher")) {
-    Write-Host "Trusting test certificate in CurrentUser\$StoreName..."
-    Invoke-NativeCommand `
-      -Command { & certutil.exe -user -f -addstore $StoreName $CerPath } `
-      -FailureMessage "certutil could not add the test certificate to CurrentUser\$StoreName" | Out-Null
-    $CertificatePath = "Cert:\CurrentUser\$StoreName\$($Certificate.Thumbprint)"
-    if (-not (Test-Path -LiteralPath $CertificatePath)) {
-      throw "The test certificate was not installed in CurrentUser\$StoreName."
+  $PublicCertificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($CerPath)
+  try {
+    foreach ($StoreName in @("Root", "TrustedPublisher")) {
+      Write-Host "Trusting test certificate in CurrentUser\$StoreName..."
+      $Store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+        $StoreName,
+        [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+      )
+      try {
+        $Store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+        $Store.Add($PublicCertificate)
+      } finally {
+        $Store.Dispose()
+      }
+
+      $CertificatePath = "Cert:\CurrentUser\$StoreName\$($Certificate.Thumbprint)"
+      if (-not (Test-Path -LiteralPath $CertificatePath)) {
+        throw "The test certificate was not installed in CurrentUser\$StoreName."
+      }
     }
+  } finally {
+    $PublicCertificate.Dispose()
   }
 
   $PfxPath = Join-Path $TestRoot "$Name.pfx"
@@ -286,9 +299,15 @@ try {
 } finally {
   foreach ($Certificate in $Certificates) {
     foreach ($StoreName in @("My", "Root", "TrustedPublisher")) {
-      $CertificatePath = "Cert:\CurrentUser\$StoreName\$($Certificate.Thumbprint)"
-      if (Test-Path -LiteralPath $CertificatePath) {
-        Remove-Item -LiteralPath $CertificatePath -Force
+      $Store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+        $StoreName,
+        [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+      )
+      try {
+        $Store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+        $Store.Remove($Certificate)
+      } finally {
+        $Store.Dispose()
       }
     }
   }
