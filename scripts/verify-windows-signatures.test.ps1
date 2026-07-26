@@ -60,8 +60,16 @@ function New-TestCertificate {
 
   $CerPath = Join-Path $TestRoot "$Name.cer"
   Export-Certificate -Cert $Certificate -FilePath $CerPath | Out-Null
-  Import-Certificate -FilePath $CerPath -CertStoreLocation "Cert:\CurrentUser\Root" | Out-Null
-  Import-Certificate -FilePath $CerPath -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher" | Out-Null
+  foreach ($StoreName in @("Root", "TrustedPublisher")) {
+    Write-Host "Trusting test certificate in CurrentUser\$StoreName..."
+    Invoke-NativeCommand `
+      -Command { & certutil.exe -user -f -addstore $StoreName $CerPath } `
+      -FailureMessage "certutil could not add the test certificate to CurrentUser\$StoreName" | Out-Null
+    $CertificatePath = "Cert:\CurrentUser\$StoreName\$($Certificate.Thumbprint)"
+    if (-not (Test-Path -LiteralPath $CertificatePath)) {
+      throw "The test certificate was not installed in CurrentUser\$StoreName."
+    }
+  }
 
   $PfxPath = Join-Path $TestRoot "$Name.pfx"
   Export-PfxCertificate -Cert $Certificate -FilePath $PfxPath -Password $Password | Out-Null
@@ -83,6 +91,9 @@ function Invoke-Sign {
     [switch]$Append,
     [switch]$WithoutTimestamp
   )
+
+  $TimestampMode = if ($WithoutTimestamp) { "without timestamp" } else { "with timestamp" }
+  Write-Host "Signing fixture $(Split-Path -Leaf $Path) $TimestampMode..."
 
   $Arguments = @("sign", "/fd", "SHA256")
   if ($Append) {
