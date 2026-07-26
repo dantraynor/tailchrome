@@ -2,7 +2,7 @@
 
 > Comparison of the Tailchrome browser extension against the native Tailscale desktop/mobile clients (macOS, Windows, Linux, iOS, Android).
 
-Last updated: 2026-07-20
+Last updated: 2026-07-26
 
 ---
 
@@ -138,9 +138,9 @@ Last updated: 2026-07-20
 | Health warnings                            | Yes           | Yes        | Collapsible banner in popup showing health warning messages from IPN bus                                     |
 | Network diagnostics (`tailscale netcheck`) | Yes           | No         | Not exposed in extension                                                                                     |
 | Ping peers (`tailscale ping`)              | Yes           | Yes        | Online peers expose a Ping action when the helper advertises support; results appear as a diagnostic toast. |
-| Bug report generation                      | Yes           | No         | Not accessible from extension                                                                                |
+| Helper diagnostic report                   | Yes           | Partial    | User-initiated local copy/export covers helper activation state and sanitized errors; it excludes browsing, authentication, tailnet, peer, profile, and traffic data. |
 | Debug logging                              | Yes           | Partial    | Native host logs to stderr (visible when launched from terminal); extension logs to browser devtools console |
-| Version display                            | Yes           | Yes        | The connected footer shows the native helper version and incompatible versions open the update view.        |
+| Version display                            | Yes           | Yes        | The connected footer shows the native helper version. A different release produces a non-blocking notice; advertised capability flags gate individual controls. |
 
 
 ---
@@ -155,8 +155,8 @@ Last updated: 2026-07-20
 | Dark mode              | Yes           | Yes        | Follows browser/system theme via CSS                                                                                                               |
 | Keyboard navigation    | Yes           | Yes        | Arrow keys in peer list                                                                                                                            |
 | Search                 | Yes           | Yes        | Peer search in popup                                                                                                                               |
-| Auto-update            | Yes           | Partial    | Extension auto-updates via Chrome Web Store; native host updates use the platform helper installer when the extension shows "needs-update" |
-| Cross-platform         | Yes           | Yes        | Extension: Chrome + Firefox. Host: macOS (amd64/arm64), Linux (amd64), Windows (amd64)                                                             |
+| Auto-update            | Yes           | Partial    | The extension updates through its browser store. The helper has no self-updater; an older helper notice links to the exact companion release or repair guidance. |
+| Cross-platform         | Yes           | Yes        | Extension: Chrome + Firefox. Host: macOS (amd64/arm64), Linux raw helper (amd64/arm64), Linux packages (amd64/x86_64), and Windows (amd64; x64 installer). |
 
 
 ---
@@ -185,7 +185,7 @@ Last updated: 2026-07-20
 | **Networking**    | Split DNS, custom DNS nameservers                                                      |
 | **Security**      | Network lock, key signing/rotation                                                    |
 | **Services**      | Tailscale Serve, Tailscale Funnel, SSH server                                         |
-| **Diagnostics**   | `netcheck` and user-facing bug-report generation                                      |
+| **Diagnostics**   | A full Tailscale bug report and a user-facing `netcheck` control                       |
 | **Admin**         | ACL management (link to admin console provided), machine re-auth                      |
 
 
