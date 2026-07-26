@@ -141,6 +141,37 @@ function mockSource(baseUrl, initialControl) {
   let connectionAttempt = 0;
   let manualRecoveryRequested = false;
 
+  // The incompatible kind is intentionally defensive-only in production until
+  // a future protocol supplies explicit evidence. Transform background state
+  // only inside this fixture so both browser families still exercise that UI.
+  if (control.popupFailureKind) {
+    chrome.runtime.onConnect.addListener((port) => {
+      if (port.name !== "popup") return;
+      const postMessage = port.postMessage.bind(port);
+      port.postMessage = (message) => {
+        if (message?.type !== "state") {
+          postMessage(message);
+          return;
+        }
+        postMessage({
+          ...message,
+          state: {
+            ...message.state,
+            hostConnected: false,
+            initialized: false,
+            proxyEnabled: false,
+            helperFailure: {
+              kind: control.popupFailureKind,
+              diagnosticCode:
+                control.popupFailureCode ?? "fixture-explicit-helper-failure",
+              diagnosticMessage: null,
+            },
+          },
+        });
+      };
+    });
+  }
+
   if (control.recoverOnManualRetry) {
     chrome.runtime.onConnect.addListener((port) => {
       if (port.name !== "popup") return;

@@ -91,6 +91,10 @@ jobs:
             echo "$CLEARANCE_ENVIRONMENT must exist with at least one required reviewer." >&2
             exit 1
           fi
+          if ! jq -e '.can_admins_bypass == false' <<<"$environment_json" >/dev/null; then
+            echo "$CLEARANCE_ENVIRONMENT must prevent administrator bypass." >&2
+            exit 1
+          fi
       - name: Download original candidate artifact
         uses: actions/download-artifact@v6
         with:

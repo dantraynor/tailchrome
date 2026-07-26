@@ -336,7 +336,7 @@ describe("initBackground", () => {
           helperFailure: null,
           helperVersionNotice: {
             installedVersion: "0.1.11",
-            releaseVersion: "0.1.12",
+            releaseVersion: "0.1.13",
             relation: "older",
           },
           supportsNetcheck: true,
@@ -350,12 +350,12 @@ describe("initBackground", () => {
         procRunning: { port: 1055, pid: 1234, version: "0.1.11" },
       });
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.1.12" },
+        procRunning: { port: 1055, pid: 1234, version: "0.1.13" },
       });
 
       expect(proxyManager.apply).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          hostVersion: "0.1.12",
+          hostVersion: "0.1.13",
           helperVersionNotice: null,
           helperFailure: null,
         }),

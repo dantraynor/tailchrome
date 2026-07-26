@@ -16,6 +16,131 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+Add-Type -AssemblyName System.Security.Cryptography.Pkcs
+if ($null -eq ("Tailchrome.AuthenticodeMessage" -as [type])) {
+  Add-Type -Language CSharp -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+namespace Tailchrome
+{
+    public static class AuthenticodeMessage
+    {
+        private const uint CertQueryObjectFile = 1;
+        private const uint CertQueryContentFlagPkcs7SignedEmbed = 0x00000400;
+        private const uint CertQueryFormatFlagBinary = 0x00000002;
+        private const uint CmsgEncodedMessage = 29;
+
+        [DllImport("crypt32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool CryptQueryObject(
+            uint objectType,
+            string path,
+            uint expectedContentTypeFlags,
+            uint expectedFormatTypeFlags,
+            uint flags,
+            out uint encodingType,
+            out uint contentType,
+            out uint formatType,
+            out IntPtr certificateStore,
+            out IntPtr message,
+            IntPtr context);
+
+        [DllImport("crypt32.dll", SetLastError = true)]
+        private static extern bool CryptMsgGetParam(
+            IntPtr message,
+            uint parameterType,
+            uint index,
+            IntPtr data,
+            ref uint dataLength);
+
+        [DllImport("crypt32.dll")]
+        private static extern bool CryptMsgClose(IntPtr message);
+
+        [DllImport("crypt32.dll")]
+        private static extern bool CertCloseStore(IntPtr certificateStore, uint flags);
+
+        public static byte[] ReadEmbeddedSignature(string path)
+        {
+            IntPtr certificateStore = IntPtr.Zero;
+            IntPtr message = IntPtr.Zero;
+            try
+            {
+                uint encodingType;
+                uint contentType;
+                uint formatType;
+                if (!CryptQueryObject(
+                    CertQueryObjectFile,
+                    path,
+                    CertQueryContentFlagPkcs7SignedEmbed,
+                    CertQueryFormatFlagBinary,
+                    0,
+                    out encodingType,
+                    out contentType,
+                    out formatType,
+                    out certificateStore,
+                    out message,
+                    IntPtr.Zero))
+                {
+                    throw new Win32Exception(
+                        Marshal.GetLastWin32Error(),
+                        "CryptQueryObject could not read the embedded Authenticode message.");
+                }
+
+                uint dataLength = 0;
+                if (!CryptMsgGetParam(
+                    message,
+                    CmsgEncodedMessage,
+                    0,
+                    IntPtr.Zero,
+                    ref dataLength))
+                {
+                    throw new Win32Exception(
+                        Marshal.GetLastWin32Error(),
+                        "CryptMsgGetParam could not size the Authenticode message.");
+                }
+
+                IntPtr data = Marshal.AllocHGlobal(checked((int)dataLength));
+                try
+                {
+                    if (!CryptMsgGetParam(
+                        message,
+                        CmsgEncodedMessage,
+                        0,
+                        data,
+                        ref dataLength))
+                    {
+                        throw new Win32Exception(
+                            Marshal.GetLastWin32Error(),
+                            "CryptMsgGetParam could not read the Authenticode message.");
+                    }
+
+                    byte[] encoded = new byte[checked((int)dataLength)];
+                    Marshal.Copy(data, encoded, 0, checked((int)dataLength));
+                    return encoded;
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(data);
+                }
+            }
+            finally
+            {
+                if (message != IntPtr.Zero)
+                {
+                    CryptMsgClose(message);
+                }
+                if (certificateStore != IntPtr.Zero)
+                {
+                    CertCloseStore(certificateStore, 0);
+                }
+            }
+        }
+    }
+}
+'@
+}
+
 function Resolve-RequiredFile {
   param(
     [Parameter(Mandatory = $true)]
@@ -99,6 +224,27 @@ function Get-VerifiedSignature {
     throw "$Label Authenticode signature is not timestamped."
   }
 
+  $EncodedMessage = [Tailchrome.AuthenticodeMessage]::ReadEmbeddedSignature($Path)
+  $SignedCms = [System.Security.Cryptography.Pkcs.SignedCms]::new()
+  $SignedCms.Decode($EncodedMessage)
+  if ($SignedCms.SignerInfos.Count -ne 1) {
+    throw "$Label does not contain exactly one PKCS #7 signer."
+  }
+  $SignerInfo = $SignedCms.SignerInfos[0]
+  $Rfc3161Attributes = @(
+    $SignerInfo.UnsignedAttributes |
+      Where-Object { $_.Oid.Value -eq "1.3.6.1.4.1.311.3.3.1" }
+  )
+  if (
+    $Rfc3161Attributes.Count -ne 1 -or
+    $Rfc3161Attributes[0].Values.Count -ne 1
+  ) {
+    throw "$Label does not contain exactly one RFC 3161 timestamp."
+  }
+  if ($SignerInfo.CounterSignerInfos.Count -ne 0) {
+    throw "$Label contains a legacy Authenticode countersignature; only RFC 3161 timestamps are accepted."
+  }
+
   Invoke-SignToolVerification -Path $Path -Label $Label
 
   return [ordered]@{
@@ -108,6 +254,7 @@ function Get-VerifiedSignature {
     signerThumbprint = $Signature.SignerCertificate.Thumbprint
     timestampSubject = $Signature.TimeStamperCertificate.Subject
     timestampThumbprint = $Signature.TimeStamperCertificate.Thumbprint
+    timestampType = "RFC3161"
     status = $Signature.Status.ToString()
   }
 }

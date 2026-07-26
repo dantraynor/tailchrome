@@ -49,10 +49,13 @@ The same UI renders in either surface.
 2. Install the native helper from the [latest release](https://github.com/dantraynor/tailchrome/releases/latest) — **`tailchrome-helper-macos.pkg`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the **`.deb`/`.rpm`** package on Linux amd64/x86_64. Linux arm64/aarch64 uses the verified raw helper because ARM packages are not published yet.
 3. Log in to your Tailscale account
 
-The platform release package is the primary installation path. macOS and
-Windows installers are platform-signed; Linux packages are covered by the
-release checksum and build-provenance attestation. If Tailchrome still cannot
-discover the helper after the package is installed, the popup
+The platform release package is the primary installation path. The macOS
+installer is platform-signed. A Windows installer is release-quality only when
+the raw helper, embedded helper, and outer MSI pass the
+[Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md); older
+releases may predate that gate. Linux packages are covered by the release
+checksum and build-provenance attestation. If Tailchrome still cannot discover
+the helper after the package is installed, the popup
 offers a current-user registration repair for the browser that requested it.
 On macOS, `/Applications/Tailchrome Helper.app` provides the same repair entry
 point. The macOS/Linux fallback installer is pinned to one release version,

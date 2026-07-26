@@ -55,9 +55,12 @@ These choices are part of the implementation contract:
 
 ---
 
-## Current State and Known Defects
+## Historical Baseline and Known Defects
 
-| Area | Current state | Required correction |
+This table records the pre-implementation state that motivated the work. It is
+not a description of the current branch after the tasks below are applied.
+
+| Area | Historical state | Required correction |
 | --- | --- | --- |
 | macOS repair app | `packaging/macos/TailchromeHelper.app/Contents/Info.plist` and `Contents/MacOS/tailchrome-helper` were deleted in this worktree during the installerless feasibility exploration and have been restored from `origin/main`. `build-pkg.sh` depends on them. | Keep both files intact and validate that the package contains a signed, launchable repair app. |
 | Native-host errors | `native-host.ts` collapses not-found and forbidden errors into `install_error`; other early and late disconnects share generic handling. | Classify evidence into the six failure kinds below and preserve only sanitized diagnostic detail. |

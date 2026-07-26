@@ -140,17 +140,29 @@ function Invoke-Sign {
     [string]$PfxPath,
 
     [switch]$Append,
-    [switch]$WithoutTimestamp
+    [switch]$WithoutTimestamp,
+    [switch]$LegacyTimestamp
   )
 
-  $TimestampMode = if ($WithoutTimestamp) { "without timestamp" } else { "with timestamp" }
+  if ($WithoutTimestamp -and $LegacyTimestamp) {
+    throw "-WithoutTimestamp and -LegacyTimestamp cannot be combined."
+  }
+  $TimestampMode = if ($WithoutTimestamp) {
+    "without timestamp"
+  } elseif ($LegacyTimestamp) {
+    "with legacy Authenticode timestamp"
+  } else {
+    "with RFC 3161 timestamp"
+  }
   Write-Host "Signing fixture $(Split-Path -Leaf $Path) $TimestampMode..."
 
   $Arguments = @("sign", "/fd", "SHA256")
   if ($Append) {
     $Arguments += "/as"
   }
-  if (-not $WithoutTimestamp) {
+  if ($LegacyTimestamp) {
+    $Arguments += @("/t", "http://timestamp.digicert.com")
+  } elseif (-not $WithoutTimestamp) {
     $Arguments += @("/tr", "http://timestamp.digicert.com", "/td", "SHA256")
   }
   $Arguments += @("/f", $PfxPath, "/p", $PasswordText, $Path)
@@ -248,6 +260,13 @@ try {
   Invoke-Sign -Path $UntimestampedExe -PfxPath $Primary.PfxPath -WithoutTimestamp
   Assert-Throws -MessagePattern "not timestamped" -Operation {
     & $Verifier -RawExe $UntimestampedExe -Msi $SignedMsi -ExpectedSignerSubject $TestSubject -SignToolPath $SignTool
+  }
+
+  $LegacyTimestampExe = Join-Path $TestRoot "legacy-timestamp.exe"
+  Copy-Item -LiteralPath $UnsignedExe -Destination $LegacyTimestampExe
+  Invoke-Sign -Path $LegacyTimestampExe -PfxPath $Primary.PfxPath -LegacyTimestamp
+  Assert-Throws -MessagePattern "exactly one RFC 3161 timestamp" -Operation {
+    & $Verifier -RawExe $LegacyTimestampExe -Msi $SignedMsi -ExpectedSignerSubject $TestSubject -SignToolPath $SignTool
   }
 
   Assert-Throws -MessagePattern "signer subject mismatch" -Operation {

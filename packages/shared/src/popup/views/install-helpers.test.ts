@@ -48,7 +48,7 @@ describe("installerDownloads", () => {
       {
         filename: "tailchrome-helper-macos.pkg",
         label: "Download macOS installer (.pkg)",
-        url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailchrome-helper-macos.pkg",
+        url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-helper-macos.pkg",
       },
     ]);
   });
@@ -58,7 +58,7 @@ describe("installerDownloads", () => {
       {
         filename: null,
         label: "Open latest release",
-        url: "https://github.com/dantraynor/tailchrome/releases/tag/v0.1.12",
+        url: "https://github.com/dantraynor/tailchrome/releases/tag/v0.1.13",
       },
     ]);
     expect(binaryFilename("macos", "unknown")).toBeNull();
@@ -71,7 +71,7 @@ describe("installerDownloads", () => {
         {
           filename: "tailchrome-helper-windows-x64.msi",
           label: "Download Windows installer (.msi)",
-          url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailchrome-helper-windows-x64.msi",
+          url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-helper-windows-x64.msi",
         },
       ]);
     },
@@ -82,12 +82,12 @@ describe("installerDownloads", () => {
       {
         filename: null,
         label: "Open latest release",
-        url: "https://github.com/dantraynor/tailchrome/releases/tag/v0.1.12",
+        url: "https://github.com/dantraynor/tailchrome/releases/tag/v0.1.13",
       },
     ]);
     expect(binaryFilename("windows", "unknown")).toBeNull();
     expect(buildDownloadURL("windows", "unknown")).toBe(
-      "https://github.com/dantraynor/tailchrome/releases/tag/v0.1.12",
+      "https://github.com/dantraynor/tailchrome/releases/tag/v0.1.13",
     );
   });
 
@@ -96,12 +96,12 @@ describe("installerDownloads", () => {
       {
         filename: "tailchrome-helper-linux-amd64.deb",
         label: "Download .deb (Debian/Ubuntu)",
-        url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailchrome-helper-linux-amd64.deb",
+        url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-helper-linux-amd64.deb",
       },
       {
         filename: "tailchrome-helper-linux-x86_64.rpm",
         label: "Download .rpm (Fedora/RHEL)",
-        url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailchrome-helper-linux-x86_64.rpm",
+        url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-helper-linux-x86_64.rpm",
       },
     ]);
   });
@@ -111,7 +111,7 @@ describe("installerDownloads", () => {
       {
         filename: "tailchrome-install.sh",
         label: "Download verified Linux ARM64 installer",
-        url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailchrome-install.sh",
+        url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-install.sh",
       },
     ]);
   });
@@ -121,17 +121,17 @@ describe("installerDownloads", () => {
       {
         filename: null,
         label: "Open latest release",
-        url: "https://github.com/dantraynor/tailchrome/releases/tag/v0.1.12",
+        url: "https://github.com/dantraynor/tailchrome/releases/tag/v0.1.13",
       },
     ]);
   });
 
   it("keeps raw binary downloads available as a fallback", () => {
     expect(buildDownloadURL("windows", "arm64")).toBe(
-      "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailscale-browser-ext-windows-amd64.exe",
+      "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailscale-browser-ext-windows-amd64.exe",
     );
     expect(buildDownloadURL("linux", "arm64")).toBe(
-      "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailscale-browser-ext-linux-arm64",
+      "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailscale-browser-ext-linux-arm64",
     );
     expect(binaryFilename("macos", "amd64")).toBe(
       "tailscale-browser-ext-darwin-amd64",
@@ -201,7 +201,7 @@ describe("renderInstallFlow", () => {
         source: "package",
       });
       expect(chrome.tabs.create).toHaveBeenCalledWith({
-        url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailchrome-helper-windows-x64.msi",
+        url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-helper-windows-x64.msi",
       });
     },
   );
@@ -221,8 +221,8 @@ describe("renderInstallFlow", () => {
 
     const links = [...root.querySelectorAll<HTMLAnchorElement>(".install-pkg-cta a")];
     expect(links.map((link) => link.href)).toEqual([
-      "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailchrome-helper-linux-amd64.deb",
-      "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailchrome-helper-linux-x86_64.rpm",
+      "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-helper-linux-amd64.deb",
+      "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-helper-linux-x86_64.rpm",
     ]);
     expect(root.textContent).toContain("sudo apt install");
     expect(root.textContent).toContain("sudo dnf install");
@@ -247,7 +247,7 @@ describe("renderInstallFlow", () => {
         ...root.querySelectorAll<HTMLAnchorElement>(".install-pkg-cta a"),
       ];
       expect(links.map((link) => link.href)).toEqual([
-        "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailchrome-install.sh",
+        "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-install.sh",
       ]);
       expect(root.textContent).toContain("Linux ARM64");
       expect(root.textContent).toContain("tailscale-browser-ext-linux-arm64");
@@ -283,7 +283,7 @@ describe("renderInstallFlow", () => {
 
     const links = [...root.querySelectorAll<HTMLAnchorElement>(".install-pkg-cta a")];
     expect(links.map((link) => link.href)).toEqual([
-      "https://github.com/dantraynor/tailchrome/releases/tag/v0.1.12",
+      "https://github.com/dantraynor/tailchrome/releases/tag/v0.1.13",
     ]);
   });
 
@@ -314,7 +314,7 @@ describe("renderInstallFlow", () => {
       source: "fallback",
     });
     expect(chrome.tabs.create).toHaveBeenCalledWith({
-      url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailchrome-helper-windows-x64.msi",
+      url: "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-helper-windows-x64.msi",
     });
   });
 
@@ -345,12 +345,12 @@ describe("renderInstallFlow", () => {
     expect(root.textContent).toContain("current-user registration");
     expect(root.textContent).toContain("Verify, inspect, then run");
     expect(root.textContent).toContain(
-      'bash ~/Downloads/tailchrome-install.sh --version "v0.1.12"',
+      'bash ~/Downloads/tailchrome-install.sh --version "v0.1.13"',
     );
     expect(
       root.querySelector<HTMLAnchorElement>(".btn-primary")?.href,
     ).toBe(
-      "https://github.com/dantraynor/tailchrome/releases/download/v0.1.12/tailchrome-install.sh",
+      "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-install.sh",
     );
     expect(root.textContent!.indexOf("Verify, inspect, then run")).toBeLessThan(
       root.textContent!.indexOf("Or reinstall the release package"),
@@ -436,7 +436,7 @@ describe("renderInstallFlow", () => {
 
     expect(
       root.querySelector<HTMLAnchorElement>(".install-pkg-cta a")?.href,
-    ).toBe("https://github.com/dantraynor/tailchrome/releases/tag/v0.1.12");
+    ).toBe("https://github.com/dantraynor/tailchrome/releases/tag/v0.1.13");
     expect(root.innerHTML).not.toContain("tailchrome-helper-windows-x64.msi");
     expect(root.innerHTML).not.toContain(
       "tailscale-browser-ext-windows-amd64.exe",

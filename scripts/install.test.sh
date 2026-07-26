@@ -432,7 +432,7 @@ STUB
 }
 
 test_installs_after_attestation_verification() {
-  local case_dir output asset digest installed_path
+  local case_dir output asset digest installed_path leftovers
   case_dir="$(mktemp -d "${TMPDIR:-/tmp}/tailchrome-install-test.XXXXXX")"
   asset="tailscale-browser-ext-linux-amd64"
   installed_path="$case_dir/home/.local/share/tailscale/browser-ext/tailscale-browser-ext"
@@ -468,6 +468,10 @@ STUB
       "$INSTALLER" --version v1.2.3 2>&1
   )"; then
     fail_test "installs after attestation verification" "unexpected error: $output"
+  elif leftovers="$(
+    find "$case_dir" -maxdepth 1 -type d -name 'tailchrome-install.*' -print
+  )" && [[ -n "$leftovers" ]]; then
+    fail_test "installs after attestation verification" "temporary directory remains: $leftovers"
   elif [[ "$(command cat "$case_dir/exec.log")" != "-install-now" ]]; then
     fail_test "installs after attestation verification" "helper did not receive -install-now"
   elif [[ "$output" != *"Installed helper: $installed_path"* ]] ||

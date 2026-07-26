@@ -75,6 +75,58 @@ describe("sanitizeDiagnosticMessage", () => {
       expect(sanitized).not.toContain(excluded);
     }
   });
+
+  it("redacts common structured authentication field names", () => {
+    const sanitized = sanitizeDiagnosticMessage(
+      [
+        "access_token=access-value",
+        "refresh_token=refresh-value",
+        "client_secret=client-value",
+        "api_key=api-value",
+        "session_id=session-value",
+        "session_cookie=cookie-value",
+        "sessionCookie=camel-cookie-value",
+        "auth_token=auth-value",
+        "oauth_token=oauth-value",
+        "csrf_token=csrf-value",
+        "Cookie=session_cookie_value",
+        "private_key=private-value",
+      ].join("; "),
+    );
+
+    for (const label of [
+      "access_token",
+      "refresh_token",
+      "client_secret",
+      "api_key",
+      "session_id",
+      "session_cookie",
+      "sessionCookie",
+      "auth_token",
+      "oauth_token",
+      "csrf_token",
+      "Cookie",
+      "private_key",
+    ]) {
+      expect(sanitized).toContain(`${label}=[redacted-credential]`);
+    }
+    for (const excluded of [
+      "access-value",
+      "refresh-value",
+      "client-value",
+      "api-value",
+      "session-value",
+      "cookie-value",
+      "camel-cookie-value",
+      "auth-value",
+      "oauth-value",
+      "csrf-value",
+      "session_cookie_value",
+      "private-value",
+    ]) {
+      expect(sanitized).not.toContain(excluded);
+    }
+  });
 });
 
 describe("formatHelperDiagnosticReport", () => {

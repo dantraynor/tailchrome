@@ -53,7 +53,7 @@ export function sanitizeDiagnosticMessage(value: unknown): string | null {
       "Bearer [redacted-credential]",
     )
     .replace(
-      /\b(token|password|secret|authorization)\s*[:=]\s*(?:"[^,;\r\n]*|'[^,;\r\n]*|[^\s,;]+)/gi,
+      /\b((?:access|refresh|id|auth|oauth|csrf|xsrf)[-_ ]?token|client[-_ ]?secret|api[-_ ]?key|session(?:[-_ ]?(?:id|key|token|cookie))?|set[-_ ]?cookie|cookie|auth(?:entication|orization)?|jwt|token|password|passphrase|secret|credential|private[-_ ]?key)\s*[:=]\s*(?:"[^,;\r\n]*|'[^,;\r\n]*|[^\s,;]+)/gi,
       "$1=[redacted-credential]",
     )
     .replace(/\btskey-[A-Za-z0-9_-]+\b/gi, "[redacted-credential]")

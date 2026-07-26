@@ -24,7 +24,7 @@ Then build from the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 `
-  -Version v0.1.12 `
+  -Version v0.1.13 `
   -AllowUnsignedDevelopmentBuild
 ```
 

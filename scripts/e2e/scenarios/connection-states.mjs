@@ -131,6 +131,62 @@ export const cases = [
     },
   },
   {
+    name: "helper-reported startup error renders safe recovery",
+    control: () =>
+      makeControl({
+        init: {
+          error:
+            "fixture-reported-marker /Users/alice/Library/Tailchrome access_token=fixture-reported-secret",
+        },
+      }),
+    run: async ({ openPopup }) => {
+      const page = await openPopup();
+      try {
+        await expectText(page, "The helper started but reported a startup error.");
+        await expectText(page, "Reinstall or repair helper");
+        await expectNoText(page, "fixture-reported-marker");
+
+        const report = await captureDiagnosticReport(page);
+        if (!report.includes("fixture-reported-marker")) {
+          throw new Error("Diagnostic report omitted reported-error detail.");
+        }
+        for (const excluded of [
+          "/Users/alice",
+          "fixture-reported-secret",
+        ]) {
+          if (report.includes(excluded)) {
+            throw new Error(
+              `Diagnostic report contained unredacted reported-error data: ${excluded}`,
+            );
+          }
+        }
+      } finally {
+        await page.close();
+      }
+    },
+  },
+  {
+    name: "explicit incompatibility renders defensive installer copy",
+    control: () =>
+      makeControl({
+        popupFailureKind: "helper-incompatible",
+        popupFailureCode: "fixture-protocol-incompatible",
+      }),
+    run: async ({ openPopup }) => {
+      const page = await openPopup();
+      try {
+        await waitForPopup(page);
+        await expectText(
+          page,
+          "The helper and extension reported an incompatible protocol.",
+        );
+        await expectText(page, "Copy diagnostic report");
+      } finally {
+        await page.close();
+      }
+    },
+  },
+  {
     name: "late helper stop renders reconnect recovery",
     control: () =>
       makeControl({
