@@ -35,6 +35,57 @@ function Invoke-NativeCommand {
   return $Output
 }
 
+function New-TestExecutable {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Name,
+
+    [Parameter(Mandatory = $true)]
+    [int]$ExitCode
+  )
+
+  $ProjectRoot = Join-Path $TestRoot "project-$Name"
+  $PublishRoot = Join-Path $ProjectRoot "publish"
+  $ProjectPath = Join-Path $ProjectRoot "$Name.csproj"
+  New-Item -ItemType Directory -Force -Path $ProjectRoot | Out-Null
+  Set-Content -LiteralPath $ProjectPath -Encoding utf8NoBOM -Value @"
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <UseAppHost>true</UseAppHost>
+    <AssemblyName>$Name</AssemblyName>
+  </PropertyGroup>
+</Project>
+"@
+  Set-Content `
+    -LiteralPath (Join-Path $ProjectRoot "Program.cs") `
+    -Encoding utf8NoBOM `
+    -Value "return $ExitCode;"
+  Invoke-NativeCommand `
+    -Command {
+      & dotnet publish `
+        $ProjectPath `
+        --configuration Release `
+        --runtime win-x64 `
+        --self-contained false `
+        --output $PublishRoot `
+        --nologo
+    } `
+    -FailureMessage "dotnet could not build the '$Name' signature fixture" | Out-Null
+
+  $BuiltExe = Join-Path $PublishRoot "$Name.exe"
+  if (-not (Test-Path -LiteralPath $BuiltExe -PathType Leaf)) {
+    throw "dotnet did not produce the expected signature fixture '$BuiltExe'."
+  }
+  Copy-Item -LiteralPath $BuiltExe -Destination $Path
+}
+
 function New-TestCertificate {
   param(
     [Parameter(Mandatory = $true)]
@@ -143,11 +194,7 @@ try {
   $Primary = New-TestCertificate -Subject $TestSubject -Name "primary"
 
   $UnsignedExe = Join-Path $TestRoot "unsigned.exe"
-  Add-Type `
-    -TypeDefinition 'public static class Program { public static int Main() { return 0; } }' `
-    -Language CSharp `
-    -OutputAssembly $UnsignedExe `
-    -OutputType ConsoleApplication
+  New-TestExecutable -Path $UnsignedExe -Name "unsigned" -ExitCode 0
 
   Assert-Throws -MessagePattern "Release-quality MSI builds require -ExpectedSignerSubject" -Operation {
     & $BuildMsi `
@@ -233,11 +280,7 @@ try {
   }
 
   $OtherExe = Join-Path $TestRoot "other.exe"
-  Add-Type `
-    -TypeDefinition 'public static class OtherProgram { public static int Main() { return 1; } }' `
-    -Language CSharp `
-    -OutputAssembly $OtherExe `
-    -OutputType ConsoleApplication
+  New-TestExecutable -Path $OtherExe -Name "other" -ExitCode 1
   Invoke-Sign -Path $OtherExe -PfxPath $Primary.PfxPath
   $MismatchUnsignedMsi = Join-Path $TestRoot "mismatch.unsigned.msi"
   & $BuildMsi `
