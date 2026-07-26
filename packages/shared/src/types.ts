@@ -194,6 +194,29 @@ export interface FileSendProgress {
 
 // === Extension internal state ===
 
+export type HelperFailureKind =
+  | "helper-unavailable"
+  | "helper-not-allowed"
+  | "helper-start-failed"
+  | "helper-stopped"
+  | "helper-reported-error"
+  | "helper-incompatible";
+
+export interface HelperDiagnostic {
+  diagnosticCode: string;
+  diagnosticMessage: string | null;
+}
+
+export interface HelperFailure extends HelperDiagnostic {
+  kind: HelperFailureKind;
+}
+
+export interface HelperVersionNotice {
+  installedVersion: string;
+  releaseVersion: string;
+  relation: "older" | "newer" | "different";
+}
+
 export interface TailscaleState {
   /** Monotonically increasing counter, incremented on every state update. */
   stateVersion: number;
@@ -222,9 +245,11 @@ export interface TailscaleState {
   domainSplit: DomainSplitConfig;
 
   error: string | null;
-  installError: boolean;
   hostVersion: string | null;
-  hostVersionMismatch: boolean;
+  helperFailure: HelperFailure | null;
+  helperDiagnostic: HelperDiagnostic | null;
+  helperVersionNotice: HelperVersionNotice | null;
+  repairRegistrationAvailable: boolean;
   /** True when the connected native helper advertises `supportsNetcheck` in procRunning. */
   supportsNetcheck: boolean;
   /** True when the connected native helper advertises `supportsPingPeer` in procRunning. */
@@ -267,7 +292,10 @@ export type BackgroundMessage =
   | { type: "toggle" }
   | { type: "login" }
   | { type: "logout" }
-  | { type: "retry-native-host" }
+  | {
+      type: "retry-native-host";
+      source: "package" | "fallback" | "manual";
+    }
   | { type: "set-exit-node"; nodeID: string }
   | { type: "clear-exit-node" }
   | SetPrefMessage

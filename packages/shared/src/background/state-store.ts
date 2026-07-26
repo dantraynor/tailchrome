@@ -1,4 +1,5 @@
 import type { TailscaleState, StatusUpdate, PeerInfo } from "../types";
+import { sanitizeDiagnosticMessage } from "../helper-diagnostics";
 
 export type StateListener = (state: TailscaleState) => void;
 
@@ -23,9 +24,11 @@ const DEFAULT_STATE: TailscaleState = {
   exitNodeSuggestion: null,
   domainSplit: { mode: "bypass", domains: [] },
   error: null,
-  installError: false,
   hostVersion: null,
-  hostVersionMismatch: false,
+  helperFailure: null,
+  helperDiagnostic: null,
+  helperVersionNotice: null,
+  repairRegistrationAvailable: false,
   supportsNetcheck: false,
   supportsPingPeer: false,
   supportsLogin: false,
@@ -95,7 +98,15 @@ export class StateStore {
       browseToURL: status.browseToURL || status.authURL || null,
       prefs: status.prefs,
       health,
-      error: status.error,
+      error: status.error ? "Tailscale reported a problem." : null,
+      ...(status.error
+        ? {
+            helperDiagnostic: {
+              diagnosticCode: "helper-status-error",
+              diagnosticMessage: sanitizeDiagnosticMessage(status.error),
+            },
+          }
+        : {}),
       pendingExitNodeID,
     });
   }

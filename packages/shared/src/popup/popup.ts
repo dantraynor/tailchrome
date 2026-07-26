@@ -3,11 +3,11 @@ import { renderConnected, updateConnected } from "./views/connected";
 import { renderDisconnected, updateDisconnected } from "./views/disconnected";
 import { renderNeedsLogin, updateNeedsLogin } from "./views/needs-login";
 import { renderNeedsInstall } from "./views/needs-install";
-import { renderNeedsUpdate } from "./views/needs-update";
 import { showToast } from "./utils";
 import { loadCustomUrls } from "./custom-urls";
 
 let port: chrome.runtime.Port | null = null;
+let helperVersionNoticeDismissed = false;
 
 /**
  * Call when entering a sub-view (exit nodes, profiles) to prevent
@@ -72,8 +72,13 @@ export function getLatestState(): TailscaleState | null {
  * Determines the view name for a given state.
  */
 export function viewForState(state: TailscaleState): string {
-  if (state.installError) return "needs-install";
-  if (state.hostVersionMismatch) return "needs-update";
+  if (
+    state.helperFailure?.kind === "helper-unavailable" ||
+    state.helperFailure?.kind === "helper-not-allowed" ||
+    state.helperFailure?.kind === "helper-incompatible"
+  ) {
+    return "needs-install";
+  }
   if (state.backendState === "NeedsLogin") return "needs-login";
   if (state.backendState === "Running") return "connected";
   return "disconnected";
@@ -114,28 +119,32 @@ export function render(state: TailscaleState): void {
   // status-update re-render.
   if (view === "connected" && isSameView) {
     updateConnected(root, state);
+    syncHelperVersionNotice(root, state);
     return;
   }
   if (view === "needs-login" && isSameView) {
     updateNeedsLogin(root, state);
+    syncHelperVersionNotice(root, state);
     return;
   }
   if (view === "disconnected" && isSameView) {
     updateDisconnected(root, state);
-    return;
-  }
-  if ((view === "needs-install" || view === "needs-update") && isSameView) {
+    syncHelperVersionNotice(root, state);
     return;
   }
 
   // Full render for view transitions or simple views
   switch (view) {
     case "needs-install":
-      renderNeedsInstall(root);
-      break;
-    case "needs-update":
-      renderNeedsUpdate(root, state.hostVersion);
-      break;
+      void renderNeedsInstall(root, state).then(() => {
+        if (
+          currentView === "needs-install" &&
+          lastKnownState?.stateVersion === state.stateVersion
+        ) {
+          syncHelperVersionNotice(root, state);
+        }
+      });
+      return;
     case "needs-login":
       renderNeedsLogin(root, state);
       break;
@@ -146,6 +155,64 @@ export function render(state: TailscaleState): void {
     default:
       renderDisconnected(root, state);
       break;
+  }
+  syncHelperVersionNotice(root, state);
+}
+
+function syncHelperVersionNotice(
+  root: HTMLElement,
+  state: TailscaleState,
+): void {
+  root.querySelector(".helper-version-notice")?.remove();
+  const notice = state.helperVersionNotice;
+  if (!notice || helperVersionNoticeDismissed) return;
+
+  const view = root.querySelector<HTMLElement>(".view");
+  if (!view) return;
+  const container = document.createElement("section");
+  container.className = "helper-version-notice";
+  container.setAttribute("role", "status");
+
+  const copy = document.createElement("p");
+  copy.className = "helper-version-copy";
+  copy.textContent =
+    `Helper ${notice.installedVersion} is ${notice.relation} than companion release ${notice.releaseVersion}. ` +
+    "Available features remain usable.";
+  if (notice.relation === "different") {
+    copy.textContent =
+      `Helper ${notice.installedVersion} differs from companion release ${notice.releaseVersion}. ` +
+      "Available features remain usable.";
+  }
+
+  const releaseLink = document.createElement("a");
+  releaseLink.href = "#";
+  releaseLink.textContent =
+    notice.relation === "older"
+      ? "View release installer"
+      : "View release information";
+  releaseLink.addEventListener("click", (event) => {
+    event.preventDefault();
+    void chrome.tabs.create({
+      url: `https://github.com/dantraynor/tailchrome/releases/tag/v${notice.releaseVersion}`,
+    });
+  });
+
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.className = "helper-version-dismiss";
+  dismiss.setAttribute("aria-label", "Dismiss helper version notice");
+  dismiss.textContent = "\u00d7";
+  dismiss.addEventListener("click", () => {
+    helperVersionNoticeDismissed = true;
+    container.remove();
+  });
+
+  container.append(copy, releaseLink, dismiss);
+  const header = view.querySelector<HTMLElement>(":scope > .header");
+  if (header) {
+    header.insertAdjacentElement("afterend", container);
+  } else {
+    view.prepend(container);
   }
 }
 

@@ -13,6 +13,9 @@ describe("StateStore", () => {
       expect(state.proxyPort).toBeNull();
       expect(state.peers).toEqual([]);
       expect(state.health).toEqual([]);
+      expect(state.helperFailure).toBeNull();
+      expect(state.helperVersionNotice).toBeNull();
+      expect(state.repairRegistrationAvailable).toBe(false);
     });
   });
 
@@ -149,6 +152,32 @@ describe("StateStore", () => {
       expect(state.tailnet).toBe("my-tailnet");
       expect(state.magicDNSSuffix).toBe("my-tailnet.ts.net");
       expect(state.selfNode?.hostname).toBe("my-machine");
+    });
+
+    it("keeps raw status errors out of normal state copy", () => {
+      const store = new StateStore();
+      store.applyStatusUpdate({
+        backendState: "Stopped",
+        running: false,
+        tailnet: null,
+        magicDNSSuffix: "",
+        selfNode: null,
+        needsLogin: false,
+        browseToURL: "",
+        exitNode: null,
+        peers: [],
+        prefs: null,
+        health: [],
+        error:
+          "failed at /Users/alice/private https://control.example.test token=secret",
+      });
+
+      expect(store.getState().error).toBe("Tailscale reported a problem.");
+      expect(store.getState().helperDiagnostic).toEqual({
+        diagnosticCode: "helper-status-error",
+        diagnosticMessage:
+          "failed at [redacted-home]/private [redacted-url] token=[redacted-credential]",
+      });
     });
 
     it("defaults missing arrays on selfNode", () => {

@@ -33,10 +33,6 @@ SHARED_PKG="$ROOT/packages/shared/package.json"
 replace_in_file "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$SHARED_PKG"
 echo "Updated $SHARED_PKG"
 
-CONSTANTS="$ROOT/packages/shared/src/constants.ts"
-replace_in_file "s/EXPECTED_HOST_VERSION = \"[^\"]*\"/EXPECTED_HOST_VERSION = \"$VERSION\"/" "$CONSTANTS"
-echo "Updated $CONSTANTS"
-
 echo ""
 echo "Version bumped to $VERSION."
 echo "Don't forget to commit and tag: git tag v$VERSION"

@@ -65,16 +65,42 @@ describe("BadgeManager", () => {
     });
   });
 
-  describe("Install error state", () => {
-    it("shows warning icon with ! badge on install error", () => {
+  describe("Helper failure state", () => {
+    it("shows warning icon with ! badge on an actionable helper failure", () => {
       const mgr = new BadgeManager();
-      mgr.update(baseState({ installError: true }));
+      mgr.update(
+        baseState({
+          helperFailure: {
+            kind: "helper-not-allowed",
+            diagnosticCode: "native-host-not-allowed",
+            diagnosticMessage: null,
+          },
+        }),
+      );
 
       expect(setIconSpy).toHaveBeenCalledWith({
         path: expect.objectContaining({ 16: "icons/icon-16-warning.png" }),
       });
       expect(setBadgeTextSpy).toHaveBeenCalledWith({ text: "!" });
       expect(setBadgeColorSpy).toHaveBeenCalledWith({ color: "#E5832A" });
+    });
+
+    it("does not warn for a non-blocking helper version notice", () => {
+      const mgr = new BadgeManager();
+      mgr.update(
+        baseState({
+          helperVersionNotice: {
+            installedVersion: "0.1.11",
+            releaseVersion: "0.1.12",
+            relation: "older",
+          },
+        }),
+      );
+
+      expect(setIconSpy).toHaveBeenCalledWith({
+        path: expect.objectContaining({ 16: "icons/icon-16.png" }),
+      });
+      expect(setBadgeTextSpy).toHaveBeenCalledWith({ text: "" });
     });
   });
 
@@ -160,7 +186,15 @@ describe("BadgeManager", () => {
       const mgr = new BadgeManager();
       setIconSpy.mockRejectedValueOnce(new Error("icon not found"));
 
-      mgr.update(baseState({ installError: true }));
+      mgr.update(
+        baseState({
+          helperFailure: {
+            kind: "helper-unavailable",
+            diagnosticCode: "native-host-unavailable",
+            diagnosticMessage: null,
+          },
+        }),
+      );
 
       // Let the rejection handler run
       await vi.waitFor(() => {

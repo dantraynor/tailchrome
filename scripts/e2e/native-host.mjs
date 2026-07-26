@@ -12,13 +12,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expectedHostVersion } from "./fixtures.mjs";
 
-export function createNativeHost(_browserName, control, { enabled = true } = {}) {
+export function createNativeHost(browserName, control, { enabled = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), "tailchrome-e2e-"));
   const requests = [];
   let server;
   let baseUrl = "";
   if (!enabled) {
-    control = { ...(control ?? {}), connectError: "install_error" };
+    control = {
+      ...(control ?? {}),
+      nativeFailure: "unavailable",
+      nativeFailureMessage:
+        browserName === "firefox"
+          ? "No such native application tailscale.browser.ext"
+          : "Specified native messaging host not found.",
+    };
   }
 
   return {
@@ -131,6 +138,40 @@ function mockSource(baseUrl, initialControl) {
   }
 
   const commandReplyIndexes = Object.create(null);
+  let connectionAttempt = 0;
+  let manualRecoveryRequested = false;
+
+  if (control.recoverOnManualRetry) {
+    chrome.runtime.onConnect.addListener((port) => {
+      if (port.name !== "popup") return;
+      port.onMessage.addListener((message) => {
+        if (
+          message?.type === "retry-native-host" &&
+          message.source === "manual"
+        ) {
+          manualRecoveryRequested = true;
+        }
+      });
+    });
+  }
+
+  function failureMessage(kind) {
+    if (control.nativeFailureMessage) return control.nativeFailureMessage;
+    switch (kind) {
+      case "unavailable":
+        return "Specified native messaging host not found.";
+      case "not-allowed":
+        return "Access to the specified native messaging host is forbidden.";
+      case "start-failed":
+      case "connect-throw":
+      case "init-throw":
+        return "The native helper could not start.";
+      case "stopped":
+        return "The native helper stopped unexpectedly.";
+      default:
+        return "";
+    }
+  }
 
   function replyForRequest(request, c) {
     const scripted = c.commandReplies?.[request.cmd];
@@ -201,13 +242,33 @@ function mockSource(baseUrl, initialControl) {
   }
 
   chrome.runtime.connectNative = function connectNative() {
+    connectionAttempt += 1;
+    const failureAttempts = Number.isInteger(control.failureAttempts)
+      ? control.failureAttempts
+      : Number.MAX_SAFE_INTEGER;
+    const failureActive =
+      Boolean(control.nativeFailure) &&
+      connectionAttempt <= failureAttempts &&
+      (!control.recoverOnManualRetry || !manualRecoveryRequested);
+    if (failureActive && control.nativeFailure === "connect-throw") {
+      throw new Error(failureMessage(control.nativeFailure));
+    }
+
     const onMessage = makeEvent();
     const onDisconnect = makeEvent();
     const port = {
       name: "tailchrome-e2e-native-host",
       onMessage,
       onDisconnect,
+      error: undefined,
       postMessage(msg) {
+        if (
+          failureActive &&
+          control.nativeFailure === "init-throw" &&
+          msg.cmd === "init"
+        ) {
+          throw new Error(failureMessage(control.nativeFailure));
+        }
         void logRequest(msg);
         queueMicrotask(() => {
           const reply = replyForRequest(msg, control);
@@ -224,10 +285,14 @@ function mockSource(baseUrl, initialControl) {
     // round-trip used previously raced with openPopup and left the popup
     // stuck on the skeleton view.
     queueMicrotask(() => {
-      if (control.connectError) {
-        onMessage.dispatch({
-          error: { cmd: "connect", message: control.connectError },
-        });
+      if (
+        failureActive &&
+        (control.nativeFailure === "unavailable" ||
+          control.nativeFailure === "not-allowed" ||
+          control.nativeFailure === "start-failed")
+      ) {
+        port.error = { message: failureMessage(control.nativeFailure) };
+        onDisconnect.dispatch(port);
         return;
       }
       onMessage.dispatch({
@@ -235,13 +300,21 @@ function mockSource(baseUrl, initialControl) {
           port: control.proxyPort ?? 1055,
           pid: 1,
           version: control.hostVersion ?? ${JSON.stringify(expectedHostVersion)},
-          error: control.startupError,
+          ...(typeof control.startupError === "string"
+            ? { error: control.startupError }
+            : {}),
           supportsNetcheck: control.supportsNetcheck === true,
           supportsPingPeer: control.supportsPingPeer !== false,
           supportsLogin: control.supportsLogin !== false,
           supportsCustomControlURL: control.supportsCustomControlURL !== false,
         },
       });
+      if (failureActive && control.nativeFailure === "stopped") {
+        queueMicrotask(() => {
+          port.error = { message: failureMessage(control.nativeFailure) };
+          onDisconnect.dispatch(port);
+        });
+      }
     });
 
     return port;

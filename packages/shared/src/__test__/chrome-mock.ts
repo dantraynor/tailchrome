@@ -26,6 +26,13 @@ const chromeMock = {
   },
   runtime: {
     lastError: null as chrome.runtime.LastError | null,
+    getManifest: () => ({ version: "0.1.12" }),
+    getPlatformInfo: () =>
+      Promise.resolve({
+        os: "mac",
+        arch: "arm64",
+        nacl_arch: "arm",
+      } as chrome.runtime.PlatformInfo),
     connectNative: (_id: string) => {
       const messageListeners: Array<(msg: unknown) => void> = [];
       const disconnectListeners: Array<(port: unknown) => void> = [];

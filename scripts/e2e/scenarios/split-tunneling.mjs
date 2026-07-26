@@ -16,6 +16,7 @@ export const control = () =>
       exitNode: {
         id: "peer-exit",
         hostname: "exitbox",
+        dnsName: "exitbox.example.ts.net.",
         location: {
           city: "New York",
           cityCode: "nyc",

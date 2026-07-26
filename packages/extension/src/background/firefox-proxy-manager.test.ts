@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { baseState, makePeer } from "@tailchrome/shared/__test__/fixtures";
+import type { HelperFailureKind } from "@tailchrome/shared/types";
 import { resetSessionStorage } from "../__test__/browser-mock";
 import {
   FirefoxProxyManager,
@@ -33,6 +34,22 @@ describe("FirefoxProxyManager", () => {
         }
       ).browser.proxy.onRequest;
       expect(browserProxy.hasListener(pm.listener)).toBe(true);
+    });
+
+    it("keeps proxy recovery enabled when only the helper version differs", () => {
+      pm.apply(
+        baseState({
+          helperVersionNotice: {
+            installedVersion: "0.1.11",
+            releaseVersion: "0.1.12",
+            relation: "older",
+          },
+        }),
+      );
+
+      expect(pm.listener({ url: "http://100.64.0.5" })).toMatchObject({
+        type: "socks",
+      });
     });
 
     it("clear() resets routing state so everything routes direct", () => {
@@ -367,18 +384,62 @@ describe("FirefoxProxyManager", () => {
       expect(await restored.restoreFromStorage()).toBe(true);
     });
 
-    it("releases held requests when the helper reports an install error", async () => {
+    it.each([
+      "helper-unavailable",
+      "helper-not-allowed",
+      "helper-reported-error",
+      "helper-incompatible",
+    ] satisfies HelperFailureKind[])(
+      "releases held requests for authoritative %s failures",
+      async (kind) => {
       pm.apply(baseState({ proxyPort: 3333 }));
 
       const woken = new FirefoxProxyManager();
       await woken.restoreFromStorage();
       const result = woken.listener({ url: "http://100.64.0.5" });
 
-      woken.apply({ ...transientDisconnect(), installError: true });
+        woken.apply({
+          ...transientDisconnect(),
+          helperFailure: {
+            kind,
+            diagnosticCode: "fixture-authoritative-failure",
+            diagnosticMessage: null,
+          },
+        });
 
       await expect(result).resolves.toMatchObject({ type: "direct" });
       const restored = new FirefoxProxyManager();
       expect(await restored.restoreFromStorage()).toBe(false);
-    });
+      },
+    );
+
+    it.each([
+      "helper-start-failed",
+      "helper-stopped",
+    ] satisfies HelperFailureKind[])(
+      "keeps held requests behind the reconnect deadline for transient %s",
+      async (kind) => {
+        pm.apply(baseState({ proxyPort: 3333 }));
+
+        const woken = new FirefoxProxyManager();
+        await woken.restoreFromStorage();
+        const result = woken.listener({ url: "http://100.64.0.5" });
+        woken.apply({
+          ...transientDisconnect(),
+          reconnecting: true,
+          helperFailure: {
+            kind,
+            diagnosticCode: "fixture-transient-failure",
+            diagnosticMessage: null,
+          },
+        });
+
+        woken.apply(baseState({ proxyPort: 4444 }));
+        await expect(result).resolves.toMatchObject({
+          type: "socks",
+          port: 4444,
+        });
+      },
+    );
   });
 });

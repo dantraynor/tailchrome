@@ -9,6 +9,12 @@ export interface TimerService {
   setInterval(name: string, callback: () => void, intervalMs: number): void;
   /** Create a one-shot timer identified by name. */
   setTimeout(name: string, callback: () => void, delayMs: number): void;
+  /** Rebind a one-shot timer to an absolute persisted deadline when supported. */
+  setTimeoutAt?(
+    name: string,
+    callback: () => void,
+    deadlineMs: number,
+  ): void;
   /** Cancel a timer by name. */
   clear(name: string): void;
 }

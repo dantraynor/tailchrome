@@ -105,9 +105,9 @@ a:hover {
   border-radius: var(--radius-sm);
 }
 
-/* Surface toggle footer for the disconnected / needs-login / needs-install /
-   needs-update views. The connected view shows the toggle inside its quick-
-   settings block, but those views never reach quick-settings, so the toggle
+/* Surface toggle footer for the disconnected / needs-login / needs-install
+   views. The connected view shows the toggle inside its quick-settings block,
+   but those views never reach quick-settings, so the toggle
    needs an always-on home that lets users switch back from side-panel mode.
    The footer trails the view's content rather than sticking to the bottom —
    .view isn't a flex container, so flex-based bottom alignment would be a

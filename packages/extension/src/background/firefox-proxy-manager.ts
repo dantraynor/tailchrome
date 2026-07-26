@@ -106,10 +106,14 @@ export class FirefoxProxyManager {
 
   apply(state: TailscaleState): void {
     if (!shouldProxyState(state)) {
-      // An install error means the helper cannot come back without user
-      // action, so it is authoritative even though the host is disconnected.
+      const failureKind = state.helperFailure?.kind;
+      const authoritativeFailure =
+        failureKind === "helper-unavailable" ||
+        failureKind === "helper-not-allowed" ||
+        failureKind === "helper-reported-error" ||
+        failureKind === "helper-incompatible";
       const transient =
-        !state.installError &&
+        !authoritativeFailure &&
         (!state.hostConnected ||
           state.backendState === "NoState" ||
           state.backendState === "Starting");

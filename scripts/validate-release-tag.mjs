@@ -21,19 +21,11 @@ const extensionPackage = JSON.parse(
 const sharedPackage = JSON.parse(
   await readFile(resolve(root, "packages/shared/package.json"), "utf8"),
 );
-const sharedConstants = await readFile(
-  resolve(root, "packages/shared/src/constants.ts"),
-  "utf8",
-);
 const expectedVersion = releaseTag.slice(1);
-const hostVersion = sharedConstants.match(
-  /EXPECTED_HOST_VERSION\s*=\s*"([^"]+)"/,
-)?.[1];
 
 const mismatches = [
   ["packages/extension/package.json", extensionPackage.version],
   ["packages/shared/package.json", sharedPackage.version],
-  ["packages/shared/src/constants.ts EXPECTED_HOST_VERSION", hostVersion],
 ].flatMap(([source, actual]) =>
   actual === expectedVersion
     ? []

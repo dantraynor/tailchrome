@@ -7,6 +7,7 @@ import { renderHeader } from "../components/header";
 import { renderUiSurfaceFooter } from "../components/ui-surface-row";
 import { iconPlug, iconWarning } from "../icons";
 import { sendMessage } from "../popup";
+import { appendHelperDiagnosticActions } from "../helper-diagnostics";
 
 /**
  * Renders the disconnected view.
@@ -25,9 +26,52 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
   let subtitleText = "Toggle the switch to connect to your tailnet.";
   let showSpinner = false;
   let showError = false;
+  let recoveryHints = [
+    "Retry the helper connection",
+    "Reinstall or repair the verified release package",
+    "Restart the browser after repairing registration",
+  ];
 
   if (state) {
-    if (state.reconnecting) {
+    if (state.helperFailure) {
+      showError = true;
+      disabled = true;
+      showSpinner = state.reconnecting;
+      switch (state.helperFailure.kind) {
+        case "helper-start-failed":
+          subtitleText =
+            "The browser found the helper, but it stopped before setup completed.";
+          break;
+        case "helper-stopped":
+          subtitleText =
+            "The helper stopped after connecting. Tailchrome is retrying.";
+          recoveryHints = [
+            "Tailchrome will retry automatically",
+            "Use Retry Connection to try again now",
+          ];
+          break;
+        case "helper-reported-error":
+          subtitleText =
+            "The helper started but reported a startup error.";
+          recoveryHints = [
+            "Retry after reviewing the setup guidance",
+            "Reinstall or repair the verified release package",
+          ];
+          break;
+        case "helper-incompatible":
+          subtitleText =
+            "The helper and extension reported an incompatible protocol.";
+          break;
+        case "helper-unavailable":
+          subtitleText =
+            "Tailchrome could not find a registered helper for this browser.";
+          break;
+        case "helper-not-allowed":
+          subtitleText =
+            "This browser refused access to the registered helper.";
+          break;
+      }
+    } else if (state.reconnecting) {
       disabled = true;
       subtitleText = "Reconnecting to Tailscale\u2026";
       showSpinner = true;
@@ -49,10 +93,11 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
       }
     }
 
-    if (state.error) {
+    if (!state.helperFailure && state.error) {
       showError = true;
-      subtitleText = state.error;
+      subtitleText = "Tailscale reported a problem.";
     } else if (
+      !state.helperFailure &&
       !state.reconnecting &&
       !state.hostConnected &&
       state.backendState !== "Starting"
@@ -87,7 +132,9 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
   const title = document.createElement("h2");
   title.className = "centered-view-title";
   title.textContent = showError
-    ? "Connection Issue"
+    ? state?.helperFailure
+      ? "Helper Connection Issue"
+      : "Connection Issue"
     : state?.reconnecting
       ? "Reconnecting\u2026"
       : "Tailscale is not connected";
@@ -104,13 +151,7 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
     const details = document.createElement("div");
     details.className = "error-details";
 
-    const hints = [
-      "Close and reopen this popup to retry",
-      "Check that the helper app is installed",
-      "Try restarting your browser",
-    ];
-
-    for (const hint of hints) {
+    for (const hint of recoveryHints) {
       const row = document.createElement("div");
       row.className = "error-detail-row";
 
@@ -135,7 +176,7 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
     retryBtn.addEventListener("click", () => {
       retryBtn.disabled = true;
       retryBtn.textContent = "Retrying\u2026";
-      sendMessage({ type: "toggle" });
+      sendMessage({ type: "retry-native-host", source: "manual" });
       // Re-enable after a short delay
       setTimeout(() => {
         retryBtn.disabled = false;
@@ -143,6 +184,27 @@ export function renderDisconnected(root: HTMLElement, state?: TailscaleState): v
       }, 3000);
     });
     content.appendChild(retryBtn);
+
+    if (
+      state?.helperFailure?.kind === "helper-start-failed" ||
+      state?.helperFailure?.kind === "helper-reported-error"
+    ) {
+      const reinstall = document.createElement("button");
+      reinstall.type = "button";
+      reinstall.className = "btn btn-secondary helper-reinstall";
+      reinstall.textContent = "Reinstall or repair helper";
+      reinstall.addEventListener("click", () => {
+        const releaseVersion = chrome.runtime.getManifest().version;
+        void chrome.tabs.create({
+          url: `https://github.com/dantraynor/tailchrome/releases/tag/v${releaseVersion}`,
+        });
+      });
+      content.appendChild(reinstall);
+    }
+
+    if (state) {
+      appendHelperDiagnosticActions(content, state);
+    }
   }
 
   view.appendChild(content);

@@ -41,4 +41,21 @@ describe("ChromeAlarmTimerService", () => {
     vi.advanceTimersByTime(30_000);
     expect(callback).toHaveBeenCalledTimes(1);
   });
+
+  it("rebinds a persisted absolute retry deadline after a worker wake", () => {
+    const callback = vi.fn();
+    const service = new ChromeAlarmTimerService();
+    const deadline = Date.now() + 12_000;
+
+    service.setTimeoutAt("helper-activation-retry", callback, deadline);
+
+    expect(createAlarm).toHaveBeenCalledWith(
+      "tailchrome-timer:helper-activation-retry",
+      { when: deadline },
+    );
+    alarmListeners[0]!({
+      name: "tailchrome-timer:helper-activation-retry",
+    } as chrome.alarms.Alarm);
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
 });

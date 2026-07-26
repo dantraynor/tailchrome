@@ -1,4 +1,9 @@
-import { expectText, waitForPopup } from "../assertions.mjs";
+import {
+  clickText,
+  expectNoText,
+  expectText,
+  waitForPopup,
+} from "../assertions.mjs";
 import {
   makeControl,
   makeNeedsLoginState,
@@ -9,6 +14,27 @@ import {
 export const suite = "full";
 export const browsers = ["chrome", "firefox"];
 
+async function captureDiagnosticReport(page) {
+  await page.evaluate(() => {
+    globalThis.__tailchromeDiagnosticReport = null;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText(text) {
+          globalThis.__tailchromeDiagnosticReport = text;
+          return Promise.resolve();
+        },
+      },
+    });
+  });
+  await clickText(page, "Copy diagnostic report");
+  await page.waitForFunction(
+    () => typeof globalThis.__tailchromeDiagnosticReport === "string",
+    { timeout: 5_000 },
+  );
+  return page.evaluate(() => globalThis.__tailchromeDiagnosticReport);
+}
+
 export const cases = [
   {
     name: "needs install when native host is absent",
@@ -18,19 +44,133 @@ export const cases = [
       try {
         await waitForPopup(page);
         await expectText(page, "Quick Setup");
+        await expectText(
+          page,
+          "Tailchrome could not find a registered helper for this browser.",
+        );
       } finally {
         await page.close();
       }
     },
   },
   {
-    name: "needs update on host version mismatch",
+    name: "version difference preserves the normal running view",
     control: () => makeControl({ hostVersion: "0.0.11" }),
     run: async ({ openPopup }) => {
       const page = await openPopup();
       try {
         await waitForPopup(page);
-        await expectText(page, "Update");
+        await expectText(
+          page,
+          "Helper 0.0.11 is older than companion release",
+        );
+        await expectText(page, "example.ts.net");
+        await expectNoText(page, "Update Available");
+      } finally {
+        await page.close();
+      }
+    },
+  },
+  {
+    name: "browser refusal renders registration repair copy",
+    control: () =>
+      makeControl({
+        nativeFailure: "not-allowed",
+        nativeFailureMessage:
+          "Access to the specified native messaging host is forbidden.",
+      }),
+    run: async ({ openPopup }) => {
+      const page = await openPopup();
+      try {
+        await waitForPopup(page);
+        await expectText(
+          page,
+          "This browser refused access to the registered helper.",
+        );
+        await expectText(page, "Copy diagnostic report");
+      } finally {
+        await page.close();
+      }
+    },
+  },
+  {
+    name: "early helper failure keeps raw detail in local diagnostics",
+    control: () =>
+      makeControl({
+        nativeFailure: "connect-throw",
+        nativeFailureMessage:
+          "fixture-activation-marker /Users/alice/Library/Tailchrome https://private.example/path token=fixture-secret",
+      }),
+    run: async ({ openPopup }) => {
+      const page = await openPopup();
+      try {
+        await expectText(
+          page,
+          "The browser found the helper, but it stopped before setup completed.",
+        );
+        await expectNoText(page, "fixture-activation-marker");
+
+        const report = await captureDiagnosticReport(page);
+        if (!report.includes("fixture-activation-marker")) {
+          throw new Error("Diagnostic report omitted sanitized fixture detail.");
+        }
+        for (const excluded of [
+          "/Users/alice",
+          "https://private.example/path",
+          "fixture-secret",
+        ]) {
+          if (report.includes(excluded)) {
+            throw new Error(
+              `Diagnostic report contained unredacted fixture data: ${excluded}`,
+            );
+          }
+        }
+      } finally {
+        await page.close();
+      }
+    },
+  },
+  {
+    name: "late helper stop renders reconnect recovery",
+    control: () =>
+      makeControl({
+        nativeFailure: "stopped",
+        nativeFailureMessage:
+          "fixture-late-stop /home/alice/.config/tailchrome",
+      }),
+    run: async ({ openPopup }) => {
+      const page = await openPopup();
+      try {
+        await expectText(
+          page,
+          "The helper stopped after connecting. Tailchrome is retrying.",
+        );
+        await expectNoText(page, "fixture-late-stop");
+        await expectText(page, "Retry Connection");
+      } finally {
+        await page.close();
+      }
+    },
+  },
+  {
+    name: "manual discovery retry recovers unavailable helper",
+    control: () =>
+      makeControl({
+        nativeFailure: "unavailable",
+        nativeFailureMessage: "Specified native messaging host not found.",
+        recoverOnManualRetry: true,
+      }),
+    run: async ({ openPopup }) => {
+      const page = await openPopup();
+      try {
+        await waitForPopup(page);
+        await expectText(
+          page,
+          "Tailchrome could not find a registered helper for this browser.",
+        );
+        await clickText(page, "Retry discovery");
+        await expectText(page, "example.ts.net");
+        await expectNoText(page, "Quick Setup");
       } finally {
         await page.close();
       }

@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ProxyManager, TailscaleState, NativeReply } from "../types";
-import { initBackground, isValidLoginURL } from "./background";
+import {
+  getHelperVersionNotice,
+  initBackground,
+  isValidLoginURL,
+} from "./background";
 
 type MessageListener = (msg: unknown) => void;
 type DisconnectListener = (port: unknown) => void;
@@ -101,6 +105,35 @@ describe("isValidLoginURL", () => {
         "https://headscale.example.com",
       ),
     ).toBe(false);
+  });
+});
+
+describe("getHelperVersionNotice", () => {
+  it.each([
+    ["0.1.11", "0.1.12", "older"],
+    ["0.2.0", "0.1.12", "newer"],
+  ] as const)(
+    "returns a non-blocking %s to %s notice",
+    (installedVersion, releaseVersion, relation) => {
+      expect(
+        getHelperVersionNotice(installedVersion, releaseVersion),
+      ).toEqual({
+        installedVersion,
+        releaseVersion,
+        relation,
+      });
+    },
+  );
+
+  it.each([null, "", "dev", "0.1"])(
+    "does not create compatibility failure or notice for %j",
+    (installedVersion) => {
+      expect(getHelperVersionNotice(installedVersion, "0.1.12")).toBeNull();
+    },
+  );
+
+  it("clears the notice for the companion version", () => {
+    expect(getHelperVersionNotice("v0.1.12", "0.1.12")).toBeNull();
   });
 });
 
@@ -286,6 +319,71 @@ describe("initBackground", () => {
       );
     });
 
+    it("keeps a differing helper version connected with a non-blocking notice", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: {
+          port: 1055,
+          pid: 1234,
+          version: "0.1.11",
+          supportsNetcheck: true,
+        },
+      });
+
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          hostConnected: true,
+          helperFailure: null,
+          helperVersionNotice: {
+            installedVersion: "0.1.11",
+            releaseVersion: "0.1.12",
+            relation: "older",
+          },
+          supportsNetcheck: true,
+        }),
+      );
+    });
+
+    it("clears the version notice when the companion helper connects", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, version: "0.1.11" },
+      });
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, version: "0.1.12" },
+      });
+
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          hostVersion: "0.1.12",
+          helperVersionNotice: null,
+          helperFailure: null,
+        }),
+      );
+    });
+
+    it.each([undefined, "dev-build"])(
+      "keeps a helper with version %j connected and compatible",
+      async (version) => {
+        await setupBackground();
+        sendNativeMessage({
+          procRunning: {
+            port: 1055,
+            pid: 1234,
+            ...(version === undefined ? {} : { version }),
+          },
+        });
+
+        expect(proxyManager.apply).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            proxyEnabled: true,
+            helperFailure: null,
+            helperVersionNotice: null,
+          }),
+        );
+      },
+    );
+
     it("requests status on successful init", async () => {
       await setupBackground();
       sendNativeMessage({ init: {} });
@@ -295,13 +393,92 @@ describe("initBackground", () => {
 
     it("handles init error", async () => {
       await setupBackground();
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       sendNativeMessage({ init: { error: "bad init" } });
 
       expect(proxyManager.apply).toHaveBeenCalledWith(
-        expect.objectContaining({ error: "bad init" })
+        expect.objectContaining({
+          error: null,
+          helperFailure: {
+            kind: "helper-reported-error",
+            diagnosticCode: "helper-init-error",
+            diagnosticMessage: "bad init",
+          },
+          reconnecting: false,
+        }),
       );
-      errorSpy.mockRestore();
+    });
+
+    it("clears a reported startup failure only after procRunning and init recover", async () => {
+      await setupBackground();
+      sendNativeMessage({ init: { error: "failed at /Users/alice/private" } });
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, version: "0.1.12" },
+      });
+
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          helperFailure: expect.objectContaining({
+            kind: "helper-reported-error",
+            diagnosticMessage: "failed at [redacted-home]/private",
+          }),
+        }),
+      );
+
+      sendNativeMessage({ init: {} });
+
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          initialized: true,
+          helperFailure: null,
+          repairRegistrationAvailable: false,
+        }),
+      );
+      expect(chrome.storage.session.remove).toHaveBeenCalledWith(
+        "helperActivationRetry",
+      );
+      expect(chrome.storage.session.remove).toHaveBeenCalledWith(
+        "helperRegistrationRepairAvailable",
+      );
+    });
+
+    it("requires procRunning and init recovery from the same connection attempt", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: { port: 1055, pid: 1234, version: "0.1.12" },
+      });
+      sendNativeMessage({ init: { error: "first attempt failed" } });
+
+      const secondPort = createNativeMockPort();
+      (
+        chrome.runtime.connectNative as unknown as ReturnType<typeof vi.fn>
+      ).mockReturnValue(secondPort);
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({
+        type: "retry-native-host",
+        source: "manual",
+      });
+      await vi.advanceTimersByTimeAsync(0);
+
+      secondPort.onMessage._listeners[0]!({ init: {} });
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          helperFailure: expect.objectContaining({
+            kind: "helper-reported-error",
+          }),
+        }),
+      );
+
+      secondPort.onMessage._listeners[0]!({
+        procRunning: { port: 1055, pid: 4321, version: "0.1.12" },
+      });
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          helperFailure: null,
+          initialized: true,
+          proxyEnabled: true,
+        }),
+      );
     });
 
     it("applies status update from native host", async () => {
@@ -327,19 +504,6 @@ describe("initBackground", () => {
         expect.objectContaining({
           backendState: "Running",
           tailnet: "my-tailnet",
-        })
-      );
-    });
-
-    it("handles install error from native host", async () => {
-      await setupBackground();
-      sendNativeMessage({ error: { cmd: "connect", message: "install_error" } });
-
-      expect(proxyManager.apply).toHaveBeenCalledWith(
-        expect.objectContaining({
-          installError: true,
-          hostConnected: false,
-          reconnecting: false,
         })
       );
     });
@@ -447,23 +611,119 @@ describe("initBackground", () => {
 
     it("polls the native host after the popup requests install retries", async () => {
       await setupBackground();
+      setChromeLastError({
+        message: "Specified native messaging host not found",
+      });
+      nativePort.onDisconnect._listeners[0]!(nativePort);
+      setChromeLastError(undefined);
 
       const popupPort = createPopupPort();
       connectListeners[0]!(popupPort);
 
-      // Helper is missing: the connect attempt reported an install error.
-      sendNativeMessage({ error: { cmd: "connect", message: "install_error" } });
-
-      popupPort.onMessage._listeners[0]!({ type: "retry-native-host" });
+      popupPort.onMessage._listeners[0]!({
+        type: "retry-native-host",
+        source: "package",
+      });
       expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(1);
 
       await vi.advanceTimersByTimeAsync(2_000);
       expect(nativePort.disconnect).toHaveBeenCalled();
-      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(2);
+      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(3);
 
       // Later retries keep polling while the helper is still missing.
-      await vi.advanceTimersByTimeAsync(28_000);
-      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(6);
+      await vi.advanceTimersByTimeAsync(65_000);
+      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(7);
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({ repairRegistrationAvailable: true }),
+      );
+    });
+
+    it("does not promote registration repair after helper startup fails", async () => {
+      await setupBackground();
+      setChromeLastError({
+        message: "Failed to start native messaging host",
+      });
+      nativePort.onDisconnect._listeners[0]!(nativePort);
+      setChromeLastError(undefined);
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({
+        type: "retry-native-host",
+        source: "package",
+      });
+
+      await vi.advanceTimersByTimeAsync(69_000);
+
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          helperFailure: expect.objectContaining({
+            kind: "helper-start-failed",
+          }),
+          repairRegistrationAvailable: false,
+        }),
+      );
+      expect(chrome.storage.session.set).not.toHaveBeenCalledWith({
+        helperRegistrationRepairAvailable: true,
+      });
+    });
+
+    it("rehydrates the remaining retry deadline in a fresh background lifetime", async () => {
+      const retryAt = Date.now() + 5_000;
+      (
+        chrome.storage.session.get as ReturnType<typeof vi.fn>
+      ).mockResolvedValue({
+        helperActivationRetry: {
+          source: "package",
+          nextRetryIndex: 2,
+          nextRetryAt: retryAt,
+        },
+        helperRegistrationRepairAvailable: true,
+      });
+      const handle = await setupBackground();
+
+      await handle.rehydrateHelperRetries();
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({ repairRegistrationAvailable: true }),
+      );
+      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(2);
+      expect(chrome.storage.session.set).toHaveBeenCalledWith({
+        helperActivationRetry: expect.objectContaining({
+          source: "package",
+          nextRetryIndex: 3,
+        }),
+      });
+    });
+
+    it("executes an already-due persisted retry once on wake", async () => {
+      (
+        chrome.storage.session.get as ReturnType<typeof vi.fn>
+      ).mockResolvedValue({
+        helperActivationRetry: {
+          source: "fallback",
+          nextRetryIndex: 1,
+          nextRetryAt: Date.now() - 1,
+        },
+      });
+      const handle = await setupBackground();
+
+      await handle.rehydrateHelperRetries();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(chrome.runtime.connectNative).toHaveBeenCalledTimes(2);
+      expect(chrome.storage.session.set).toHaveBeenCalledWith({
+        helperActivationRetry: expect.objectContaining({
+          source: "fallback",
+          nextRetryIndex: 2,
+        }),
+      });
     });
 
     it("does not bounce a connected native host on install retry requests", async () => {
@@ -473,7 +733,10 @@ describe("initBackground", () => {
       const popupPort = createPopupPort();
       connectListeners[0]!(popupPort);
 
-      popupPort.onMessage._listeners[0]!({ type: "retry-native-host" });
+      popupPort.onMessage._listeners[0]!({
+        type: "retry-native-host",
+        source: "package",
+      });
       await vi.advanceTimersByTimeAsync(31_000);
 
       expect(nativePort.disconnect).not.toHaveBeenCalled();
@@ -482,14 +745,17 @@ describe("initBackground", () => {
 
     it("does not bounce a connected host that only needs a helper update", async () => {
       await setupBackground();
-      // Helper connects but reports an outdated version: needs-update state.
+      // Helper connects and reports an older version: non-blocking notice state.
       sendNativeMessage({
         procRunning: { port: 1055, pid: 1234, version: "0.0.1", supportsLogin: true },
       });
 
       const popupPort = createPopupPort();
       connectListeners[0]!(popupPort);
-      popupPort.onMessage._listeners[0]!({ type: "retry-native-host" });
+      popupPort.onMessage._listeners[0]!({
+        type: "retry-native-host",
+        source: "package",
+      });
       await vi.advanceTimersByTimeAsync(31_000);
 
       expect(nativePort.disconnect).not.toHaveBeenCalled();
@@ -1320,7 +1586,7 @@ describe("initBackground", () => {
 
       expect(popupPort.postMessage).toHaveBeenCalledWith({
         type: "toast",
-        message: "failed to start login: no control connection",
+        message: "The helper could not start login. Please try again.",
         level: "error",
         persistent: false,
       });
@@ -1999,9 +2265,8 @@ describe("initBackground", () => {
   });
 
   describe("native host state change", () => {
-    it("settles on install error rather than contradictory reconnecting state", async () => {
+    it("settles on unavailable rather than a contradictory reconnecting state", async () => {
       await setupBackground();
-      sendNativeMessage({ pong: {} });
       setChromeLastError({
         message: "Specified native messaging host not found",
       });
@@ -2011,7 +2276,36 @@ describe("initBackground", () => {
       expect(proxyManager.apply).toHaveBeenLastCalledWith(
         expect.objectContaining({
           hostConnected: false,
-          installError: true,
+          helperFailure: expect.objectContaining({
+            kind: "helper-unavailable",
+          }),
+          reconnecting: false,
+        }),
+      );
+      setChromeLastError(undefined);
+    });
+
+    it("does not overwrite a helper-reported startup error with a later disconnect", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        init: {
+          error:
+            "startup failed at /home/alice/private https://control.example.test",
+        },
+      });
+      setChromeLastError({ message: "port closed" });
+
+      nativePort.onDisconnect._listeners[0]!(nativePort);
+
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          hostConnected: false,
+          helperFailure: {
+            kind: "helper-reported-error",
+            diagnosticCode: "helper-init-error",
+            diagnosticMessage:
+              "startup failed at [redacted-home]/private [redacted-url]",
+          },
           reconnecting: false,
         }),
       );
