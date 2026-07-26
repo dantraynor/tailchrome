@@ -1,4 +1,4 @@
-name: Release
+name: Release Candidate
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Existing tag to release, for example v0.1.5
+        description: Existing tag to build, for example v0.1.5
         required: true
         type: string
 
@@ -20,13 +20,16 @@ permissions:
 #   APPLE_API_KEY_ID             - App Store Connect API key ID
 #   APPLE_API_ISSUER_ID          - App Store Connect API issuer UUID
 #   APPLE_API_KEY_P8             - contents of the AuthKey_*.p8 file
-# Optional repository secrets:
-#   WINDOWS_CODESIGN_P12_BASE64  - base64-encoded Windows code-signing .p12/.pfx
-#   WINDOWS_CODESIGN_PASSWORD    - password for the Windows signing certificate
+#
+# Windows candidate creation remains intentionally blocked until one signing
+# provider and exact WINDOWS_EXPECTED_SIGNER_SUBJECT repository variable are
+# recorded. No unsigned or provider-switching fallback is present.
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
     steps:
@@ -34,6 +37,19 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+      - name: Resolve immutable source
+        id: source
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$GITHUB_REF" != "refs/tags/$RELEASE_TAG" ]]; then
+            echo "Dispatch this workflow from the same tag supplied as release_tag." >&2
+            exit 1
+          fi
+          source_sha="$(git rev-parse HEAD)"
+          tag_sha="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          test "$source_sha" = "$tag_sha"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -50,6 +66,7 @@ jobs:
       - run: pnpm validate:release-tag "$RELEASE_TAG"
       - run: pnpm typecheck
       - run: pnpm test
+      - run: pnpm test:installer
       - run: go test -race ./...
         working-directory: host
       - run: go vet ./...
@@ -60,28 +77,28 @@ jobs:
       - name: Verify Firefox source ZIP rebuild
         run: |
           set -euo pipefail
-          ORIGINAL_DIR="$RUNNER_TEMP/firefox-original"
-          SOURCE_DIR="$RUNNER_TEMP/firefox-source"
-          REBUILT_DIR="$RUNNER_TEMP/firefox-rebuilt"
-          rm -rf "$ORIGINAL_DIR" "$SOURCE_DIR" "$REBUILT_DIR"
-          mkdir -p "$ORIGINAL_DIR" "$SOURCE_DIR" "$REBUILT_DIR"
-          unzip -q packages/extension/.output/firefox.zip -d "$ORIGINAL_DIR"
-          unzip -q packages/extension/.output/firefox-sources.zip -d "$SOURCE_DIR"
-          pushd "$SOURCE_DIR" >/dev/null
+          original_dir="$RUNNER_TEMP/firefox-original"
+          source_dir="$RUNNER_TEMP/firefox-source"
+          rebuilt_dir="$RUNNER_TEMP/firefox-rebuilt"
+          mkdir -p "$original_dir" "$source_dir" "$rebuilt_dir"
+          unzip -q packages/extension/.output/firefox.zip -d "$original_dir"
+          unzip -q packages/extension/.output/firefox-sources.zip -d "$source_dir"
+          pushd "$source_dir" >/dev/null
           pnpm install --frozen-lockfile
           pnpm --filter @tailchrome/extension zip:firefox
-          unzip -q packages/extension/.output/firefox.zip -d "$REBUILT_DIR"
-          diff -qr "$ORIGINAL_DIR" "$REBUILT_DIR"
+          unzip -q packages/extension/.output/firefox.zip -d "$rebuilt_dir"
+          diff -qr "$original_dir" "$rebuilt_dir"
           popd >/dev/null
-      - name: Upload build artifacts
+      - name: Upload reviewed build outputs
         uses: actions/upload-artifact@v6
         with:
           name: build-output
-          retention-days: 1
+          retention-days: 7
           path: |
             dist/tailscale-browser-ext-darwin-amd64
             dist/tailscale-browser-ext-darwin-arm64
             dist/tailscale-browser-ext-linux-amd64
+            dist/tailscale-browser-ext-linux-arm64
             dist/tailscale-browser-ext-windows-amd64.exe
             packages/extension/.output/chrome.zip
             packages/extension/.output/firefox.zip
@@ -90,86 +107,155 @@ jobs:
   sign-macos:
     needs: build
     runs-on: macos-latest
-    env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
     steps:
-      - name: Download build artifacts
+      - name: Download reviewed build outputs
         uses: actions/download-artifact@v6
         with:
           name: build-output
-
       - name: Import signing certificate
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
           set -euo pipefail
-          CERT_PATH="$RUNNER_TEMP/certificate.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
-          KEYCHAIN_PASSWORD="$(openssl rand -hex 20)"
-          # Avoid echo (trailing newline / echo quirks); strip accidental CR/LF from secret paste
-          CERT_PASS="${APPLE_CERTIFICATE_PASSWORD%$'\r'}"
-          CERT_PASS="${CERT_PASS%$'\n'}"
+          cert_path="$RUNNER_TEMP/certificate.p12"
+          keychain_path="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -hex 20)"
+          cert_pass="${APPLE_CERTIFICATE_PASSWORD%$'\r'}"
+          cert_pass="${cert_pass%$'\n'}"
 
-          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERT_PATH" \
-            -P "$CERT_PASS" \
+          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > "$cert_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$cert_path" \
+            -P "$cert_pass" \
             -A \
             -t cert \
             -f pkcs12 \
-            -k "$KEYCHAIN_PATH"
+            -k "$keychain_path"
           security set-key-partition-list \
             -S apple-tool:,apple: \
-            -k "$KEYCHAIN_PASSWORD" \
-            "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
-
-      - name: Codesign Darwin binaries
+            -k "$keychain_password" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" login.keychain-db
+      - name: Sign Darwin binaries
+        env:
+          MACOS_APPLICATION_IDENTITY: "Developer ID Application: Daniel David Traynor (UL9B796XFN)"
         run: |
           set -euo pipefail
-          IDENTITY="Developer ID Application: Daniel David Traynor (UL9B796XFN)"
           for bin in dist/tailscale-browser-ext-darwin-amd64 dist/tailscale-browser-ext-darwin-arm64; do
             chmod +x "$bin"
-            codesign --force --timestamp --options runtime --sign "$IDENTITY" "$bin"
-            codesign -dvv "$bin"
+            codesign --force --timestamp --options runtime --sign "$MACOS_APPLICATION_IDENTITY" "$bin"
           done
-
-      - name: Notarize Darwin binaries
+      - name: Notarize and verify Darwin binaries
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
           set -euo pipefail
-
-          KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
-          echo "$APPLE_API_KEY_P8" > "$KEY_PATH"
-
+          key_path="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
           for bin in dist/tailscale-browser-ext-darwin-amd64 dist/tailscale-browser-ext-darwin-arm64; do
-            ZIP="${bin}.zip"
-            cd "$(dirname "$bin")"
-            zip "$(basename "$ZIP")" "$(basename "$bin")"
-            cd -
-
-            xcrun notarytool submit "$ZIP" \
-              --key "$KEY_PATH" \
+            ditto -c -k --keepParent "$bin" "${bin}.zip"
+            xcrun notarytool submit "${bin}.zip" \
+              --key "$key_path" \
               --key-id "$APPLE_API_KEY_ID" \
               --issuer "$APPLE_API_ISSUER_ID" \
               --wait
+            codesign --verify --deep --strict --verbose=2 "$bin"
+            spctl --assess --type execute --verbose=2 "$bin"
           done
-
-      - name: Upload signed Darwin binaries
+      - name: Upload final Darwin binaries
         uses: actions/upload-artifact@v6
         with:
           name: signed-darwin
-          retention-days: 1
+          retention-days: 7
           path: |
             dist/tailscale-browser-ext-darwin-amd64
             dist/tailscale-browser-ext-darwin-arm64
+
+  package-macos:
+    needs: build
+    runs-on: macos-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.build.outputs.source_sha }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: host/go.mod
+          cache-dependency-path: host/go.sum
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cert_path="$RUNNER_TEMP/certificate.p12"
+          keychain_path="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password="$(openssl rand -hex 20)"
+          cert_pass="${APPLE_CERTIFICATE_PASSWORD%$'\r'}"
+          cert_pass="${cert_pass%$'\n'}"
+
+          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > "$cert_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$cert_path" \
+            -P "$cert_pass" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -k "$keychain_password" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" login.keychain-db
+      - name: Build signed macOS package
+        env:
+          VERSION: ${{ env.RELEASE_TAG }}
+          MACOS_SIGN_APPLICATION_IDENTITY: "Developer ID Application: Daniel David Traynor (UL9B796XFN)"
+          MACOS_SIGN_INSTALLER_IDENTITY: "Developer ID Installer: Daniel David Traynor (UL9B796XFN)"
+        run: ./packaging/macos/build-pkg.sh
+      - name: Notarize and staple macOS package
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          key_path="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
+          xcrun notarytool submit dist/tailchrome-helper-macos.pkg \
+            --key "$key_path" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait
+          xcrun stapler staple dist/tailchrome-helper-macos.pkg
+      - name: Verify final package and embedded repair app
+        run: |
+          set -euo pipefail
+          pkg="dist/tailchrome-helper-macos.pkg"
+          expanded="$RUNNER_TEMP/tailchrome-pkg"
+          pkgutil --check-signature "$pkg"
+          xcrun stapler validate "$pkg"
+          pkgutil --expand-full "$pkg" "$expanded"
+          app="$expanded/Payload/Applications/Tailchrome Helper.app"
+          test -x "$app/Contents/MacOS/tailchrome-helper"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+      - name: Upload final macOS package
+        uses: actions/upload-artifact@v6
+        with:
+          name: signed-macos-package
+          retention-days: 7
+          path: dist/tailchrome-helper-macos.pkg
 
   package-linux:
     needs: build
@@ -180,275 +266,336 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+          ref: ${{ needs.build.outputs.source_sha }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: host/go.mod
           cache-dependency-path: host/go.sum
-      - name: Download build artifacts
+      - name: Download reviewed build outputs
         uses: actions/download-artifact@v6
         with:
           name: build-output
-      - name: Install nFPM
-        # Pinned: @latest can require a newer Go than the repo toolchain;
-        # GOTOOLCHAIN=auto lets go fetch the toolchain nfpm needs.
+      - name: Install packaging inspection tools
         env:
           GOTOOLCHAIN: auto
-        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
-      - name: Build Linux packages
-        run: VERSION="$RELEASE_TAG" ./packaging/linux/build-packages.sh
-      - name: Upload Linux packages
+        run: |
+          set -euo pipefail
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+          sudo apt-get update
+          sudo apt-get install --yes rpm
+      - name: Build and inspect Linux packages
+        run: |
+          set -euo pipefail
+          file dist/tailscale-browser-ext-linux-amd64 | grep -Eq 'x86-64|x86_64'
+          file dist/tailscale-browser-ext-linux-arm64 | grep -Eq 'ARM aarch64|ARM64'
+          go version -m dist/tailscale-browser-ext-linux-amd64
+          go version -m dist/tailscale-browser-ext-linux-arm64
+          VERSION="$RELEASE_TAG" ./packaging/linux/build-packages.sh
+          dpkg-deb --info dist/tailchrome-helper-linux-amd64.deb
+          deb_control="$RUNNER_TEMP/tailchrome-deb-control"
+          dpkg-deb --control dist/tailchrome-helper-linux-amd64.deb "$deb_control"
+          for script in preinst postinst prerm postrm config triggers; do
+            test ! -e "$deb_control/$script"
+          done
+          dpkg-deb --contents dist/tailchrome-helper-linux-amd64.deb |
+            tee /tmp/tailchrome-deb-contents.txt
+          rpm -qip dist/tailchrome-helper-linux-x86_64.rpm
+          test -z "$(rpm -qp --scripts dist/tailchrome-helper-linux-x86_64.rpm)"
+          rpm -qlp dist/tailchrome-helper-linux-x86_64.rpm |
+            tee /tmp/tailchrome-rpm-contents.txt
+          ! grep -E '(^|/)(home|Users)/' /tmp/tailchrome-deb-contents.txt
+          ! grep -E '(^|/)(home|Users)/' /tmp/tailchrome-rpm-contents.txt
+      - name: Upload final Linux packages
         uses: actions/upload-artifact@v6
         with:
           name: linux-packages
-          retention-days: 1
+          retention-days: 7
           path: |
             dist/tailchrome-helper-linux-amd64.deb
             dist/tailchrome-helper-linux-x86_64.rpm
 
   package-windows:
     needs: build
-    runs-on: windows-latest
+    runs-on: windows-2025
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+      WINDOWS_SIGNTOOL_PATH: C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe
+      WINDOWS_EXPECTED_SIGNER_SUBJECT: ${{ vars.WINDOWS_EXPECTED_SIGNER_SUBJECT }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+          ref: ${{ needs.build.outputs.source_sha }}
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "8.0.x"
-      - name: Download build artifacts
+      - name: Require Windows release signing configuration
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_EXPECTED_SIGNER_SUBJECT)) {
+            throw "WINDOWS_EXPECTED_SIGNER_SUBJECT must contain the exact selected publisher subject."
+          }
+          if (-not (Test-Path -LiteralPath $env:WINDOWS_SIGNTOOL_PATH -PathType Leaf)) {
+            throw "Expected SignTool was not found at $env:WINDOWS_SIGNTOOL_PATH"
+          }
+      - name: Download reviewed build outputs
         uses: actions/download-artifact@v6
         with:
           name: build-output
       - name: Install WiX
         run: dotnet tool install --global wix --version 6.0.2
-      - name: Build Windows MSI
+      # Provider integration gate: the selected provider must place the
+      # timestamped raw EXE in signed-windows before MSI construction, then
+      # sign the unsigned MSI to the final filename before verification.
+      - name: Build Windows MSI from the signed helper
         shell: pwsh
-        run: .\packaging\windows\build-msi.ps1 -Version "$env:RELEASE_TAG"
-      - name: Sign Windows MSI
-        shell: pwsh
-        env:
-          WINDOWS_CODESIGN_P12_BASE64: ${{ secrets.WINDOWS_CODESIGN_P12_BASE64 }}
-          WINDOWS_CODESIGN_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CODESIGN_P12_BASE64)) {
-            Write-Host "Skipping Windows signing; WINDOWS_CODESIGN_P12_BASE64 is not configured."
-            exit 0
+          $signedExe = ".\signed-windows\tailscale-browser-ext-windows-amd64.exe"
+          if (-not (Test-Path -LiteralPath $signedExe -PathType Leaf)) {
+            throw "The selected signing provider must produce the timestamped raw EXE before MSI construction."
           }
-          $certPath = Join-Path $env:RUNNER_TEMP "tailchrome-windows-codesign.p12"
-          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CODESIGN_P12_BASE64))
-          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe |
-            Where-Object { $_.FullName -match "\\x64\\signtool.exe$" } |
-            Select-Object -First 1
-          if (-not $signtool) {
-            throw "signtool.exe not found"
+          .\packaging\windows\build-msi.ps1 `
+            -Version "$env:RELEASE_TAG" `
+            -HelperExe $signedExe `
+            -OutPath .\signed-windows\tailchrome-helper-windows-x64.unsigned.msi `
+            -ExpectedSignerSubject "$env:WINDOWS_EXPECTED_SIGNER_SUBJECT" `
+            -SignToolPath "$env:WINDOWS_SIGNTOOL_PATH"
+      - name: Verify raw, embedded, and outer Windows signatures
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath $env:WINDOWS_SIGNTOOL_PATH -PathType Leaf)) {
+            throw "Expected SignTool was not found at $env:WINDOWS_SIGNTOOL_PATH"
           }
-          & $signtool.FullName sign `
-            /fd SHA256 `
-            /tr http://timestamp.digicert.com `
-            /td SHA256 `
-            /f $certPath `
-            /p "$env:WINDOWS_CODESIGN_PASSWORD" `
-            dist\tailchrome-helper-windows-x64.msi
-      - name: Upload Windows MSI
+          .\scripts\verify-windows-signatures.ps1 `
+            -RawExe .\signed-windows\tailscale-browser-ext-windows-amd64.exe `
+            -Msi .\signed-windows\tailchrome-helper-windows-x64.msi `
+            -ExpectedSignerSubject "$env:WINDOWS_EXPECTED_SIGNER_SUBJECT" `
+            -SignToolPath "$env:WINDOWS_SIGNTOOL_PATH" `
+            -SummaryPath .\signed-windows\windows-signature-verification.json
+      - name: Require active Defender and scan final Windows files
+        shell: pwsh
+        run: |
+          Update-MpSignature
+          $status = Get-MpComputerStatus
+          $preference = Get-MpPreference
+          if (-not $status.AntivirusEnabled -or
+              -not $status.AMServiceEnabled -or
+              -not $status.RealTimeProtectionEnabled -or
+              $null -eq $status.AntivirusSignatureLastUpdated -or
+              $status.AntivirusSignatureAge -gt 1) {
+            throw "Active, current Defender protection could not be proven on this runner."
+          }
+          if ([int]$preference.MAPSReporting -eq 0 -or
+              [bool]$preference.DisableBlockAtFirstSeen) {
+            throw "Defender cloud-delivered protection could not be proven on this runner."
+          }
+          $targets = @(
+            (Resolve-Path .\signed-windows\tailscale-browser-ext-windows-amd64.exe).Path,
+            (Resolve-Path .\signed-windows\tailchrome-helper-windows-x64.msi).Path
+          )
+          foreach ($target in $targets) {
+            Start-MpScan -ScanType CustomScan -ScanPath $target
+          }
+          $detections = @(
+            Get-MpThreatDetection |
+              Where-Object {
+                $resources = @($_.Resources)
+                @($resources | Where-Object { $targets -contains ($_ -replace '^file:_', '') }).Count -gt 0
+              }
+          )
+          if ($detections.Count -ne 0) {
+            throw "Defender reported a detection for a final Windows candidate."
+          }
+          $files = @(
+            foreach ($target in $targets) {
+              [ordered]@{
+                name = Split-Path -Leaf $target
+                sha256 = (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+              }
+            }
+          )
+          $summary = [ordered]@{
+            schemaVersion = 1
+            result = "clean"
+            antivirusEnabled = $status.AntivirusEnabled
+            antimalwareServiceEnabled = $status.AMServiceEnabled
+            realTimeProtectionEnabled = $status.RealTimeProtectionEnabled
+            cloudDeliveredProtectionEnabled = ([int]$preference.MAPSReporting -ne 0)
+            blockAtFirstSeenEnabled = (-not [bool]$preference.DisableBlockAtFirstSeen)
+            mapsReporting = [int]$preference.MAPSReporting
+            antimalwareEngineVersion = $status.AMEngineVersion
+            antimalwareProductVersion = $status.AMProductVersion
+            antivirusSignatureVersion = $status.AntivirusSignatureVersion
+            antivirusSignatureLastUpdated = $status.AntivirusSignatureLastUpdated.ToUniversalTime().ToString("o")
+            files = $files
+          }
+          $summary |
+            ConvertTo-Json -Depth 4 |
+            Set-Content .\signed-windows\windows-defender-verification.json -Encoding utf8NoBOM
+      - name: Upload final Windows bundle
         uses: actions/upload-artifact@v6
         with:
-          name: windows-msi
-          retention-days: 1
-          path: dist/tailchrome-helper-windows-x64.msi
+          name: signed-windows
+          retention-days: 7
+          path: |
+            signed-windows/tailscale-browser-ext-windows-amd64.exe
+            signed-windows/tailchrome-helper-windows-x64.msi
+            signed-windows/windows-signature-verification.json
+      - name: Upload automated Defender evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-defender-evidence
+          retention-days: 7
+          path: signed-windows/windows-defender-verification.json
 
-  release:
-    needs: [build, sign-macos, package-linux, package-windows]
+  assemble-release-candidate:
+    needs: [build, sign-macos, package-macos, package-linux, package-windows]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       id-token: write
       attestations: write
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
-      # gh resolves repo via git remote; this job has no checkout (artifacts only).
-      GH_REPO: ${{ github.repository }}
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v6
-        with:
-          name: build-output
-
-      - name: Download signed Darwin binaries
-        uses: actions/download-artifact@v6
-        with:
-          name: signed-darwin
-          path: signed-darwin
-
-      - name: Download Linux packages
-        uses: actions/download-artifact@v6
-        with:
-          name: linux-packages
-          path: linux-packages
-
-      - name: Download Windows MSI
-        uses: actions/download-artifact@v6
-        with:
-          name: windows-msi
-          path: windows-msi
-
-      - name: Collect release assets
-        run: |
-          set -euo pipefail
-          mkdir -p release
-          # actions/upload-artifact strips the common-ancestor prefix when
-          # all uploaded paths share one. signed-darwin uploads two dist/...
-          # files, so dist/ is stripped and the artifact's contents are flat
-          # — they extract straight into signed-darwin/.
-          cp signed-darwin/tailscale-browser-ext-darwin-amd64 release/
-          cp signed-darwin/tailscale-browser-ext-darwin-arm64 release/
-          cp linux-packages/tailchrome-helper-linux-amd64.deb release/
-          cp linux-packages/tailchrome-helper-linux-x86_64.rpm release/
-          cp windows-msi/tailchrome-helper-windows-x64.msi release/
-          # build-output uploads paths under both dist/ and packages/, so it
-          # has no common ancestor and the artifact preserves the full paths.
-          cp dist/tailscale-browser-ext-linux-amd64 release/
-          cp dist/tailscale-browser-ext-windows-amd64.exe release/
-          cp packages/extension/.output/chrome.zip release/
-          cp packages/extension/.output/firefox.zip release/
-          cp packages/extension/.output/firefox-sources.zip release/
-          cd release
-          sha256sum $(ls -1 | sort) > SHA256SUMS.txt
-
-      - name: Generate release artifact provenance
-        uses: actions/attest@v4
-        with:
-          subject-path: release/*
-
-      - name: Create or update GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mapfile -t assets < <(find release -maxdepth 1 -type f | sort)
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
-          else
-            gh release create "$RELEASE_TAG" "${assets[@]}" --title "$RELEASE_TAG" --generate-notes --draft
-          fi
-
-      - name: Write workflow summary
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          {
-            echo "## Release Assets"
-            echo
-            echo "Release: $(gh release view "$RELEASE_TAG" --json url --jq '.url')"
-            echo
-            echo "The macOS installer job uploads \`tailchrome-helper-macos.pkg\` separately."
-            echo
-            echo '```'
-            ls -1 release | sort
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-  release-macos-pkg:
-    needs: release
-    runs-on: macos-latest
-    permissions:
-      contents: write
-      id-token: write
-      attestations: write
-    env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+      SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+    outputs:
+      sha256sums_digest: ${{ steps.manifest.outputs.sha256sums_digest }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
-      - uses: actions/setup-go@v6
+          ref: ${{ needs.build.outputs.source_sha }}
+      - name: Download reviewed build outputs
+        uses: actions/download-artifact@v6
         with:
-          go-version-file: host/go.mod
-          cache-dependency-path: host/go.sum
-      - name: Import signing certificate
-        env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          name: build-output
+          path: build-output
+      - name: Download final Darwin binaries
+        uses: actions/download-artifact@v6
+        with:
+          name: signed-darwin
+          path: signed-darwin
+      - name: Download final macOS package
+        uses: actions/download-artifact@v6
+        with:
+          name: signed-macos-package
+          path: signed-macos-package
+      - name: Download final Linux packages
+        uses: actions/download-artifact@v6
+        with:
+          name: linux-packages
+          path: linux-packages
+      - name: Download final Windows bundle
+        uses: actions/download-artifact@v6
+        with:
+          name: signed-windows
+          path: signed-windows
+      - name: Download automated Defender evidence
+        uses: actions/download-artifact@v6
+        with:
+          name: windows-defender-evidence
+          path: windows-defender-evidence
+      - name: Collect and allowlist final assets
         run: |
           set -euo pipefail
-          CERT_PATH="$RUNNER_TEMP/certificate.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
-          KEYCHAIN_PASSWORD="$(openssl rand -hex 20)"
-          CERT_PASS="${APPLE_CERTIFICATE_PASSWORD%$'\r'}"
-          CERT_PASS="${CERT_PASS%$'\n'}"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$SOURCE_SHA"
+          mkdir -p candidate/release candidate/evidence
+          cp build-output/packages/extension/.output/chrome.zip candidate/release/
+          cp build-output/packages/extension/.output/firefox.zip candidate/release/
+          cp build-output/packages/extension/.output/firefox-sources.zip candidate/release/
+          cp signed-darwin/tailscale-browser-ext-darwin-amd64 candidate/release/
+          cp signed-darwin/tailscale-browser-ext-darwin-arm64 candidate/release/
+          cp signed-macos-package/tailchrome-helper-macos.pkg candidate/release/
+          cp build-output/dist/tailscale-browser-ext-linux-amd64 candidate/release/
+          cp build-output/dist/tailscale-browser-ext-linux-arm64 candidate/release/
+          cp linux-packages/tailchrome-helper-linux-amd64.deb candidate/release/
+          cp linux-packages/tailchrome-helper-linux-x86_64.rpm candidate/release/
+          cp signed-windows/tailscale-browser-ext-windows-amd64.exe candidate/release/
+          cp signed-windows/tailchrome-helper-windows-x64.msi candidate/release/
+          install -m 0755 scripts/install.sh candidate/release/tailchrome-install.sh
+          cp signed-windows/windows-signature-verification.json candidate/evidence/
+          cp windows-defender-evidence/windows-defender-verification.json candidate/evidence/
 
-          printf '%s' "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERT_PATH" \
-            -P "$CERT_PASS" \
-            -A \
-            -t cert \
-            -f pkcs12 \
-            -k "$KEYCHAIN_PATH"
-          security set-key-partition-list \
-            -S apple-tool:,apple: \
-            -k "$KEYCHAIN_PASSWORD" \
-            "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
-
-      - name: Build macOS installer package
-        env:
-          VERSION: ${{ env.RELEASE_TAG }}
-          MACOS_SIGN_APPLICATION_IDENTITY: "Developer ID Application: Daniel David Traynor (UL9B796XFN)"
-          MACOS_SIGN_INSTALLER_IDENTITY: "Developer ID Installer: Daniel David Traynor (UL9B796XFN)"
-        run: ./packaging/macos/build-pkg.sh
-
-      - name: Notarize macOS package
-        env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
-          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          cat > candidate/expected-assets.txt <<'ASSETS'
+          chrome.zip
+          firefox-sources.zip
+          firefox.zip
+          tailchrome-helper-linux-amd64.deb
+          tailchrome-helper-linux-x86_64.rpm
+          tailchrome-helper-macos.pkg
+          tailchrome-helper-windows-x64.msi
+          tailchrome-install.sh
+          tailscale-browser-ext-darwin-amd64
+          tailscale-browser-ext-darwin-arm64
+          tailscale-browser-ext-linux-amd64
+          tailscale-browser-ext-linux-arm64
+          tailscale-browser-ext-windows-amd64.exe
+          ASSETS
+          sed -i 's/^          //' candidate/expected-assets.txt
+          find candidate/release -mindepth 1 -maxdepth 1 -type f -printf '%f\n' |
+            sort > candidate/actual-assets.txt
+          diff -u candidate/expected-assets.txt candidate/actual-assets.txt
+          find candidate/evidence -mindepth 1 -maxdepth 1 -type f -printf '%f\n' |
+            sort > candidate/actual-evidence.txt
+          printf '%s\n' \
+            windows-defender-verification.json \
+            windows-signature-verification.json \
+            > candidate/expected-evidence.txt
+          diff -u candidate/expected-evidence.txt candidate/actual-evidence.txt
+      - name: Generate final checksum manifest
+        id: manifest
         run: |
           set -euo pipefail
-          KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
-          echo "$APPLE_API_KEY_P8" > "$KEY_PATH"
-          xcrun notarytool submit dist/tailchrome-helper-macos.pkg \
-            --key "$KEY_PATH" \
-            --key-id "$APPLE_API_KEY_ID" \
-            --issuer "$APPLE_API_ISSUER_ID" \
-            --wait
-          xcrun stapler staple dist/tailchrome-helper-macos.pkg
-
-      - name: Verify package signature
-        run: |
-          pkgutil --check-signature dist/tailchrome-helper-macos.pkg
-
-      - name: SHA256 of macOS package
-        run: (cd dist && shasum -a 256 tailchrome-helper-macos.pkg | tee tailchrome-helper-macos.pkg.sha256)
-
-      - name: Generate macOS package provenance
+          (
+            cd candidate/release
+            while IFS= read -r asset; do
+              sha256sum "$asset"
+            done < ../expected-assets.txt > SHA256SUMS.txt
+            sha256sum --check SHA256SUMS.txt
+          )
+          digest="$(sha256sum candidate/release/SHA256SUMS.txt | cut -d' ' -f1)"
+          echo "sha256sums_digest=$digest" >> "$GITHUB_OUTPUT"
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg workflow ".github/workflows/release.yml" \
+            --arg run_id "$GITHUB_RUN_ID" \
+            --arg release_tag "$RELEASE_TAG" \
+            --arg source_sha "$SOURCE_SHA" \
+            --arg sha256sums_sha256 "$digest" \
+            '{
+              schemaVersion: 1,
+              repository: $repository,
+              workflow: $workflow,
+              runId: $run_id,
+              releaseTag: $release_tag,
+              sourceSha: $source_sha,
+              sha256sumsSha256: $sha256sums_sha256
+            }' > candidate/candidate-metadata.json
+      - name: Generate final artifact attestations
         uses: actions/attest@v4
         with:
-          subject-path: dist/tailchrome-helper-macos.pkg
-
-      - name: Upload macOS assets to release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh release upload "$RELEASE_TAG" \
-            dist/tailchrome-helper-macos.pkg \
-            dist/tailchrome-helper-macos.pkg.sha256 \
-            --clobber
-
-      - name: macOS release summary
+          subject-path: candidate/release/*
+      - name: Upload immutable release candidate
+        uses: actions/upload-artifact@v6
+        with:
+          name: helper-release-candidate
+          path: candidate/
+          retention-days: 90
+          compression-level: 0
+      - name: Write candidate summary
         run: |
           {
-            echo "## macOS installer"
+            echo "## Immutable release candidate"
             echo
+            echo "- Candidate run ID: \`$GITHUB_RUN_ID\`"
+            echo "- Release tag: \`$RELEASE_TAG\`"
+            echo "- Source commit: \`$SOURCE_SHA\`"
+            echo "- SHA256SUMS.txt digest: \`${{ steps.manifest.outputs.sha256sums_digest }}\`"
+            echo
+            echo '```text'
+            cat candidate/release/SHA256SUMS.txt
             echo '```'
-            cat dist/tailchrome-helper-macos.pkg.sha256
-            echo '```'
+            echo
+            echo "Publication remains blocked until the exact Windows hashes pass Defender and Malwarebytes review and the protected publication workflow is approved."
           } >> "$GITHUB_STEP_SUMMARY"
