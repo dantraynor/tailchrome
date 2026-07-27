@@ -213,7 +213,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.packaging == 'true'
     runs-on: windows-2025
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       WINDOWS_SIGNTOOL_PATH: C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe
     steps:
@@ -233,11 +233,17 @@ jobs:
       - name: Run Windows signature verifier tests
         shell: pwsh
         run: pwsh -NoProfile -File .\scripts\verify-windows-signatures.test.ps1
+
+  windows-defender-smoke:
+    needs: changes
+    if: needs.changes.outputs.packaging == 'true'
+    runs-on: windows-11-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
       - name: Prove Defender can be initialized on the release runner image
         shell: pwsh
-        run: >-
-          pwsh -NoProfile -File .\scripts\initialize-windows-defender.ps1
-          -RunDetectionSmokeTest
+        run: .\scripts\initialize-windows-defender.ps1 -RunDetectionSmokeTest
 
   workflow-static-validation:
     runs-on: ubuntu-latest
