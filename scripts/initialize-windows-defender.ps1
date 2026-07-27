@@ -313,8 +313,8 @@ if (Test-Path -LiteralPath $PassiveModePolicy) {
   }
 }
 
-# The hosted Windows image disables these settings during image construction.
-# Re-enable them explicitly so a clean scan is evidence of active protection.
+# Enforce the controlled runner baseline so a clean scan is evidence of active
+# protection rather than a passive or partially disabled Defender instance.
 Enable-RequiredService -Name "WinDefend"
 Enable-RequiredService -Name "wuauserv"
 

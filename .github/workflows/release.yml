@@ -24,6 +24,14 @@ permissions:
 # Windows candidate creation remains intentionally blocked until one signing
 # provider and exact WINDOWS_EXPECTED_SIGNER_SUBJECT repository variable are
 # recorded. No unsigned or provider-switching fallback is present.
+#
+# Defender evidence runs only on a controlled, single-use x64 Windows runner
+# carrying a run-specific tailchrome-defender-${run_id} label. Its runner
+# account must be elevated, Defender must support active mode, Microsoft
+# security intelligence and cloud-protection endpoints must be reachable, and
+# the machine must be created from the approved clean image for this one tagged
+# release job, then destroyed. Never bring the runner online until the protected
+# windows-defender-validation deployment has been reviewed.
 
 jobs:
   build:
@@ -318,9 +326,55 @@ jobs:
             dist/tailchrome-helper-linux-amd64.deb
             dist/tailchrome-helper-linux-x86_64.rpm
 
+  validate-windows-defender-environment:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    env:
+      DEFENDER_ENVIRONMENT: windows-defender-validation
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Require protected Defender runner controls
+        env:
+          BROAD_SCOPE_DEFENDER_IMAGE_ID: ${{ vars.WINDOWS_DEFENDER_IMAGE_ID }}
+        run: |
+          set -euo pipefail
+          test -z "$BROAD_SCOPE_DEFENDER_IMAGE_ID"
+          environment_json="$(
+            gh api "repos/$GITHUB_REPOSITORY/environments/$DEFENDER_ENVIRONMENT"
+          )"
+          reviewer_count="$(
+            jq '[.protection_rules[]? |
+              select(.type == "required_reviewers") |
+              .reviewers[]?] | length' <<<"$environment_json"
+          )"
+          test "$reviewer_count" -ge 1
+          jq -e '.can_admins_bypass == false' <<<"$environment_json" >/dev/null
+          jq -e '
+            .deployment_branch_policy.protected_branches == false and
+            .deployment_branch_policy.custom_branch_policies == true
+          ' <<<"$environment_json" >/dev/null
+
+          policies_json="$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/environments/$DEFENDER_ENVIRONMENT/deployment-branch-policies"
+          )"
+          jq -e '
+            .total_count == 1 and
+            .branch_policies[0].type == "tag" and
+            .branch_policies[0].name == "v*"
+          ' <<<"$policies_json" >/dev/null
+
   package-windows:
     needs: build
     runs-on: windows-2025
+    outputs:
+      artifact_id: ${{ steps.upload-windows.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-windows.outputs.artifact-digest }}
+      raw_sha256: ${{ steps.windows-hashes.outputs.raw_sha256 }}
+      msi_sha256: ${{ steps.windows-hashes.outputs.msi_sha256 }}
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
       WINDOWS_SIGNTOOL_PATH: C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe
@@ -376,273 +430,699 @@ jobs:
             -ExpectedSignerSubject "$env:WINDOWS_EXPECTED_SIGNER_SUBJECT" `
             -SignToolPath "$env:WINDOWS_SIGNTOOL_PATH" `
             -SummaryPath .\signed-windows\windows-signature-verification.json
-      - name: Initialize Defender and scan final Windows files
+      - name: Record final Windows hashes
+        id: windows-hashes
         shell: pwsh
         run: |
-          $ErrorActionPreference = "Stop"
-          $PSNativeCommandUseErrorActionPreference = $false
-          $readinessPath = Join-Path $env:RUNNER_TEMP "windows-defender-readiness.json"
-          .\scripts\initialize-windows-defender.ps1 -SummaryPath $readinessPath
-          $readiness = Get-Content -LiteralPath $readinessPath -Raw | ConvertFrom-Json
-
-          $service = Get-Service -Name WinDefend -ErrorAction Stop
-          $status = Get-MpComputerStatus
-          $preference = Get-MpPreference
-          $pathExclusions = @(
-            $preference.ExclusionPath |
-              Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
-          )
-          $extensionExclusions = @(
-            $preference.ExclusionExtension |
-              Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
-          )
-          $processExclusions = @(
-            $preference.ExclusionProcess |
-              Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
-          )
-          if (-not $status.AntivirusEnabled -or
-              -not $status.AMServiceEnabled -or
-              -not $status.RealTimeProtectionEnabled -or
-              -not $status.BehaviorMonitorEnabled -or
-              -not $status.IoavProtectionEnabled -or
-              -not $status.OnAccessProtectionEnabled -or
-              $service.Status -ne "Running" -or
-              $status.AMRunningMode -cne "Normal" -or
-              $null -eq $status.AntivirusSignatureLastUpdated -or
-              $status.AntivirusSignatureAge -gt 1) {
-            throw "Active, current Defender protection could not be proven on this runner."
-          }
-          if ([int]$preference.MAPSReporting -ne 2 -or
-              [int]$preference.SubmitSamplesConsent -ne 1 -or
-              [int]$preference.PUAProtection -ne 1 -or
-              [bool]$preference.DisableBlockAtFirstSeen -or
-              [bool]$preference.DisableRealtimeMonitoring -or
-              [bool]$preference.DisableBehaviorMonitoring -or
-              [bool]$preference.DisableIntrusionPreventionSystem -or
-              [bool]$preference.DisableIOAVProtection -or
-              [bool]$preference.DisableScriptScanning -or
-              [bool]$preference.DisableArchiveScanning -or
-              -not [bool]$preference.DisableAutoExclusions -or
-              -not [bool]$preference.CheckForSignaturesBeforeRunningScan -or
-              [bool]$preference.SignatureDisableUpdateOnStartupWithoutEngine -or
-              $pathExclusions.Count -ne 0 -or
-              $extensionExclusions.Count -ne 0 -or
-              $processExclusions.Count -ne 0) {
-            throw "Required Defender preferences and exclusion-free scanning could not be proven."
-          }
-          if (-not [bool]$readiness.mapsConnectionValidated -or
-              [int]$readiness.mapsValidationExitCode -ne 0) {
-            throw "Defender cloud connectivity could not be proven on this runner."
-          }
-
-          $platformRoot = Join-Path $env:ProgramData "Microsoft\Windows Defender\Platform"
-          $mpCmdRunCandidates = @()
-          if (Test-Path -LiteralPath $platformRoot -PathType Container) {
-            $mpCmdRunCandidates = @(
-              Get-ChildItem -LiteralPath $platformRoot -Directory |
-                Sort-Object Name -Descending |
-                ForEach-Object { Join-Path $_.FullName "MpCmdRun.exe" } |
-                Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
-            )
-          }
-          if ($mpCmdRunCandidates.Count -gt 0) {
-            $mpCmdRun = $mpCmdRunCandidates[0]
-          } else {
-            $mpCmdRun = Join-Path $env:ProgramFiles "Windows Defender\MpCmdRun.exe"
-          }
-          if (-not (Test-Path -LiteralPath $mpCmdRun -PathType Leaf)) {
-            throw "The current Microsoft Defender command-line tool could not be found."
-          }
-          function Invoke-MpCmdRun {
-            param([Parameter(Mandatory = $true)][string[]]$Arguments)
-            $output = @(& $mpCmdRun @Arguments 2>&1)
-            $exitCode = $LASTEXITCODE
-            foreach ($line in $output) {
-              Write-Host $line
-            }
-            return [pscustomobject]@{
-              ExitCode = $exitCode
-              Output = @($output | ForEach-Object { [string]$_ })
-            }
-          }
-
-          $baselineDetections = @(Get-MpThreatDetection -ErrorAction SilentlyContinue)
-          $baselineDetectionIds = @(
-            $baselineDetections |
-              ForEach-Object { [string]$_.DetectionID } |
-              Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-          )
-          $targetPaths = @(
-            (Resolve-Path .\signed-windows\tailscale-browser-ext-windows-amd64.exe).Path,
-            (Resolve-Path .\signed-windows\tailchrome-helper-windows-x64.msi).Path
-          )
-          $scanRecords = @(
-            foreach ($target in $targetPaths) {
-              $preScanHash = (
-                Get-FileHash -LiteralPath $target -Algorithm SHA256
-              ).Hash.ToLowerInvariant()
-              $exclusionResult = Invoke-MpCmdRun `
-                -Arguments @("-CheckExclusion", "-Path", $target)
-              if ([int]$exclusionResult.ExitCode -eq 0) {
-                throw "A final Windows candidate is excluded from Defender scanning."
-              }
-              if ([int]$exclusionResult.ExitCode -ne 1) {
-                throw "Defender returned an unexpected exclusion-check exit code for '$(Split-Path -Leaf $target)': $($exclusionResult.ExitCode)."
-              }
-
-              $scanStartedAt = [DateTime]::UtcNow
-              $scanResult = Invoke-MpCmdRun `
-                -Arguments @("-Scan", "-ScanType", "3", "-File", $target)
-              $scanCompletedAt = [DateTime]::UtcNow
-              if ([int]$scanResult.ExitCode -ne 0) {
-                throw "Defender custom scan failed for '$(Split-Path -Leaf $target)' with exit code $($scanResult.ExitCode)."
-              }
-              if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
-                throw "Defender removed or quarantined a final Windows candidate."
-              }
-              $postScanHash = (
-                Get-FileHash -LiteralPath $target -Algorithm SHA256
-              ).Hash.ToLowerInvariant()
-              if ($postScanHash -cne $preScanHash) {
-                throw "A final Windows candidate changed during Defender scanning."
-              }
-
-              [pscustomobject][ordered]@{
-                Path = $target
-                Name = Split-Path -Leaf $target
-                PreScanSha256 = $preScanHash
-                PostScanSha256 = $postScanHash
-                ExclusionCheckExitCode = [int]$exclusionResult.ExitCode
-                ScanExitCode = [int]$scanResult.ExitCode
-                ScanStartedAt = $scanStartedAt.ToString("o")
-                ScanCompletedAt = $scanCompletedAt.ToString("o")
-              }
-            }
-          )
-
-          # Allow delayed cloud verdicts to reach the local detection history.
-          Start-Sleep -Seconds 10
-          $detectionsAfterScan = @(Get-MpThreatDetection -ErrorAction SilentlyContinue)
-          $newDetections = @(
-            $detectionsAfterScan |
-              Where-Object {
-                $detectionId = [string]$_.DetectionID
-                [string]::IsNullOrWhiteSpace($detectionId) -or
-                  $baselineDetectionIds -notcontains $detectionId
-              }
-          )
-          $candidateDetections = @(
-            $detectionsAfterScan |
-              Where-Object {
-                $resources = [string]::Join("`n", @($_.Resources))
-                $matchesTarget = $false
-                foreach ($target in $targetPaths) {
-                  if ($resources.IndexOf(
-                      $target,
-                      [System.StringComparison]::OrdinalIgnoreCase
-                    ) -ge 0 -or
-                    $resources.IndexOf(
-                      (Split-Path -Leaf $target),
-                      [System.StringComparison]::OrdinalIgnoreCase
-                    ) -ge 0) {
-                    $matchesTarget = $true
-                    break
-                  }
-                }
-                $matchesTarget
-              }
-          )
-          if ($newDetections.Count -ne 0 -or $candidateDetections.Count -ne 0) {
-            throw "Defender reported a new or candidate-related detection."
-          }
-
-          $files = @(
-            foreach ($record in $scanRecords) {
-              if (-not (Test-Path -LiteralPath $record.Path -PathType Leaf)) {
-                throw "Defender removed or quarantined a final Windows candidate."
-              }
-              $finalHash = (
-                Get-FileHash -LiteralPath $record.Path -Algorithm SHA256
-              ).Hash.ToLowerInvariant()
-              if ($finalHash -cne $record.PreScanSha256) {
-                throw "A final Windows candidate changed after Defender scanning."
-              }
-              [ordered]@{
-                name = $record.Name
-                sha256 = $finalHash
-                preScanSha256 = $record.PreScanSha256
-                postScanSha256 = $finalHash
-                excluded = $false
-                exclusionCheckExitCode = $record.ExclusionCheckExitCode
-                scanExitCode = $record.ScanExitCode
-                scanStartedAt = $record.ScanStartedAt
-                scanCompletedAt = $record.ScanCompletedAt
-                detectionDelta = 0
-                scanResult = "clean"
-              }
-            }
-          )
-          $summary = [ordered]@{
-            schemaVersion = 1
-            result = "clean"
-            runnerImageOS = $env:ImageOS
-            runnerImageVersion = $env:ImageVersion
-            defenderServiceStatus = $service.Status.ToString()
-            antimalwareRunningMode = [string]$status.AMRunningMode
-            antivirusEnabled = $status.AntivirusEnabled
-            antimalwareServiceEnabled = $status.AMServiceEnabled
-            realTimeProtectionEnabled = $status.RealTimeProtectionEnabled
-            behaviorMonitorEnabled = $status.BehaviorMonitorEnabled
-            ioavProtectionEnabled = $status.IoavProtectionEnabled
-            onAccessProtectionEnabled = $status.OnAccessProtectionEnabled
-            cloudDeliveredProtectionEnabled = ([int]$preference.MAPSReporting -eq 2)
-            blockAtFirstSeenEnabled = (-not [bool]$preference.DisableBlockAtFirstSeen)
-            automaticSampleSubmissionEnabled = ([int]$preference.SubmitSamplesConsent -eq 1)
-            puaProtectionEnabled = ([int]$preference.PUAProtection -eq 1)
-            mapsReporting = [int]$preference.MAPSReporting
-            submitSamplesConsent = [int]$preference.SubmitSamplesConsent
-            mapsConnectionValidated = [bool]$readiness.mapsConnectionValidated
-            mapsValidationExitCode = [int]$readiness.mapsValidationExitCode
-            securityIntelligenceUpdateSource = [string]$readiness.securityIntelligenceUpdateSource
-            filesystemPathExclusionCount = $pathExclusions.Count
-            fileExtensionExclusionCount = $extensionExclusions.Count
-            processExclusionCount = $processExclusions.Count
-            antimalwareEngineVersion = $status.AMEngineVersion
-            antimalwareProductVersion = $status.AMProductVersion
-            antivirusSignatureVersion = $status.AntivirusSignatureVersion
-            antivirusSignatureAge = [int]$status.AntivirusSignatureAge
-            antivirusSignatureLastUpdated = $status.AntivirusSignatureLastUpdated.ToUniversalTime().ToString("o")
-            newDetectionCount = $newDetections.Count
-            scanCompletedAt = [DateTime]::UtcNow.ToString("o")
-            files = $files
-          }
-          $summary |
-            ConvertTo-Json -Depth 4 |
-            Set-Content .\signed-windows\windows-defender-verification.json -Encoding utf8NoBOM
+          $rawHash = (
+            Get-FileHash `
+              -LiteralPath .\signed-windows\tailscale-browser-ext-windows-amd64.exe `
+              -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          $msiHash = (
+            Get-FileHash `
+              -LiteralPath .\signed-windows\tailchrome-helper-windows-x64.msi `
+              -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          "raw_sha256=$rawHash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "msi_sha256=$msiHash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
       - name: Upload final Windows bundle
+        id: upload-windows
         uses: actions/upload-artifact@v6
         with:
           name: signed-windows
           retention-days: 7
+          if-no-files-found: error
           path: |
             signed-windows/tailscale-browser-ext-windows-amd64.exe
             signed-windows/tailchrome-helper-windows-x64.msi
             signed-windows/windows-signature-verification.json
+
+  scan-windows-defender:
+    needs: [build, package-windows, validate-windows-defender-environment]
+    runs-on:
+      [self-hosted, Windows, X64, "tailchrome-defender-${{ github.run_id }}"]
+    environment: windows-defender-validation
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    env:
+      PACKAGE_ARTIFACT_DIGEST: ${{ needs.package-windows.outputs.artifact_digest }}
+      PACKAGE_ARTIFACT_ID: ${{ needs.package-windows.outputs.artifact_id }}
+      EXPECTED_MSI_SHA256: ${{ needs.package-windows.outputs.msi_sha256 }}
+      EXPECTED_RAW_SHA256: ${{ needs.package-windows.outputs.raw_sha256 }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+      SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+    steps:
+      - name: Validate controlled-runner assignment
+        id: assignment
+        shell: pwsh
+        env:
+          APPROVED_CONTROLLED_IMAGE_ID: ${{ vars.WINDOWS_DEFENDER_IMAGE_ID }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:RUNNER_ENVIRONMENT -cne "self-hosted" -or
+              $env:RUNNER_OS -cne "Windows" -or
+              $env:RUNNER_ARCH -cne "X64") {
+            throw "Defender evidence requires the controlled self-hosted Windows x64 runner."
+          }
+          if ($env:GITHUB_REPOSITORY -cne "dantraynor/tailchrome" -or
+              $env:GITHUB_WORKFLOW -cne "Release Candidate" -or
+              $env:GITHUB_WORKFLOW_REF -cne
+                "dantraynor/tailchrome/.github/workflows/release.yml@$($env:GITHUB_REF)" -or
+              $env:GITHUB_JOB -cne "scan-windows-defender" -or
+              $env:GITHUB_REF_TYPE -cne "tag" -or
+              $env:GITHUB_REF_NAME -cne $env:RELEASE_TAG -or
+              $env:GITHUB_SHA -cne $env:SOURCE_SHA) {
+            throw "The controlled runner was assigned to an unexpected release job or source."
+          }
+          $controlledImageId = $env:APPROVED_CONTROLLED_IMAGE_ID
+          if ([string]::IsNullOrWhiteSpace($controlledImageId)) {
+            throw "WINDOWS_DEFENDER_IMAGE_ID must identify the approved clean runner image."
+          }
+          $observedControlledImageId = [Environment]::GetEnvironmentVariable(
+            "TAILCHROME_DEFENDER_IMAGE_ID",
+            [EnvironmentVariableTarget]::Machine
+          )
+          if ([string]::IsNullOrWhiteSpace($observedControlledImageId) -or
+              $observedControlledImageId -cne $controlledImageId) {
+            throw "The runner's host-owned image ID does not match the approved clean image."
+          }
+          "CONTROLLED_IMAGE_ID=$controlledImageId" |
+            Out-File -FilePath $env:GITHUB_ENV -Append
+          "OBSERVED_CONTROLLED_IMAGE_ID=$observedControlledImageId" |
+            Out-File -FilePath $env:GITHUB_ENV -Append
+          if ($env:PACKAGE_ARTIFACT_ID -notmatch '^[1-9][0-9]*$' -or
+              $env:PACKAGE_ARTIFACT_DIGEST -notmatch '^[0-9a-f]{64}$' -or
+              $env:EXPECTED_RAW_SHA256 -notmatch '^[0-9a-f]{64}$' -or
+              $env:EXPECTED_MSI_SHA256 -notmatch '^[0-9a-f]{64}$') {
+            throw "The signed Windows artifact provenance is incomplete."
+          }
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.build.outputs.source_sha }}
+      - name: Prepare controlled-runner workspace
+        id: prepare
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $trackedChanges = @(& git status --porcelain --untracked-files=no)
+          if ($LASTEXITCODE -ne 0 -or $trackedChanges.Count -ne 0) {
+            throw "The controlled runner checkout is not clean."
+          }
+          if (Test-Path -LiteralPath .\signed-windows) {
+            Remove-Item -LiteralPath .\signed-windows -Recurse -Force
+          }
+          New-Item -ItemType Directory -Path .\signed-windows | Out-Null
+      - name: Download final Windows bundle
+        id: download-windows
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          artifact-ids: ${{ needs.package-windows.outputs.artifact_id }}
+          path: signed-windows
+      - name: Initialize Defender and scan final Windows files
+        id: defender-scan
+        if: ${{ always() && steps.assignment.outcome == 'success' && steps.prepare.outcome == 'success' }}
+        shell: pwsh
+        env:
+          DOWNLOAD_OUTCOME: ${{ steps.download-windows.outcome }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $false
+          if ($env:RUNNER_ENVIRONMENT -cne "self-hosted" -or
+              $env:RUNNER_OS -cne "Windows" -or
+              $env:RUNNER_ARCH -cne "X64") {
+            throw "Defender evidence requires the controlled self-hosted Windows x64 runner."
+          }
+          $operatingSystemVersion = [Environment]::OSVersion.VersionString
+          if ([string]::IsNullOrWhiteSpace($operatingSystemVersion)) {
+            throw "The controlled runner operating-system version could not be recorded."
+          }
+          $defenderPolicyOutput = @(
+            & git rev-parse "HEAD:scripts/initialize-windows-defender.ps1"
+          )
+          $defenderPolicyExitCode = $LASTEXITCODE
+          $releaseWorkflowOutput = @(
+            & git rev-parse "HEAD:.github/workflows/release.yml"
+          )
+          $releaseWorkflowExitCode = $LASTEXITCODE
+          if ($defenderPolicyExitCode -ne 0 -or
+              $releaseWorkflowExitCode -ne 0 -or
+              $defenderPolicyOutput.Count -ne 1 -or
+              $releaseWorkflowOutput.Count -ne 1) {
+            throw "The Defender policy provenance could not be recorded."
+          }
+          $defenderPolicyBlobId = ([string]$defenderPolicyOutput[0]).Trim()
+          $releaseWorkflowBlobId = ([string]$releaseWorkflowOutput[0]).Trim()
+          if (
+              $defenderPolicyBlobId -notmatch '^[0-9a-f]{40,64}$' -or
+              $releaseWorkflowBlobId -notmatch '^[0-9a-f]{40,64}$') {
+            throw "The Defender policy provenance could not be recorded."
+          }
+          $bundleRoot = (Resolve-Path .\signed-windows).Path
+          $evidencePath = Join-Path $bundleRoot "windows-defender-verification.json"
+          $signatureSummaryPath = Join-Path `
+            $bundleRoot `
+            "windows-signature-verification.json"
+          $expectedFiles = @(
+            [ordered]@{
+              name = "tailscale-browser-ext-windows-amd64.exe"
+              path = Join-Path $bundleRoot "tailscale-browser-ext-windows-amd64.exe"
+              sha256 = $env:EXPECTED_RAW_SHA256
+            },
+            [ordered]@{
+              name = "tailchrome-helper-windows-x64.msi"
+              path = Join-Path $bundleRoot "tailchrome-helper-windows-x64.msi"
+              sha256 = $env:EXPECTED_MSI_SHA256
+            }
+          )
+          $targetPaths = @($expectedFiles | ForEach-Object { $_.path })
+          $scanAttemptStartedAt = [DateTime]::UtcNow
+          $candidateScanStartedAt = $null
+          $script:lastNativeScanExitCode = $null
+
+          try {
+            if ($env:DOWNLOAD_OUTCOME -cne "success") {
+              throw "The signed Windows artifact download did not complete successfully."
+            }
+            $expectedAllowlist = @(
+              "tailchrome-helper-windows-x64.msi"
+              "tailscale-browser-ext-windows-amd64.exe"
+              "windows-signature-verification.json"
+            )
+            $actualAllowlist = @(
+              Get-ChildItem -LiteralPath $bundleRoot -File |
+                ForEach-Object { $_.Name } |
+                Sort-Object
+            )
+            if ($actualAllowlist.Count -ne $expectedAllowlist.Count -or
+                @(
+                  Compare-Object `
+                    -ReferenceObject $expectedAllowlist `
+                    -DifferenceObject $actualAllowlist
+                ).Count -ne 0) {
+              throw "The signed Windows artifact does not match the exact file allowlist."
+            }
+            $signatureSummary = (
+              Get-Content -LiteralPath $signatureSummaryPath -Raw -ErrorAction Stop |
+                ConvertFrom-Json -ErrorAction Stop
+            )
+            if ([string]$signatureSummary.rawExe.sha256 -cne $env:EXPECTED_RAW_SHA256 -or
+                [string]$signatureSummary.msi.sha256 -cne $env:EXPECTED_MSI_SHA256) {
+              throw "The signed Windows artifact hashes do not match their package outputs."
+            }
+            foreach ($file in $expectedFiles) {
+              if (-not (Test-Path -LiteralPath $file.path -PathType Leaf)) {
+                throw "A final Windows candidate is missing before Defender initialization."
+              }
+              $actualHash = (
+                Get-FileHash -LiteralPath $file.path -Algorithm SHA256
+              ).Hash.ToLowerInvariant()
+              if ($actualHash -cne $file.sha256) {
+                throw "A final Windows candidate changed during artifact transfer."
+              }
+            }
+            $readinessPath = Join-Path $env:RUNNER_TEMP "windows-defender-readiness.json"
+            .\scripts\initialize-windows-defender.ps1 `
+              -RunDetectionSmokeTest `
+              -SummaryPath $readinessPath
+            $readiness = Get-Content -LiteralPath $readinessPath -Raw | ConvertFrom-Json
+
+            function Get-ValidatedDefenderState {
+              $serviceState = Get-Service -Name WinDefend -ErrorAction Stop
+              $computerStatus = Get-MpComputerStatus -ErrorAction Stop
+              $defenderPreference = Get-MpPreference -ErrorAction Stop
+              $pathExclusionState = @(
+                $defenderPreference.ExclusionPath |
+                  Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+              )
+              $extensionExclusionState = @(
+                $defenderPreference.ExclusionExtension |
+                  Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+              )
+              $processExclusionState = @(
+                $defenderPreference.ExclusionProcess |
+                  Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }
+              )
+              if (-not $computerStatus.AntivirusEnabled -or
+                  -not $computerStatus.AMServiceEnabled -or
+                  -not $computerStatus.RealTimeProtectionEnabled -or
+                  -not $computerStatus.BehaviorMonitorEnabled -or
+                  -not $computerStatus.IoavProtectionEnabled -or
+                  -not $computerStatus.OnAccessProtectionEnabled -or
+                  $serviceState.Status -ne "Running" -or
+                  $computerStatus.AMRunningMode -cne "Normal" -or
+                  $null -eq $computerStatus.AntivirusSignatureLastUpdated -or
+                  $computerStatus.AntivirusSignatureAge -gt 1) {
+                throw "Active, current Defender protection could not be proven on this runner."
+              }
+              if ([int]$defenderPreference.MAPSReporting -ne 2 -or
+                  [int]$defenderPreference.SubmitSamplesConsent -ne 1 -or
+                  [int]$defenderPreference.PUAProtection -ne 1 -or
+                  [bool]$defenderPreference.DisableBlockAtFirstSeen -or
+                  [bool]$defenderPreference.DisableRealtimeMonitoring -or
+                  [bool]$defenderPreference.DisableBehaviorMonitoring -or
+                  [bool]$defenderPreference.DisableIntrusionPreventionSystem -or
+                  [bool]$defenderPreference.DisableIOAVProtection -or
+                  [bool]$defenderPreference.DisableScriptScanning -or
+                  [bool]$defenderPreference.DisableArchiveScanning -or
+                  -not [bool]$defenderPreference.DisableAutoExclusions -or
+                  -not [bool]$defenderPreference.CheckForSignaturesBeforeRunningScan -or
+                  [bool]$defenderPreference.SignatureDisableUpdateOnStartupWithoutEngine -or
+                  $pathExclusionState.Count -ne 0 -or
+                  $extensionExclusionState.Count -ne 0 -or
+                  $processExclusionState.Count -ne 0) {
+                throw "Required Defender preferences and exclusion-free scanning could not be proven."
+              }
+              [pscustomobject][ordered]@{
+                Service = $serviceState
+                Status = $computerStatus
+                Preference = $defenderPreference
+                PathExclusions = $pathExclusionState
+                ExtensionExclusions = $extensionExclusionState
+                ProcessExclusions = $processExclusionState
+              }
+            }
+            $null = Get-ValidatedDefenderState
+            if (-not [bool]$readiness.mapsConnectionValidated -or
+                [int]$readiness.mapsValidationExitCode -ne 0 -or
+                -not [bool]$readiness.detectionSmokeTestPassed) {
+              throw "Defender cloud connectivity and detection could not be proven on this runner."
+            }
+
+            $platformRoot = Join-Path $env:ProgramData "Microsoft\Windows Defender\Platform"
+            $mpCmdRunCandidates = @()
+            if (Test-Path -LiteralPath $platformRoot -PathType Container) {
+              $mpCmdRunCandidates = @(
+                Get-ChildItem -LiteralPath $platformRoot -Directory |
+                  Sort-Object Name -Descending |
+                  ForEach-Object { Join-Path $_.FullName "MpCmdRun.exe" } |
+                  Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+              )
+            }
+            if ($mpCmdRunCandidates.Count -gt 0) {
+              $mpCmdRun = $mpCmdRunCandidates[0]
+            } else {
+              $mpCmdRun = Join-Path $env:ProgramFiles "Windows Defender\MpCmdRun.exe"
+            }
+            if (-not (Test-Path -LiteralPath $mpCmdRun -PathType Leaf)) {
+              throw "The current Microsoft Defender command-line tool could not be found."
+            }
+            function Invoke-MpCmdRun {
+              param([Parameter(Mandatory = $true)][string[]]$Arguments)
+              $output = @(& $mpCmdRun @Arguments 2>&1)
+              $exitCode = $LASTEXITCODE
+              $script:lastNativeScanExitCode = $exitCode
+              foreach ($line in $output) {
+                Write-Host $line
+              }
+              return [pscustomobject]@{
+                ExitCode = $exitCode
+                Output = @($output | ForEach-Object { [string]$_ })
+              }
+            }
+
+            $candidateScanStartedAt = [DateTime]::UtcNow
+            $baselineDetections = @(Get-MpThreatDetection -ErrorAction Stop)
+            $baselineDetectionIds = @(
+              $baselineDetections |
+                ForEach-Object { [string]$_.DetectionID } |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+            )
+            $scanRecords = @(
+              foreach ($target in $targetPaths) {
+                $preScanHash = (
+                  Get-FileHash -LiteralPath $target -Algorithm SHA256
+                ).Hash.ToLowerInvariant()
+                $exclusionResult = Invoke-MpCmdRun `
+                  -Arguments @("-CheckExclusion", "-Path", $target)
+                if ([int]$exclusionResult.ExitCode -eq 0) {
+                  throw "A final Windows candidate is excluded from Defender scanning."
+                }
+                if ([int]$exclusionResult.ExitCode -ne 1) {
+                  throw "Defender returned an unexpected exclusion-check exit code for '$(Split-Path -Leaf $target)': $($exclusionResult.ExitCode)."
+                }
+
+                $scanStartedAt = [DateTime]::UtcNow
+                $scanResult = Invoke-MpCmdRun `
+                  -Arguments @("-Scan", "-ScanType", "3", "-File", $target)
+                $scanCompletedAt = [DateTime]::UtcNow
+                if ([int]$scanResult.ExitCode -ne 0) {
+                  throw "Defender custom scan failed for '$(Split-Path -Leaf $target)' with exit code $($scanResult.ExitCode)."
+                }
+                if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+                  throw "Defender removed or quarantined a final Windows candidate."
+                }
+                $postScanHash = (
+                  Get-FileHash -LiteralPath $target -Algorithm SHA256
+                ).Hash.ToLowerInvariant()
+                if ($postScanHash -cne $preScanHash) {
+                  throw "A final Windows candidate changed during Defender scanning."
+                }
+
+                [pscustomobject][ordered]@{
+                  Path = $target
+                  Name = Split-Path -Leaf $target
+                  PreScanSha256 = $preScanHash
+                  PostScanSha256 = $postScanHash
+                  ExclusionCheckExitCode = [int]$exclusionResult.ExitCode
+                  ScanExitCode = [int]$scanResult.ExitCode
+                  ScanStartedAt = $scanStartedAt.ToString("o")
+                  ScanCompletedAt = $scanCompletedAt.ToString("o")
+                }
+              }
+            )
+
+            # Allow delayed cloud verdicts to reach the local detection history.
+            Start-Sleep -Seconds 10
+            $detectionsAfterScan = @(Get-MpThreatDetection -ErrorAction Stop)
+            $newDetections = @(
+              $detectionsAfterScan |
+                Where-Object {
+                  $detectionId = [string]$_.DetectionID
+                  [string]::IsNullOrWhiteSpace($detectionId) -or
+                    $baselineDetectionIds -notcontains $detectionId
+                }
+            )
+            $candidateDetections = @(
+              $detectionsAfterScan |
+                Where-Object {
+                  $resources = [string]::Join("`n", @($_.Resources))
+                  $matchesTarget = $false
+                  foreach ($target in $targetPaths) {
+                    if ($resources.IndexOf(
+                        $target,
+                        [System.StringComparison]::OrdinalIgnoreCase
+                      ) -ge 0 -or
+                      $resources.IndexOf(
+                        (Split-Path -Leaf $target),
+                        [System.StringComparison]::OrdinalIgnoreCase
+                      ) -ge 0) {
+                      $matchesTarget = $true
+                      break
+                    }
+                  }
+                  $matchesTarget
+                }
+            )
+            if ($newDetections.Count -ne 0 -or $candidateDetections.Count -ne 0) {
+              throw "Defender reported a new or candidate-related detection."
+            }
+
+            $finalDefenderState = Get-ValidatedDefenderState
+            $service = $finalDefenderState.Service
+            $status = $finalDefenderState.Status
+            $preference = $finalDefenderState.Preference
+            $pathExclusions = @($finalDefenderState.PathExclusions)
+            $extensionExclusions = @($finalDefenderState.ExtensionExclusions)
+            $processExclusions = @($finalDefenderState.ProcessExclusions)
+            $files = @(
+              foreach ($record in $scanRecords) {
+                if (-not (Test-Path -LiteralPath $record.Path -PathType Leaf)) {
+                  throw "Defender removed or quarantined a final Windows candidate."
+                }
+                $finalHash = (
+                  Get-FileHash -LiteralPath $record.Path -Algorithm SHA256
+                ).Hash.ToLowerInvariant()
+                if ($finalHash -cne $record.PreScanSha256) {
+                  throw "A final Windows candidate changed after Defender scanning."
+                }
+                [ordered]@{
+                  name = $record.Name
+                  sha256 = $finalHash
+                  preScanSha256 = $record.PreScanSha256
+                  postScanSha256 = $finalHash
+                  excluded = $false
+                  exclusionCheckExitCode = $record.ExclusionCheckExitCode
+                  scanExitCode = $record.ScanExitCode
+                  scanStartedAt = $record.ScanStartedAt
+                  scanCompletedAt = $record.ScanCompletedAt
+                  detectionDelta = 0
+                  scanResult = "clean"
+                }
+              }
+            )
+            $summary = [ordered]@{
+              schemaVersion = 1
+              result = "clean"
+              repository = $env:GITHUB_REPOSITORY
+              workflow = $env:GITHUB_WORKFLOW
+              workflowRef = $env:GITHUB_WORKFLOW_REF
+              runId = $env:GITHUB_RUN_ID
+              runAttempt = $env:GITHUB_RUN_ATTEMPT
+              sourceSha = $env:SOURCE_SHA
+              releaseTag = $env:RELEASE_TAG
+              releaseRef = $env:GITHUB_REF
+              packageArtifactId = $env:PACKAGE_ARTIFACT_ID
+              packageArtifactDigest = $env:PACKAGE_ARTIFACT_DIGEST
+              packageDownloadOutcome = $env:DOWNLOAD_OUTCOME
+              controlledImageId = $env:CONTROLLED_IMAGE_ID
+              observedControlledImageId = $env:OBSERVED_CONTROLLED_IMAGE_ID
+              defenderPolicyBlobId = $defenderPolicyBlobId
+              releaseWorkflowBlobId = $releaseWorkflowBlobId
+              runnerEnvironment = $env:RUNNER_ENVIRONMENT
+              runnerOS = $env:RUNNER_OS
+              runnerArchitecture = $env:RUNNER_ARCH
+              operatingSystemVersion = $operatingSystemVersion
+              defenderServiceStatus = $service.Status.ToString()
+              antimalwareRunningMode = [string]$status.AMRunningMode
+              antivirusEnabled = $status.AntivirusEnabled
+              antimalwareServiceEnabled = $status.AMServiceEnabled
+              realTimeProtectionEnabled = $status.RealTimeProtectionEnabled
+              behaviorMonitorEnabled = $status.BehaviorMonitorEnabled
+              ioavProtectionEnabled = $status.IoavProtectionEnabled
+              onAccessProtectionEnabled = $status.OnAccessProtectionEnabled
+              cloudDeliveredProtectionEnabled = ([int]$preference.MAPSReporting -eq 2)
+              blockAtFirstSeenEnabled = (-not [bool]$preference.DisableBlockAtFirstSeen)
+              automaticSampleSubmissionEnabled = ([int]$preference.SubmitSamplesConsent -eq 1)
+              puaProtectionEnabled = ([int]$preference.PUAProtection -eq 1)
+              mapsReporting = [int]$preference.MAPSReporting
+              submitSamplesConsent = [int]$preference.SubmitSamplesConsent
+              mapsConnectionValidated = [bool]$readiness.mapsConnectionValidated
+              mapsValidationExitCode = [int]$readiness.mapsValidationExitCode
+              detectionSmokeTestPassed = [bool]$readiness.detectionSmokeTestPassed
+              securityIntelligenceUpdateSource = [string]$readiness.securityIntelligenceUpdateSource
+              filesystemPathExclusionCount = $pathExclusions.Count
+              fileExtensionExclusionCount = $extensionExclusions.Count
+              processExclusionCount = $processExclusions.Count
+              antimalwareEngineVersion = $status.AMEngineVersion
+              antimalwareProductVersion = $status.AMProductVersion
+              antivirusSignatureVersion = $status.AntivirusSignatureVersion
+              antivirusSignatureAge = [int]$status.AntivirusSignatureAge
+              antivirusSignatureLastUpdated = $status.AntivirusSignatureLastUpdated.ToUniversalTime().ToString("o")
+              newDetectionCount = $newDetections.Count
+              scanAttemptStartedAt = $scanAttemptStartedAt.ToString("o")
+              candidateScanStartedAt = $candidateScanStartedAt.ToString("o")
+              scanCompletedAt = [DateTime]::UtcNow.ToString("o")
+              files = $files
+            }
+            $summary |
+              ConvertTo-Json -Depth 5 |
+              Set-Content -LiteralPath $evidencePath -Encoding utf8NoBOM
+          } catch {
+            $scanFailure = $_
+            $blockedStatus = $null
+            try {
+              $blockedStatus = Get-MpComputerStatus -ErrorAction Stop
+            } catch {
+              Write-Host "Defender status was unavailable for blocked evidence."
+            }
+            $threatNames = @{}
+            $threatNameQueryError = $null
+            try {
+              foreach ($threat in @(Get-MpThreat -ErrorAction Stop)) {
+                $threatNames[[string]$threat.ThreatID] = [string]$threat.ThreatName
+              }
+            } catch {
+              $threatNameQueryError = $_.Exception.Message
+              Write-Host "Defender threat names were unavailable for blocked evidence."
+            }
+            function Convert-ToEvidenceTimestamp {
+              param([object]$Value)
+              if ($null -eq $Value) {
+                return $null
+              }
+              try {
+                return ([DateTime]$Value).ToUniversalTime().ToString("o")
+              } catch {
+                return $null
+              }
+            }
+            $blockedDetections = @()
+            $blockedDetectionQueryError = $null
+            try {
+              $blockedDetections = @(
+                foreach ($detection in @(Get-MpThreatDetection -ErrorAction Stop)) {
+                  $resources = @($detection.Resources | ForEach-Object { [string]$_ })
+                  $resourceText = [string]::Join("`n", $resources)
+                  $matchesCandidate = $false
+                  foreach ($target in $targetPaths) {
+                    if ($resourceText.IndexOf(
+                        $target,
+                        [System.StringComparison]::OrdinalIgnoreCase
+                      ) -ge 0 -or
+                      $resourceText.IndexOf(
+                        (Split-Path -Leaf $target),
+                        [System.StringComparison]::OrdinalIgnoreCase
+                      ) -ge 0) {
+                      $matchesCandidate = $true
+                      break
+                    }
+                  }
+                  $initialDetectionTime = Convert-ToEvidenceTimestamp `
+                    -Value $detection.InitialDetectionTime
+                  $lastStatusChangeTime = Convert-ToEvidenceTimestamp `
+                    -Value $detection.LastThreatStatusChangeTime
+                  $isSmokeDetection = (
+                    $resourceText.IndexOf(
+                      "tailchrome-defender-smoke-",
+                      [System.StringComparison]::OrdinalIgnoreCase
+                    ) -ge 0
+                  )
+                  $detectedDuringCandidateScan = (
+                    $null -ne $candidateScanStartedAt -and
+                    $null -ne $initialDetectionTime -and
+                    ([DateTime]$initialDetectionTime) -ge $candidateScanStartedAt
+                  )
+                  if ($matchesCandidate -or
+                      ($detectedDuringCandidateScan -and -not $isSmokeDetection)) {
+                    $threatId = [string]$detection.ThreatID
+                    [ordered]@{
+                      threatId = $threatId
+                      threatName = [string]$threatNames[$threatId]
+                      detectionId = [string]$detection.DetectionID
+                      initialDetectionTime = $initialDetectionTime
+                      lastThreatStatusChangeTime = $lastStatusChangeTime
+                      actionSuccess = [bool]$detection.ActionSuccess
+                      currentThreatExecutionStatusId = (
+                        [int]$detection.CurrentThreatExecutionStatusID
+                      )
+                      threatStatusId = [int]$detection.ThreatStatusID
+                      resources = $resources
+                    }
+                  }
+                }
+              )
+            } catch {
+              $blockedDetectionQueryError = $_.Exception.Message
+              Write-Host "Defender detections were unavailable for blocked evidence."
+            }
+            $blockedFiles = @(
+              foreach ($file in $expectedFiles) {
+                $exists = $false
+                $currentHash = $null
+                $readError = $null
+                try {
+                  $exists = Test-Path `
+                    -LiteralPath $file.path `
+                    -PathType Leaf `
+                    -ErrorAction Stop
+                  if ($exists) {
+                    $currentHash = (
+                      Get-FileHash `
+                        -LiteralPath $file.path `
+                        -Algorithm SHA256 `
+                        -ErrorAction Stop
+                    ).Hash.ToLowerInvariant()
+                  }
+                } catch {
+                  $readError = $_.Exception.Message
+                }
+                [ordered]@{
+                  name = $file.name
+                  sha256 = $file.sha256
+                  currentSha256 = $currentHash
+                  exists = $exists
+                  readError = $readError
+                }
+              }
+            )
+            $signatureLastUpdated = $null
+            if ($null -ne $blockedStatus -and
+                $null -ne $blockedStatus.AntivirusSignatureLastUpdated) {
+              $signatureLastUpdated = Convert-ToEvidenceTimestamp `
+                -Value $blockedStatus.AntivirusSignatureLastUpdated
+            }
+            $candidateScanStartedAtString = $null
+            if ($null -ne $candidateScanStartedAt) {
+              $candidateScanStartedAtString = $candidateScanStartedAt.ToString("o")
+            }
+            $blockedSummary = [ordered]@{
+              schemaVersion = 1
+              result = "blocked"
+              repository = $env:GITHUB_REPOSITORY
+              workflow = $env:GITHUB_WORKFLOW
+              workflowRef = $env:GITHUB_WORKFLOW_REF
+              runId = $env:GITHUB_RUN_ID
+              runAttempt = $env:GITHUB_RUN_ATTEMPT
+              sourceSha = $env:SOURCE_SHA
+              releaseTag = $env:RELEASE_TAG
+              releaseRef = $env:GITHUB_REF
+              packageArtifactId = $env:PACKAGE_ARTIFACT_ID
+              packageArtifactDigest = $env:PACKAGE_ARTIFACT_DIGEST
+              packageDownloadOutcome = $env:DOWNLOAD_OUTCOME
+              controlledImageId = $env:CONTROLLED_IMAGE_ID
+              observedControlledImageId = $env:OBSERVED_CONTROLLED_IMAGE_ID
+              defenderPolicyBlobId = $defenderPolicyBlobId
+              releaseWorkflowBlobId = $releaseWorkflowBlobId
+              runnerEnvironment = $env:RUNNER_ENVIRONMENT
+              runnerOS = $env:RUNNER_OS
+              runnerArchitecture = $env:RUNNER_ARCH
+              operatingSystemVersion = $operatingSystemVersion
+              antimalwareRunningMode = [string]$blockedStatus.AMRunningMode
+              antimalwareEngineVersion = [string]$blockedStatus.AMEngineVersion
+              antimalwareProductVersion = [string]$blockedStatus.AMProductVersion
+              antivirusSignatureVersion = [string]$blockedStatus.AntivirusSignatureVersion
+              antivirusSignatureLastUpdated = $signatureLastUpdated
+              scanAttemptStartedAt = $scanAttemptStartedAt.ToString("o")
+              candidateScanStartedAt = $candidateScanStartedAtString
+              scanCompletedAt = [DateTime]::UtcNow.ToString("o")
+              lastNativeScanExitCode = $script:lastNativeScanExitCode
+              failure = [ordered]@{
+                message = $scanFailure.Exception.Message
+                fullyQualifiedErrorId = $scanFailure.FullyQualifiedErrorId
+                category = [string]$scanFailure.CategoryInfo.Category
+              }
+              threatNameQueryError = $threatNameQueryError
+              detectionQueryError = $blockedDetectionQueryError
+              detectionCount = $blockedDetections.Count
+              detections = $blockedDetections
+              files = $blockedFiles
+            }
+            try {
+              $blockedSummary |
+                ConvertTo-Json -Depth 6 |
+                Set-Content -LiteralPath $evidencePath -Encoding utf8NoBOM
+            } catch {
+              Write-Host "Blocked Defender evidence could not be written: $($_.Exception.Message)"
+            }
+            throw $scanFailure
+          }
       - name: Upload automated Defender evidence
-        uses: actions/upload-artifact@v6
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: windows-defender-evidence
           retention-days: 7
+          if-no-files-found: error
           path: signed-windows/windows-defender-verification.json
 
   assemble-release-candidate:
-    needs: [build, sign-macos, package-macos, package-linux, package-windows]
+    needs:
+      [build, sign-macos, package-macos, package-linux, package-windows, scan-windows-defender]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
       attestations: write
     env:
+      EXPECTED_MSI_SHA256: ${{ needs.package-windows.outputs.msi_sha256 }}
+      EXPECTED_RAW_SHA256: ${{ needs.package-windows.outputs.raw_sha256 }}
+      PACKAGE_ARTIFACT_DIGEST: ${{ needs.package-windows.outputs.artifact_digest }}
+      PACKAGE_ARTIFACT_ID: ${{ needs.package-windows.outputs.artifact_id }}
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
       SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
     outputs:
@@ -704,6 +1184,30 @@ jobs:
           cp signed-windows/windows-signature-verification.json candidate/evidence/
           cp windows-defender-evidence/windows-defender-verification.json candidate/evidence/
 
+          defender_summary="candidate/evidence/windows-defender-verification.json"
+          test "$(jq -r .result "$defender_summary")" = "clean"
+          test "$(jq -r .repository "$defender_summary")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r .runId "$defender_summary")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .runAttempt "$defender_summary")" = "$GITHUB_RUN_ATTEMPT"
+          test "$(jq -r .sourceSha "$defender_summary")" = "$SOURCE_SHA"
+          test "$(jq -r .releaseTag "$defender_summary")" = "$RELEASE_TAG"
+          test "$(jq -r .releaseRef "$defender_summary")" = "refs/tags/$RELEASE_TAG"
+          test "$(jq -r .packageArtifactId "$defender_summary")" = "$PACKAGE_ARTIFACT_ID"
+          test "$(jq -r .packageArtifactDigest "$defender_summary")" = "$PACKAGE_ARTIFACT_DIGEST"
+          test "$(jq -r .packageDownloadOutcome "$defender_summary")" = "success"
+          jq -e '
+            (.controlledImageId | strings | length > 0) and
+            .observedControlledImageId == .controlledImageId
+          ' "$defender_summary" >/dev/null
+          test "$(
+            sha256sum signed-windows/tailscale-browser-ext-windows-amd64.exe |
+              cut -d' ' -f1
+          )" = "$EXPECTED_RAW_SHA256"
+          test "$(
+            sha256sum signed-windows/tailchrome-helper-windows-x64.msi |
+              cut -d' ' -f1
+          )" = "$EXPECTED_MSI_SHA256"
+
           cat > candidate/expected-assets.txt <<'ASSETS'
           chrome.zip
           firefox-sources.zip
@@ -742,22 +1246,44 @@ jobs:
             sha256sum --check SHA256SUMS.txt
           )
           digest="$(sha256sum candidate/release/SHA256SUMS.txt | cut -d' ' -f1)"
+          defender_image_id="$(
+            jq -r .controlledImageId \
+              candidate/evidence/windows-defender-verification.json
+          )"
+          defender_evidence_sha256="$(
+            sha256sum candidate/evidence/windows-defender-verification.json |
+              cut -d' ' -f1
+          )"
           echo "sha256sums_digest=$digest" >> "$GITHUB_OUTPUT"
           jq -n \
             --arg repository "$GITHUB_REPOSITORY" \
             --arg workflow ".github/workflows/release.yml" \
             --arg run_id "$GITHUB_RUN_ID" \
+            --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
             --arg release_tag "$RELEASE_TAG" \
             --arg source_sha "$SOURCE_SHA" \
             --arg sha256sums_sha256 "$digest" \
+            --arg windows_package_artifact_id "$PACKAGE_ARTIFACT_ID" \
+            --arg windows_package_artifact_digest "$PACKAGE_ARTIFACT_DIGEST" \
+            --arg windows_raw_sha256 "$EXPECTED_RAW_SHA256" \
+            --arg windows_msi_sha256 "$EXPECTED_MSI_SHA256" \
+            --arg windows_defender_image_id "$defender_image_id" \
+            --arg windows_defender_evidence_sha256 "$defender_evidence_sha256" \
             '{
               schemaVersion: 1,
               repository: $repository,
               workflow: $workflow,
               runId: $run_id,
+              runAttempt: $run_attempt,
               releaseTag: $release_tag,
               sourceSha: $source_sha,
-              sha256sumsSha256: $sha256sums_sha256
+              sha256sumsSha256: $sha256sums_sha256,
+              windowsPackageArtifactId: $windows_package_artifact_id,
+              windowsPackageArtifactDigest: $windows_package_artifact_digest,
+              windowsRawSha256: $windows_raw_sha256,
+              windowsMsiSha256: $windows_msi_sha256,
+              windowsDefenderImageId: $windows_defender_image_id,
+              windowsDefenderEvidenceSha256: $windows_defender_evidence_sha256
             }' > candidate/candidate-metadata.json
       - name: Generate final artifact attestations
         uses: actions/attest@v4

@@ -38,6 +38,8 @@ jobs:
       attestations: read
       contents: read
     outputs:
+      candidate_artifact_id: ${{ steps.validate-source.outputs.candidate_artifact_id }}
+      run_attempt: ${{ steps.validate-source.outputs.run_attempt }}
       source_sha: ${{ steps.validate-source.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v5
@@ -77,6 +79,26 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha
           )" = "$source_sha"
           test "$(jq -r .head_sha <<<"$run_json")" = "$source_sha"
+          run_attempt="$(jq -r .run_attempt <<<"$run_json")"
+          [[ "$run_attempt" =~ ^[1-9][0-9]*$ ]]
+
+          artifacts_json="$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID/artifacts?per_page=100"
+          )"
+          candidate_artifact_id="$(
+            jq -r --arg name "$CANDIDATE_ARTIFACT" '
+              [.artifacts[] |
+                select(.name == $name and .expired == false)] as $matches |
+              if ($matches | length) == 1
+              then $matches[0].id
+              else empty
+              end
+            ' <<<"$artifacts_json"
+          )"
+          [[ "$candidate_artifact_id" =~ ^[1-9][0-9]*$ ]]
+          echo "candidate_artifact_id=$candidate_artifact_id" >> "$GITHUB_OUTPUT"
+          echo "run_attempt=$run_attempt" >> "$GITHUB_OUTPUT"
           echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
 
           environment_json="$(
@@ -98,7 +120,7 @@ jobs:
       - name: Download original candidate artifact
         uses: actions/download-artifact@v6
         with:
-          name: ${{ env.CANDIDATE_ARTIFACT }}
+          artifact-ids: ${{ steps.validate-source.outputs.candidate_artifact_id }}
           path: candidate
           repository: ${{ github.repository }}
           run-id: ${{ inputs.candidate_run_id }}
@@ -106,6 +128,7 @@ jobs:
       - name: Revalidate metadata, allowlist, and hashes
         env:
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_RUN_ATTEMPT: ${{ steps.validate-source.outputs.run_attempt }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           EXPECTED_MANIFEST_DIGEST: ${{ inputs.sha256sums_digest }}
         run: |
@@ -116,6 +139,7 @@ jobs:
           test "$(jq -r .repository "$metadata")" = "$GITHUB_REPOSITORY"
           test "$(jq -r .workflow "$metadata")" = "$CANDIDATE_WORKFLOW_PATH"
           test "$(jq -r .runId "$metadata")" = "$CANDIDATE_RUN_ID"
+          test "$(jq -r .runAttempt "$metadata")" = "$CANDIDATE_RUN_ATTEMPT"
           test "$(jq -r .releaseTag "$metadata")" = "$RELEASE_TAG"
           test "$(jq -r .sourceSha "$metadata")" = "$source_sha"
           test "$(jq -r .sha256sumsSha256 "$metadata")" = "$EXPECTED_MANIFEST_DIGEST"
@@ -170,8 +194,34 @@ jobs:
           jq -e '.expectedSignerSubject | strings | length > 0' "$signature_summary" >/dev/null
 
           defender_summary="candidate/evidence/windows-defender-verification.json"
+          defender_evidence_hash="$(
+            sha256sum "$defender_summary" | cut -d' ' -f1
+          )"
           test "$(jq -r .schemaVersion "$defender_summary")" = "1"
           test "$(jq -r .result "$defender_summary")" = "clean"
+          test "$(jq -r .repository "$defender_summary")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r .workflow "$defender_summary")" = "Release Candidate"
+          test "$(
+            jq -r .workflowRef "$defender_summary"
+          )" = "$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$RELEASE_TAG"
+          test "$(jq -r .runId "$defender_summary")" = "$CANDIDATE_RUN_ID"
+          test "$(jq -r .runAttempt "$defender_summary")" = "$CANDIDATE_RUN_ATTEMPT"
+          test "$(jq -r .sourceSha "$defender_summary")" = "$source_sha"
+          test "$(jq -r .releaseTag "$defender_summary")" = "$RELEASE_TAG"
+          test "$(jq -r .releaseRef "$defender_summary")" = "refs/tags/$RELEASE_TAG"
+          test "$(jq -r .packageDownloadOutcome "$defender_summary")" = "success"
+          test "$(
+            jq -r .packageArtifactId "$defender_summary"
+          )" = "$(jq -r .windowsPackageArtifactId "$metadata")"
+          test "$(
+            jq -r .packageArtifactDigest "$defender_summary"
+          )" = "$(jq -r .windowsPackageArtifactDigest "$metadata")"
+          test "$(
+            jq -r .controlledImageId "$defender_summary"
+          )" = "$(jq -r .windowsDefenderImageId "$metadata")"
+          test "$(
+            jq -r .windowsDefenderEvidenceSha256 "$metadata"
+          )" = "$defender_evidence_hash"
           test "$(jq -r .defenderServiceStatus "$defender_summary")" = "Running"
           test "$(jq -r .antimalwareRunningMode "$defender_summary")" = "Normal"
           test "$(jq -r .antivirusEnabled "$defender_summary")" = "true"
@@ -188,6 +238,7 @@ jobs:
           test "$(jq -r .submitSamplesConsent "$defender_summary")" = "1"
           test "$(jq -r .mapsConnectionValidated "$defender_summary")" = "true"
           test "$(jq -r .mapsValidationExitCode "$defender_summary")" = "0"
+          test "$(jq -r .detectionSmokeTestPassed "$defender_summary")" = "true"
           test "$(jq -r .newDetectionCount "$defender_summary")" = "0"
           test "$(jq -r .filesystemPathExclusionCount "$defender_summary")" = "0"
           test "$(jq -r .fileExtensionExclusionCount "$defender_summary")" = "0"
@@ -196,8 +247,23 @@ jobs:
             .securityIntelligenceUpdateSource == "MicrosoftUpdateServer" or
             .securityIntelligenceUpdateSource == "MMPC"
           ' "$defender_summary" >/dev/null
-          jq -e '.runnerImageOS | strings | length > 0' "$defender_summary" >/dev/null
-          jq -e '.runnerImageVersion | strings | length > 0' "$defender_summary" >/dev/null
+          test "$(jq -r .runnerEnvironment "$defender_summary")" = "self-hosted"
+          test "$(jq -r .runnerOS "$defender_summary")" = "Windows"
+          test "$(jq -r .runnerArchitecture "$defender_summary")" = "X64"
+          jq -e '.runAttempt | strings | test("^[1-9][0-9]*$")' "$defender_summary" >/dev/null
+          jq -e '.packageArtifactId | strings | test("^[1-9][0-9]*$")' "$defender_summary" >/dev/null
+          jq -e '.packageArtifactDigest | strings | test("^[0-9a-f]{64}$")' "$defender_summary" >/dev/null
+          jq -e '
+            (.controlledImageId | strings | length > 0) and
+            .observedControlledImageId == .controlledImageId
+          ' "$defender_summary" >/dev/null
+          test "$(
+            jq -r .defenderPolicyBlobId "$defender_summary"
+          )" = "$(git rev-parse "$source_sha:scripts/initialize-windows-defender.ps1")"
+          test "$(
+            jq -r .releaseWorkflowBlobId "$defender_summary"
+          )" = "$(git rev-parse "$source_sha:.github/workflows/release.yml")"
+          jq -e '.operatingSystemVersion | strings | length > 0' "$defender_summary" >/dev/null
           jq -e '.antimalwareEngineVersion | strings | length > 0' "$defender_summary" >/dev/null
           jq -e '.antimalwareProductVersion | strings | length > 0' "$defender_summary" >/dev/null
           jq -e '.antivirusSignatureVersion | strings | length > 0' "$defender_summary" >/dev/null
@@ -227,10 +293,12 @@ jobs:
             jq -r --arg name tailscale-browser-ext-windows-amd64.exe \
               '.files[] | select(.name == $name) | .sha256' "$defender_summary"
           )" = "$raw_hash"
+          test "$(jq -r .windowsRawSha256 "$metadata")" = "$raw_hash"
           test "$(
             jq -r --arg name tailchrome-helper-windows-x64.msi \
               '.files[] | select(.name == $name) | .sha256' "$defender_summary"
           )" = "$msi_hash"
+          test "$(jq -r .windowsMsiSha256 "$metadata")" = "$msi_hash"
       - name: Verify final artifact attestations
         env:
           GH_TOKEN: ${{ github.token }}
@@ -277,7 +345,7 @@ jobs:
       - name: Download original candidate artifact
         uses: actions/download-artifact@v6
         with:
-          name: ${{ env.CANDIDATE_ARTIFACT }}
+          artifact-ids: ${{ needs.validate-candidate.outputs.candidate_artifact_id }}
           path: candidate
           repository: ${{ github.repository }}
           run-id: ${{ inputs.candidate_run_id }}
@@ -301,7 +369,7 @@ jobs:
       - name: Download original candidate artifact
         uses: actions/download-artifact@v6
         with:
-          name: ${{ env.CANDIDATE_ARTIFACT }}
+          artifact-ids: ${{ needs.validate-candidate.outputs.candidate_artifact_id }}
           path: candidate
           repository: ${{ github.repository }}
           run-id: ${{ inputs.candidate_run_id }}
@@ -353,6 +421,8 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      CANDIDATE_ARTIFACT_ID: ${{ needs.validate-candidate.outputs.candidate_artifact_id }}
+      CANDIDATE_RUN_ATTEMPT: ${{ needs.validate-candidate.outputs.run_attempt }}
       CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
       CANDIDATE_SOURCE_SHA: ${{ needs.validate-candidate.outputs.source_sha }}
       RELEASE_TAG: ${{ inputs.release_tag }}
@@ -372,17 +442,26 @@ jobs:
           test "$(jq -r .repository.full_name <<<"$run_json")" = "$GITHUB_REPOSITORY"
           test "$(jq -r .head_repository.full_name <<<"$run_json")" = "$GITHUB_REPOSITORY"
           test "$(jq -r .workflow_id <<<"$run_json")" = "$expected_workflow_id"
+          test "$(jq -r .status <<<"$run_json")" = "completed"
           test "$(jq -r .conclusion <<<"$run_json")" = "success"
+          test "$(jq -r .run_attempt <<<"$run_json")" = "$CANDIDATE_RUN_ATTEMPT"
           source_sha="$CANDIDATE_SOURCE_SHA"
           test "$(git rev-parse HEAD)" = "$source_sha"
           test "$(
             gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha
           )" = "$source_sha"
           test "$(jq -r .head_sha <<<"$run_json")" = "$source_sha"
+          artifact_json="$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/actions/artifacts/$CANDIDATE_ARTIFACT_ID"
+          )"
+          test "$(jq -r .name <<<"$artifact_json")" = "$CANDIDATE_ARTIFACT"
+          test "$(jq -r .expired <<<"$artifact_json")" = "false"
+          test "$(jq -r .workflow_run.id <<<"$artifact_json")" = "$CANDIDATE_RUN_ID"
       - name: Download original candidate artifact again
         uses: actions/download-artifact@v6
         with:
-          name: ${{ env.CANDIDATE_ARTIFACT }}
+          artifact-ids: ${{ needs.validate-candidate.outputs.candidate_artifact_id }}
           path: candidate
           repository: ${{ github.repository }}
           run-id: ${{ inputs.candidate_run_id }}
@@ -395,6 +474,7 @@ jobs:
           test "$(jq -r .repository "$metadata")" = "$GITHUB_REPOSITORY"
           test "$(jq -r .workflow "$metadata")" = "$CANDIDATE_WORKFLOW_PATH"
           test "$(jq -r .runId "$metadata")" = "$CANDIDATE_RUN_ID"
+          test "$(jq -r .runAttempt "$metadata")" = "$CANDIDATE_RUN_ATTEMPT"
           test "$(jq -r .releaseTag "$metadata")" = "$RELEASE_TAG"
           test "$(jq -r .sourceSha "$metadata")" = "$source_sha"
           test "$(jq -r .sha256sumsSha256 "$metadata")" = "$EXPECTED_MANIFEST_DIGEST"

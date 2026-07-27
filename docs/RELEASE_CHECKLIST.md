@@ -18,6 +18,10 @@ not apply.
 - [ ] The Windows code-signing policy records exactly one selected provider and one exact expected signer subject.
 - [ ] The selected Windows provider has produced a successful test signature through the repository workflow.
 - [ ] `WINDOWS_EXPECTED_SIGNER_SUBJECT` exactly matches the documented subject.
+- [ ] The protected `windows-defender-validation` environment requires review, prevents administrator bypass, permits only `v*` tags, and records the approved snapshot in `WINDOWS_DEFENDER_IMAGE_ID`; no repository- or organization-scoped variable uses that name.
+- [ ] A clean x64 Windows VM is registered only to this repository with `--ephemeral` and the run-specific `self-hosted`, `Windows`, `X64`, and `tailchrome-defender-<run-id>` labels.
+- [ ] The VM's host-owned pre-job hook permits only the approved repository, workflow, job, run ID, tag, and source SHA and verifies `TAILCHROME_DEFENDER_IMAGE_ID` against the approved snapshot; the VM has no signing credentials or internal-network access.
+- [ ] The controlled runner uses an elevated account, forwards diagnostic logs externally, passes `initialize-windows-defender.ps1 -RunDetectionSmokeTest`, and is destroyed after the job.
 - [ ] The `windows-release-clearance` environment exists with at least one required reviewer.
 - [ ] Signing credentials and identity material are stored only in the provider or repository secret store.
 - [ ] Repository tests, browser tests, host tests, workflow validation, and packaging smoke tests pass.
@@ -60,6 +64,9 @@ not apply.
 ## Exact-hash Windows security clearance
 
 Record evidence outside the shipped product and compare it with the hashes in the waiting publication workflow.
+The automated Defender artifact must come from the controlled runner; repeat
+both scanner checks and the lifecycle checks in the clean Windows 11 VM before
+publication approval.
 
 | Check | EXE result | MSI result |
 | --- | --- | --- |

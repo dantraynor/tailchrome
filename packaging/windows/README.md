@@ -75,6 +75,46 @@ pwsh -NoProfile -File .\scripts\verify-windows-signatures.test.ps1 `
   -SignToolPath $env:WINDOWS_SIGNTOOL_PATH
 ```
 
+## Automated Defender gate
+
+The release workflow scans the final signed EXE and MSI on a single-use x64
+Windows runner with the `self-hosted`, `Windows`, `X64`, and run-specific
+`tailchrome-defender-<run-id>` labels. The GitHub-hosted Windows images
+evaluated for this release run Defender in passive mode and are not accepted as
+scan evidence.
+
+The runner must be registered only to this repository with `--ephemeral`, use
+an elevated service account, and be provisioned from a current, known-clean
+image with active Defender and cloud protection and no scan exclusions. The
+image must set a host-owned `ACTIONS_RUNNER_HOOK_JOB_STARTED` hook that rejects
+any repository, workflow, job, run ID, tag, or source SHA other than the
+approved release assignment before repository code executes. It must also set
+the machine-level `TAILCHROME_DEFENDER_IMAGE_ID` to the immutable image version;
+the hook and workflow both compare that observed value with the approved
+environment value. Keep the runner offline until that assignment is approved,
+give it no signing credentials or internal-network access, forward its
+diagnostic logs externally, and destroy the VM after the job.
+
+Configure a protected `windows-defender-validation` environment with a required
+reviewer, no administrator bypass, a selected-tag policy of `v*`, and a
+`WINDOWS_DEFENDER_IMAGE_ID` variable containing the immutable image or snapshot
+version. Do not define that variable at repository or organization scope; the
+preflight rejects broader-scope fallbacks. Provision the ephemeral runner only
+after the environment approval, using the queued run ID in its custom label.
+Qualify the clean image with:
+
+```powershell
+.\scripts\initialize-windows-defender.ps1 -RunDetectionSmokeTest
+```
+
+If that runner is unavailable or cannot prove every required protection, scan,
+exclusion, detection, and hash check, candidate assembly remains blocked.
+Failures inside the guarded scan phase upload a `result: "blocked"` evidence
+file with the expected candidate hashes, available Defender definition and
+detection details, and the failing check; that evidence cannot enter a
+successful release candidate. Runner assignment, checkout, or workspace
+preparation failures stop before trustworthy scan evidence can be created.
+
 Final EXE and MSI hashes are generated only after signing and must match the
 Defender and Malwarebytes evidence approved for publication. A validly signed
 SmartScreen unknown-reputation prompt is documented but is not treated as a

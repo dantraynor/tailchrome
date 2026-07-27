@@ -230,20 +230,23 @@ jobs:
           if (-not (Test-Path -LiteralPath $env:WINDOWS_SIGNTOOL_PATH -PathType Leaf)) {
             throw "Expected SignTool was not found at $env:WINDOWS_SIGNTOOL_PATH"
           }
+      - name: Parse Defender initialization script
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path .\scripts\initialize-windows-defender.ps1),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -ne 0) {
+            $messages = @($errors | ForEach-Object { $_.Message })
+            throw "Defender initialization script parse failed: $($messages -join '; ')"
+          }
       - name: Run Windows signature verifier tests
         shell: pwsh
         run: pwsh -NoProfile -File .\scripts\verify-windows-signatures.test.ps1
-
-  windows-defender-smoke:
-    needs: changes
-    if: needs.changes.outputs.packaging == 'true'
-    runs-on: windows-11-arm
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-      - name: Prove Defender can be initialized on the release runner image
-        shell: pwsh
-        run: .\scripts\initialize-windows-defender.ps1 -RunDetectionSmokeTest
 
   workflow-static-validation:
     runs-on: ubuntu-latest
