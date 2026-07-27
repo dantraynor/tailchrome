@@ -93,8 +93,9 @@ if ($AllowUnsignedDevelopmentBuild) {
 
 if ([string]::IsNullOrWhiteSpace($OutPath)) {
   $OutPath = Join-Path $Root "dist\tailchrome-helper-windows-x64.msi"
+} else {
+  $OutPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutPath)
 }
-$OutPath = [System.IO.Path]::GetFullPath($OutPath)
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $OutPath) | Out-Null
 
 if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {

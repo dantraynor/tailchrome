@@ -214,11 +214,20 @@ try {
       -HelperExe $UnsignedExe `
       -OutPath (Join-Path $TestRoot "rejected-unsigned.msi")
   }
-  & $BuildMsi `
-    -Version "v0.0.0" `
-    -HelperExe $UnsignedExe `
-    -OutPath (Join-Path $TestRoot "development-unsigned.msi") `
-    -AllowUnsignedDevelopmentBuild
+  $RelativeBuildPath = "relative-paths\development-unsigned.msi"
+  Push-Location $TestRoot
+  try {
+    & $BuildMsi `
+      -Version "v0.0.0" `
+      -HelperExe $UnsignedExe `
+      -OutPath ".\$RelativeBuildPath" `
+      -AllowUnsignedDevelopmentBuild
+  } finally {
+    Pop-Location
+  }
+  if (-not (Test-Path -LiteralPath (Join-Path $TestRoot $RelativeBuildPath) -PathType Leaf)) {
+    throw "A relative MSI output path was not resolved from the PowerShell working directory."
+  }
 
   $SignedExe = Join-Path $TestRoot "tailscale-browser-ext-windows-amd64.exe"
   Copy-Item -LiteralPath $UnsignedExe -Destination $SignedExe
@@ -236,13 +245,28 @@ try {
   Copy-Item -LiteralPath $UnsignedMsi -Destination $SignedMsi
   Invoke-Sign -Path $SignedMsi -PfxPath $Primary.PfxPath
 
-  $SummaryPath = Join-Path $TestRoot "signature-summary.json"
-  & $Verifier `
-    -RawExe $SignedExe `
-    -Msi $SignedMsi `
-    -ExpectedSignerSubject $TestSubject `
-    -SignToolPath $SignTool `
-    -SummaryPath $SummaryPath | Out-Null
+  $RelativeExtractionDirectory = "relative-paths\signature-extraction"
+  $RelativeSummaryPath = "relative-paths\signature-summary.json"
+  $ExtractionDirectory = Join-Path $TestRoot $RelativeExtractionDirectory
+  $SummaryPath = Join-Path $TestRoot $RelativeSummaryPath
+  Push-Location $TestRoot
+  try {
+    & $Verifier `
+      -RawExe $SignedExe `
+      -Msi $SignedMsi `
+      -ExpectedSignerSubject $TestSubject `
+      -ExtractionDirectory ".\$RelativeExtractionDirectory" `
+      -SignToolPath $SignTool `
+      -SummaryPath ".\$RelativeSummaryPath" | Out-Null
+  } finally {
+    Pop-Location
+  }
+  if (-not (Test-Path -LiteralPath $ExtractionDirectory -PathType Container)) {
+    throw "A relative signature extraction path was not resolved from the PowerShell working directory."
+  }
+  if (-not (Test-Path -LiteralPath $SummaryPath -PathType Leaf)) {
+    throw "A relative signature summary path was not resolved from the PowerShell working directory."
+  }
   $Summary = Get-Content -LiteralPath $SummaryPath -Raw | ConvertFrom-Json
   if (-not $Summary.embeddedMatchesRaw -or $Summary.expectedSignerSubject -cne $TestSubject) {
     throw "Positive signature fixture returned an invalid summary."

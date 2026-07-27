@@ -170,16 +170,59 @@ jobs:
           jq -e '.expectedSignerSubject | strings | length > 0' "$signature_summary" >/dev/null
 
           defender_summary="candidate/evidence/windows-defender-verification.json"
+          test "$(jq -r .schemaVersion "$defender_summary")" = "1"
           test "$(jq -r .result "$defender_summary")" = "clean"
+          test "$(jq -r .defenderServiceStatus "$defender_summary")" = "Running"
+          test "$(jq -r .antimalwareRunningMode "$defender_summary")" = "Normal"
           test "$(jq -r .antivirusEnabled "$defender_summary")" = "true"
           test "$(jq -r .antimalwareServiceEnabled "$defender_summary")" = "true"
           test "$(jq -r .realTimeProtectionEnabled "$defender_summary")" = "true"
+          test "$(jq -r .behaviorMonitorEnabled "$defender_summary")" = "true"
+          test "$(jq -r .ioavProtectionEnabled "$defender_summary")" = "true"
+          test "$(jq -r .onAccessProtectionEnabled "$defender_summary")" = "true"
           test "$(jq -r .cloudDeliveredProtectionEnabled "$defender_summary")" = "true"
           test "$(jq -r .blockAtFirstSeenEnabled "$defender_summary")" = "true"
-          jq -e '.mapsReporting | numbers | . > 0' "$defender_summary" >/dev/null
+          test "$(jq -r .automaticSampleSubmissionEnabled "$defender_summary")" = "true"
+          test "$(jq -r .puaProtectionEnabled "$defender_summary")" = "true"
+          test "$(jq -r .mapsReporting "$defender_summary")" = "2"
+          test "$(jq -r .submitSamplesConsent "$defender_summary")" = "1"
+          test "$(jq -r .mapsConnectionValidated "$defender_summary")" = "true"
+          test "$(jq -r .mapsValidationExitCode "$defender_summary")" = "0"
+          test "$(jq -r .newDetectionCount "$defender_summary")" = "0"
+          test "$(jq -r .filesystemPathExclusionCount "$defender_summary")" = "0"
+          test "$(jq -r .fileExtensionExclusionCount "$defender_summary")" = "0"
+          test "$(jq -r .processExclusionCount "$defender_summary")" = "0"
+          jq -e '
+            .securityIntelligenceUpdateSource == "MicrosoftUpdateServer" or
+            .securityIntelligenceUpdateSource == "MMPC"
+          ' "$defender_summary" >/dev/null
+          jq -e '.runnerImageOS | strings | length > 0' "$defender_summary" >/dev/null
+          jq -e '.runnerImageVersion | strings | length > 0' "$defender_summary" >/dev/null
           jq -e '.antimalwareEngineVersion | strings | length > 0' "$defender_summary" >/dev/null
           jq -e '.antimalwareProductVersion | strings | length > 0' "$defender_summary" >/dev/null
           jq -e '.antivirusSignatureVersion | strings | length > 0' "$defender_summary" >/dev/null
+          jq -e '.antivirusSignatureAge | numbers | . <= 1' "$defender_summary" >/dev/null
+          jq -e '.antivirusSignatureLastUpdated | strings | length > 0' "$defender_summary" >/dev/null
+          jq -e '.scanCompletedAt | strings | length > 0' "$defender_summary" >/dev/null
+          jq -e '
+            .files |
+            length == 2 and all(
+              (
+                .name == "tailscale-browser-ext-windows-amd64.exe" or
+                .name == "tailchrome-helper-windows-x64.msi"
+              ) and
+              .scanResult == "clean" and
+              .excluded == false and
+              .exclusionCheckExitCode == 1 and
+              .scanExitCode == 0 and
+              .detectionDelta == 0 and
+              (.sha256 | strings | test("^[0-9a-f]{64}$")) and
+              .preScanSha256 == .sha256 and
+              .postScanSha256 == .sha256 and
+              (.scanStartedAt | strings | length > 0) and
+              (.scanCompletedAt | strings | length > 0)
+            )
+          ' "$defender_summary" >/dev/null
           test "$(
             jq -r --arg name tailscale-browser-ext-windows-amd64.exe \
               '.files[] | select(.name == $name) | .sha256' "$defender_summary"

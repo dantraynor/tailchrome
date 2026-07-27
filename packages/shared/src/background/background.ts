@@ -259,6 +259,37 @@ interface HelperRetryRecord {
   nextRetryAt: number;
 }
 
+function reuseEquivalentHelperDiagnostic(
+  current: HelperDiagnostic | null,
+  next: HelperDiagnostic | null,
+): HelperDiagnostic | null {
+  if (current === next) return current;
+  if (current === null || next === null) return next;
+  if (
+    current.diagnosticCode === next.diagnosticCode &&
+    current.diagnosticMessage === next.diagnosticMessage
+  ) {
+    return current;
+  }
+  return next;
+}
+
+function reuseEquivalentHelperFailure(
+  current: HelperFailure | null,
+  next: HelperFailure | null,
+): HelperFailure | null {
+  if (current === next) return current;
+  if (current === null || next === null) return next;
+  if (
+    current.kind === next.kind &&
+    current.diagnosticCode === next.diagnosticCode &&
+    current.diagnosticMessage === next.diagnosticMessage
+  ) {
+    return current;
+  }
+  return next;
+}
+
 function isHelperRetryRecord(value: unknown): value is HelperRetryRecord {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Partial<HelperRetryRecord>;
@@ -535,11 +566,20 @@ export function initBackground(
     diagnosticCode: string,
     detail: unknown,
   ): void {
-    const diagnostic = diagnosticFrom(diagnosticCode, detail);
-    const failure: HelperFailure = {
+    const current = store.getState();
+    const diagnostic = reuseEquivalentHelperDiagnostic(
+      current.helperDiagnostic,
+      diagnosticFrom(diagnosticCode, detail),
+    );
+    const nextFailure: HelperFailure = {
       kind: "helper-reported-error",
-      ...diagnostic,
+      diagnosticCode,
+      diagnosticMessage: diagnostic?.diagnosticMessage ?? null,
     };
+    const failure = reuseEquivalentHelperFailure(
+      current.helperFailure,
+      nextFailure,
+    );
     store.update({
       helperFailure: failure,
       helperDiagnostic: diagnostic,
@@ -798,11 +838,12 @@ export function initBackground(
 
   function handleNativeConnectionEvent(event: NativeConnectionEvent): void {
     if (event.type === "diagnostic") {
+      const currentDiagnostic = store.getState().helperDiagnostic;
       store.update({
-        helperDiagnostic: {
+        helperDiagnostic: reuseEquivalentHelperDiagnostic(currentDiagnostic, {
           diagnosticCode: event.diagnosticCode,
           diagnosticMessage: event.diagnosticMessage,
-        },
+        }),
       });
       return;
     }
@@ -831,18 +872,29 @@ export function initBackground(
     sawHealthyInit = false;
     clearPendingLoginOpen();
 
-    const currentFailure = store.getState().helperFailure;
+    const currentState = store.getState();
+    const currentFailure = currentState.helperFailure;
     const keepSpecificFailure =
       currentFailure?.kind === "helper-reported-error" ||
       currentFailure?.kind === "helper-incompatible";
-    const helperFailure = keepSpecificFailure
-      ? currentFailure
-      : event.failure;
+    const helperFailure = reuseEquivalentHelperFailure(
+      currentFailure,
+      keepSpecificFailure ? currentFailure : event.failure,
+    );
     const authoritative =
       helperFailure?.kind === "helper-unavailable" ||
       helperFailure?.kind === "helper-not-allowed" ||
       helperFailure?.kind === "helper-reported-error" ||
       helperFailure?.kind === "helper-incompatible";
+    const helperDiagnostic = reuseEquivalentHelperDiagnostic(
+      currentState.helperDiagnostic,
+      helperFailure
+        ? {
+            diagnosticCode: helperFailure.diagnosticCode,
+            diagnosticMessage: helperFailure.diagnosticMessage,
+          }
+        : currentState.helperDiagnostic,
+    );
 
     store.update({
       hostConnected: false,
@@ -853,12 +905,7 @@ export function initBackground(
       hostVersion: null,
       helperVersionNotice: null,
       helperFailure,
-      helperDiagnostic: helperFailure
-        ? {
-            diagnosticCode: helperFailure.diagnosticCode,
-            diagnosticMessage: helperFailure.diagnosticMessage,
-          }
-        : store.getState().helperDiagnostic,
+      helperDiagnostic,
       reconnecting: !authoritative && event.reconnecting,
       supportsNetcheck: false,
       supportsPingPeer: false,

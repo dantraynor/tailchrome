@@ -307,6 +307,9 @@ describe("renderInstallFlow", () => {
     toggle.click();
     expect(section.classList.contains("hidden")).toBe(false);
     expect(toggle.textContent).toBe("Hide verified per-user repair");
+    expect(section.textContent).toContain(
+      "powershell.exe -NoProfile -Command \"msiexec.exe /fa (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\\tailchrome-helper-windows-x64.msi')\"",
+    );
 
     section.querySelector<HTMLAnchorElement>("a")!.click();
     expect(sendMessage).toHaveBeenCalledWith({

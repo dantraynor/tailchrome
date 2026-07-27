@@ -89,11 +89,11 @@ Windows package on x64 and ARM64 Windows, where it runs under x64 emulation.
 ## Repair
 
 To rerun registration with the installed signed MSI, use Windows Installer
-repair from **Installed apps**, or run this from a PowerShell prompt with the
-exact downloaded MSI path:
+repair from **Installed apps**, or run this from either Command Prompt or
+PowerShell after downloading the MSI:
 
-```powershell
-msiexec.exe /fa .\tailchrome-helper-windows-x64.msi
+```text
+powershell.exe -NoProfile -Command "msiexec.exe /fa (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\tailchrome-helper-windows-x64.msi')"
 ```
 
 Repair reruns the embedded signed helper with `-install-now` for the current

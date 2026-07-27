@@ -193,7 +193,7 @@ function repairRunCommand(
     platform === "windows" &&
     (architecture === "amd64" || architecture === "arm64")
   ) {
-    return "msiexec.exe /fa .\\tailchrome-helper-windows-x64.msi";
+    return "powershell.exe -NoProfile -Command \"msiexec.exe /fa (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\\tailchrome-helper-windows-x64.msi')\"";
   }
   return null;
 }

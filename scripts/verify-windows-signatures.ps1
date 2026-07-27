@@ -277,7 +277,9 @@ if ([string]::IsNullOrWhiteSpace($ExtractionDirectory)) {
   $ExtractionDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "tailchrome-msi-$([Guid]::NewGuid().ToString('N'))"
   $RemoveExtractionDirectory = $true
 } else {
-  $ExtractionDirectory = [System.IO.Path]::GetFullPath($ExtractionDirectory)
+  $ExtractionDirectory = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+    $ExtractionDirectory
+  )
   if (Test-Path -LiteralPath $ExtractionDirectory) {
     if (@(Get-ChildItem -LiteralPath $ExtractionDirectory -Force).Count -ne 0) {
       throw "Extraction directory must be empty: '$ExtractionDirectory'."
@@ -359,7 +361,9 @@ try {
   $SummaryJson = $Summary | ConvertTo-Json -Depth 5
 
   if (-not [string]::IsNullOrWhiteSpace($SummaryPath)) {
-    $SummaryPath = [System.IO.Path]::GetFullPath($SummaryPath)
+    $SummaryPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+      $SummaryPath
+    )
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $SummaryPath) | Out-Null
     Set-Content -LiteralPath $SummaryPath -Value $SummaryJson -Encoding utf8NoBOM
   }

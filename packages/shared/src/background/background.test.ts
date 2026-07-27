@@ -609,6 +609,83 @@ describe("initBackground", () => {
       expect(otherPort.postMessage).not.toHaveBeenCalled();
     });
 
+    it("coalesces identical helper failures while publishing meaningful changes", async () => {
+      await setupBackground();
+      setChromeLastError({
+        message: "Specified native messaging host not found",
+      });
+      nativePort.onDisconnect._listeners[0]!(nativePort);
+      setChromeLastError(undefined);
+
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      const initialState = (
+        popupPort.postMessage.mock.calls[0]![0] as {
+          type: "state";
+          state: TailscaleState;
+        }
+      ).state;
+      const initialFailure = initialState.helperFailure;
+      const initialDiagnostic = initialState.helperDiagnostic;
+      popupPort.postMessage.mockClear();
+      vi.mocked(proxyManager.apply).mockClear();
+
+      const secondPort = createNativeMockPort();
+      (
+        chrome.runtime.connectNative as unknown as ReturnType<typeof vi.fn>
+      ).mockReturnValue(secondPort);
+      await vi.advanceTimersByTimeAsync(1_000);
+      setChromeLastError({
+        message: "Specified native messaging host not found",
+      });
+      secondPort.onDisconnect._listeners[0]!(secondPort);
+      setChromeLastError(undefined);
+
+      expect(proxyManager.apply).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).not.toHaveBeenCalled();
+
+      const observerPort = createPopupPort();
+      connectListeners[0]!(observerPort);
+      const repeatedState = (
+        observerPort.postMessage.mock.calls[0]![0] as {
+          type: "state";
+          state: TailscaleState;
+        }
+      ).state;
+      expect(repeatedState.stateVersion).toBe(initialState.stateVersion);
+      expect(repeatedState.helperFailure).toBe(initialFailure);
+      expect(repeatedState.helperDiagnostic).toBe(initialDiagnostic);
+
+      popupPort.postMessage.mockClear();
+      const thirdPort = createNativeMockPort();
+      (
+        chrome.runtime.connectNative as unknown as ReturnType<typeof vi.fn>
+      ).mockReturnValue(thirdPort);
+      await vi.advanceTimersByTimeAsync(2_000);
+      setChromeLastError({
+        message: "No such native application at a different location",
+      });
+      thirdPort.onDisconnect._listeners[0]!(thirdPort);
+      setChromeLastError(undefined);
+
+      expect(popupPort.postMessage).toHaveBeenCalledTimes(1);
+      const changedState = (
+        popupPort.postMessage.mock.calls[0]![0] as {
+          type: "state";
+          state: TailscaleState;
+        }
+      ).state;
+      expect(changedState.stateVersion).toBe(initialState.stateVersion + 1);
+      expect(changedState.helperFailure).toEqual({
+        kind: "helper-unavailable",
+        diagnosticCode: "native-host-unavailable",
+        diagnosticMessage:
+          "No such native application at a different location",
+      });
+      expect(changedState.helperFailure).not.toBe(initialFailure);
+      expect(changedState.helperDiagnostic).not.toBe(initialDiagnostic);
+    });
+
     it("polls the native host after the popup requests install retries", async () => {
       await setupBackground();
       setChromeLastError({
