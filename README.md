@@ -57,7 +57,7 @@ make dev              # Chrome extension (watch mode)
 make host             # Native host binary
 ```
 
-PRs run CI (lint, typecheck, TypeScript and Go tests, Chrome browser smoke tests, packaging checks, and the Firefox review gate). Tagged releases build all artifacts and publish to the Chrome Web Store and Firefox Add-ons. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for full setup and build commands.
+PRs run CI (lint, typecheck, TypeScript and Go tests, Chrome browser integration smoke tests, Windows helper checks, packaging checks, and the Firefox review gate). Tagged releases build all artifacts and publish to the Chrome Web Store and Firefox Add-ons. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for full setup and build commands.
 
 ## Contributing
 

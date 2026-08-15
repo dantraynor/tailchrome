@@ -12,12 +12,14 @@
     "review:firefox": "pnpm lint:firefox && pnpm zip:firefox && pnpm validate:firefox-publish",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "e2e": "node ./scripts/e2e/run.mjs",
-    "e2e:chrome": "node ./scripts/e2e/run.mjs --browser=chrome",
-    "e2e:firefox": "node ./scripts/e2e/run.mjs --browser=firefox",
-    "e2e:full": "node ./scripts/e2e/run.mjs --suite=full --browser=chrome && node ./scripts/e2e/run.mjs --suite=full --browser=firefox",
-    "e2e:full:chrome": "node ./scripts/e2e/run.mjs --suite=full --browser=chrome",
-    "e2e:full:firefox": "node ./scripts/e2e/run.mjs --suite=full --browser=firefox",
+    "test:browser": "node ./scripts/e2e/run.mjs",
+    "test:browser:chrome": "node ./scripts/e2e/run.mjs --browser=chrome",
+    "test:browser:firefox": "node ./scripts/e2e/run.mjs --browser=firefox",
+    "test:browser:full": "node ./scripts/e2e/run.mjs --suite=full --browser=chrome && node ./scripts/e2e/run.mjs --suite=full --browser=firefox",
+    "test:browser:full:chrome": "node ./scripts/e2e/run.mjs --suite=full --browser=chrome",
+    "test:browser:full:firefox": "node ./scripts/e2e/run.mjs --suite=full --browser=firefox",
+    "e2e": "node ./scripts/e2e/windows-daytona.mjs",
+    "e2e:windows": "node ./scripts/e2e/windows-daytona.mjs",
     "validate:ids": "node ./scripts/validate-extension-ids.mjs",
     "validate:firefox-publish": "node ./scripts/validate-firefox-publish.mjs",
     "validate:release-tag": "node ./scripts/validate-release-tag.mjs",
@@ -55,6 +57,8 @@
     }
   },
   "devDependencies": {
-    "puppeteer": "^25.3.0"
+    "@daytona/sdk": "0.203.0",
+    "puppeteer": "^25.3.0",
+    "tar": "7.5.21"
   }
 }

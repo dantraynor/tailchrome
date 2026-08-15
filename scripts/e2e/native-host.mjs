@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { expectedHostVersion } from "./fixtures.mjs";
 
 export function createNativeHost(_browserName, control, { enabled = true } = {}) {
-  const root = mkdtempSync(join(tmpdir(), "tailchrome-e2e-"));
+  const root = mkdtempSync(join(tmpdir(), "tailchrome-browser-test-"));
   const requests = [];
   let server;
   let baseUrl = "";

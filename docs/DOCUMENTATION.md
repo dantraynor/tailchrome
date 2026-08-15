@@ -692,7 +692,7 @@ tailchrome/
 |   +-- extension-ids.json            # Extension & native host IDs
 |
 +-- scripts/
-|   +-- e2e/                         # Puppeteer runner, fixtures, native-host mock, scenarios
+|   +-- e2e/                         # Browser integration plus Daytona Windows system E2E
 |   +-- validate-extension-ids.mjs   # Extension/native manifest drift check
 |   +-- validate-release-tag.mjs     # Cross-file release version check
 +-- store-assets/                     # Store listing images
@@ -748,6 +748,10 @@ tailchrome/
 | `pnpm review:firefox`             | Full Firefox review gate (build + lint + zip + publish validation) |
 | `pnpm typecheck`                  | Run TypeScript type checking                                       |
 | `pnpm test`                       | Run all tests (vitest)                                             |
+| `pnpm test:browser:chrome`        | Run Chrome browser integration smoke scenarios                    |
+| `pnpm test:browser:firefox`       | Run Firefox browser integration smoke scenarios                   |
+| `pnpm test:browser:full`          | Run all browser integration scenarios                             |
+| `pnpm e2e`                        | Run the real Windows installer/native-host E2E in Daytona         |
 | `pnpm validate:ids`               | Validate extension ID consistency                                  |
 | `pnpm validate:release-tag <tag>` | Validate release tag format                                        |
 | `make host`                       | Build native host for current platform                             |
@@ -894,14 +898,15 @@ Two jobs with **environment-gated approvals**:
 ### Running Tests
 
 ```bash
-pnpm test              # Run all unit tests once
-pnpm e2e:chrome        # Puppeteer end-to-end suite (Chrome)
-pnpm e2e:firefox       # Puppeteer end-to-end suite (Firefox)
-pnpm e2e:full          # Full Puppeteer suite, both browsers
-cd host && go test ./... # Native host Go tests
+pnpm test                    # Run all unit tests once
+pnpm test:browser:chrome     # Browser integration suite (Chrome)
+pnpm test:browser:firefox    # Browser integration suite (Firefox)
+pnpm test:browser:full       # Full browser integration suite
+pnpm e2e                     # Real Windows system E2E in Daytona
+cd host && go test ./...     # Native host Go tests
 ```
 
-The Puppeteer harness lives in `scripts/e2e/`; see [puppeteer-testing-suite.md](puppeteer-testing-suite.md) for layout, fixtures, and the smoke vs. full suites.
+The browser and Windows system harnesses live in `scripts/e2e/`; see [puppeteer-testing-suite.md](puppeteer-testing-suite.md) for their layout, credentials, lifecycle, and coverage.
 
 ---
 

@@ -43,9 +43,10 @@ pnpm lint:firefox        # AMO-style validation
 pnpm review:firefox      # Full Firefox validation pipeline
 pnpm test                # All tests
 pnpm typecheck           # TypeScript validation
-pnpm e2e:chrome          # Puppeteer smoke suite (Chrome)
-pnpm e2e:firefox         # Puppeteer smoke suite (Firefox)
-pnpm e2e:full            # Full Puppeteer suite, both browsers
+pnpm test:browser:chrome  # Browser integration smoke suite (Chrome)
+pnpm test:browser:firefox # Browser integration smoke suite (Firefox)
+pnpm test:browser:full    # Full browser integration suite
+pnpm e2e                  # Real Windows installer/native-host E2E in Daytona
 make host                # Native host for current platform
 make host-all            # All platform binaries
 make dev                 # Chrome watch mode (WXT)
@@ -53,7 +54,7 @@ make dev                 # Chrome watch mode (WXT)
 
 Extension builds go to `packages/extension/.output/`. Native host binaries and helper installers go to `dist/`.
 
-See [puppeteer-testing-suite.md](puppeteer-testing-suite.md) for the end-to-end harness layout.
+See [puppeteer-testing-suite.md](puppeteer-testing-suite.md) for the browser integration and Windows E2E harness layout.
 
 ## Reporting Bugs
 
@@ -61,6 +62,6 @@ Include your browser, OS, extension version, and steps to reproduce.
 
 ## Release Pipeline
 
-- PRs run extension tests, Chrome checks, full Firefox review gate, Go tests on Linux and Windows, and Linux packaging checks via GitHub Actions
+- PRs run extension tests, Chrome browser integration checks, the full Firefox review gate, Go tests, Windows helper checks, and Linux packaging checks via GitHub Actions
 - Tagged releases build all artifacts (extension zips, host binaries, macOS `.pkg`, Windows `.msi`, and Linux `.deb`/`.rpm` installers) and attach them to the GitHub Release
 - Store publication uses GitHub Actions with manual environment approvals for Chrome Web Store and Firefox AMO submission

@@ -13,6 +13,7 @@ jobs:
     outputs:
       host: ${{ steps.filter.outputs.host }}
       packaging: ${{ steps.filter.outputs.packaging }}
+      windows_e2e: ${{ steps.filter.outputs.windows_e2e }}
     steps:
       - uses: actions/checkout@v5
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
@@ -28,6 +29,17 @@ jobs:
               - 'Makefile'
               - '.github/workflows/ci.yml'
               - '.github/workflows/release.yml'
+            windows_e2e:
+              - 'host/**'
+              - 'packaging/windows/**'
+              - 'packages/extension/**'
+              - 'packages/shared/**'
+              - 'config/extension-ids.json'
+              - 'scripts/e2e/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci.yml'
 
   extension-tests:
     runs-on: ubuntu-latest
@@ -43,7 +55,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
-  e2e-chrome:
+  browser-integration-chrome:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -54,7 +66,7 @@ jobs:
           package-manager-cache: false
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
-      - run: pnpm e2e:chrome
+      - run: pnpm test:browser:chrome
 
   build-chrome:
     runs-on: ubuntu-latest
@@ -112,7 +124,11 @@ jobs:
 
   host-windows-tests:
     needs: changes
-    if: needs.changes.outputs.host == 'true'
+    if: >-
+      needs.changes.outputs.host == 'true' &&
+      (vars.DAYTONA_WINDOWS_E2E_ENABLED != 'true' ||
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      github.actor == 'dependabot[bot]')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -122,6 +138,37 @@ jobs:
           cache-dependency-path: host/go.sum
       - run: go test ./...
         working-directory: host
+
+  windows-system-e2e:
+    needs: changes
+    if: >-
+      needs.changes.outputs.windows_e2e == 'true' &&
+      vars.DAYTONA_WINDOWS_E2E_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Run Windows system E2E
+        run: pnpm e2e
+        env:
+          DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+          DAYTONA_TARGET: ${{ vars.DAYTONA_TARGET }}
+          DAYTONA_E2E_TTL_MINUTES: 60
+      - name: Upload Windows installer logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-e2e-msi-logs
+          path: dist/daytona-windows-e2e/
+          if-no-files-found: ignore
 
   package-linux:
     needs: changes

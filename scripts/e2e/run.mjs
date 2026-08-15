@@ -3,11 +3,11 @@
  * Build the extension on the current branch (or a PR branch) and run
  * Puppeteer scenarios against it.
  *
- *   pnpm e2e
- *   pnpm e2e --suite=full
- *   pnpm e2e:firefox
- *   pnpm e2e 123
- *   HEADLESS=false pnpm e2e
+ *   pnpm test:browser
+ *   pnpm test:browser --suite=full
+ *   pnpm test:browser:firefox
+ *   pnpm test:browser 123
+ *   HEADLESS=false pnpm test:browser
  */
 import { execSync, spawnSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
@@ -39,7 +39,7 @@ function requireCleanTree() {
   const status = shCapture("git status --porcelain");
   if (status) {
     console.error(
-      "Working tree is dirty. Commit or stash changes before running e2e:\n" +
+      "Working tree is dirty. Commit or stash changes before running browser tests:\n" +
         status,
     );
     process.exit(2);
@@ -81,10 +81,10 @@ function parseArgs(argv) {
   }
 
   if (!supportedBrowsers.has(browserName)) {
-    throw new Error(`Unsupported e2e browser: ${browserName}`);
+    throw new Error(`Unsupported browser-test browser: ${browserName}`);
   }
   if (!supportedSuites.has(suite)) {
-    throw new Error(`Unsupported e2e suite: ${suite}`);
+    throw new Error(`Unsupported browser-test suite: ${suite}`);
   }
 
   return { browserName, suite, grep, pr };
@@ -159,8 +159,8 @@ async function runCase({ browserName, extensionDir, item }) {
     throw err;
   } finally {
     if (browser) await browser.close();
-    if (process.env.KEEP_E2E_ARTIFACTS === "true" && failed) {
-      console.error(`    Keeping e2e artifacts: ${nativeHost.root}`);
+    if (process.env.KEEP_BROWSER_TEST_ARTIFACTS === "true" && failed) {
+      console.error(`    Keeping browser-test artifacts: ${nativeHost.root}`);
     } else {
       nativeHost.cleanup();
     }
@@ -210,7 +210,7 @@ async function main() {
 
     const cases = await loadCases({ browserName, suite, grep });
     if (cases.length === 0) {
-      throw new Error(`No ${suite} e2e cases found for ${browserName}`);
+      throw new Error(`No ${suite} browser-test cases found for ${browserName}`);
     }
 
     console.log(`> Running ${cases.length} ${suite} case(s) in ${browserName}`);
