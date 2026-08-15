@@ -437,8 +437,10 @@ func (h *Host) handleInit(req Request) {
 
 	// tsnet does not accept subnet routes by default. Tailchrome's proxy rules
 	// are built from accepted PrimaryRoutes, so enable route acceptance before
-	// publishing the first status update.
-	prefsCtx, prefsCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// publishing the first status update. This runs on the sole dispatch
+	// goroutine, so the timeout mirrors correctionCancelGrace: a wedged local
+	// API must not stall command dispatch for long.
+	prefsCtx, prefsCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	_, err = lc.EditPrefs(prefsCtx, startupPrefs())
 	prefsCancel()
 	if err != nil {
