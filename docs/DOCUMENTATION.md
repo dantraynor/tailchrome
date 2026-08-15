@@ -2,9 +2,9 @@
 
 > Access your Tailscale network directly from your browser. No system VPN required.
 
-**Version:** 0.1.12 (native host) | Manifest V3
+**Version:** 0.1.13 (native host) | Manifest V3
 **Browsers:** Chrome, Firefox
-**Platforms:** macOS (amd64, arm64), Linux (amd64), Windows (amd64)
+**Platforms:** macOS (amd64, arm64), Linux (amd64, arm64 raw helper), Windows (amd64)
 **License:** MIT
 **Website:** [tesseras.org/tailchrome](https://tesseras.org/)
 **Chrome Web Store:** [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
@@ -345,7 +345,7 @@ Defined in `packages/shared/src/constants.ts`:
 | `RECONNECT_MAX_MS`      | `30000`                             | Reconnection backoff ceiling                              |
 | `ADMIN_URL`             | `https://login.tailscale.com/admin` | Tailscale admin console                                   |
 | `DEFAULT_CONTROL_URL`   | `https://controlplane.tailscale.com` | Default coordination server                              |
-| `EXPECTED_HOST_VERSION` | `0.1.12`                            | Expected native host version (major.minor match required) |
+| `EXPECTED_HOST_VERSION` | `0.1.13`                            | Expected native host version (major.minor match required) |
 
 
 ---
@@ -590,9 +590,9 @@ The installer packages are the primary path:
 
 - **macOS:** `tailchrome-helper-macos.pkg` installs a universal binary and runs `tailscale-browser-ext -install-now` for the logged-in user during package postinstall. `Tailchrome Helper.app` remains in `/Applications` as a repair/re-run fallback.
 - **Windows:** `tailchrome-helper-windows-x64.msi` installs a staged helper under `%LOCALAPPDATA%\Tailscale\BrowserExt\installer\` and runs it with `-install-now`, which writes HKCU native messaging registrations.
-- **Linux:** `.deb` and `.rpm` packages install `/usr/lib/tailchrome/tailscale-browser-ext` plus system-wide manifests for Chrome, Chromium, Edge, and Firefox. The raw binary fallback remains available for per-user registration in additional Chromium-family browsers.
+- **Linux:** amd64 `.deb` and `.rpm` packages install `/usr/lib/tailchrome/tailscale-browser-ext` plus system-wide manifests for Chrome, Chromium, Edge, and Firefox. The version-pinned `tailchrome-install.sh` fallback verifies and installs the matching amd64 or ARM64 raw helper for per-user registration.
 
-The raw native host binary remains available for advanced/manual installs. When run interactively in a terminal, or non-interactively via **`tailscale-browser-ext -install-now`**, it:
+The raw native host binary remains available for advanced/manual installs. Download and verify `tailchrome-install.sh` from the matching tagged release instead of piping a mutable network response to a shell. The script verifies the selected raw helper before invoking **`tailscale-browser-ext -install-now`**, which:
 
 - Detects installed browsers and writes per-browser manifests for the whole Chromium family (Chrome stable/beta/canary/dev, Chromium, Brave, Edge, Vivaldi, Opera, Arc on macOS) plus Firefox
 - Copies itself to `~/.local/share/tailscale/browser-ext/` (Linux), `~/Library/Application Support/Tailscale/BrowserExt/` (macOS), or `%LOCALAPPDATA%\Tailscale\BrowserExt\` (Windows)
@@ -748,11 +748,13 @@ tailchrome/
 | `pnpm review:firefox`             | Full Firefox review gate (build + lint + zip + publish validation) |
 | `pnpm typecheck`                  | Run TypeScript type checking                                       |
 | `pnpm test`                       | Run all tests (vitest)                                             |
+| `pnpm test:installer`             | Run the verified installer shell test suite                        |
 | `pnpm validate:ids`               | Validate extension ID consistency                                  |
 | `pnpm validate:release-tag <tag>` | Validate release tag format                                        |
 | `make host`                       | Build native host for current platform                             |
 | `make host-all`                   | Build host binaries for all platforms                              |
 | `make host-linux-amd64`           | Build the Linux package input                                      |
+| `make host-linux-arm64`           | Build the Linux ARM64 raw helper                                   |
 | `make dev`                        | Chrome watch mode via WXT                                          |
 | `make all`                        | Build extension + host                                             |
 | `make clean`                      | Clean all build outputs                                            |
@@ -794,7 +796,7 @@ The workflow runs extension unit/type/ID checks, a real Chrome smoke suite, a Ch
 
 - **host-build** (Linux): dependency download, `go vet`, `go test`, and a native host build
 - **host-windows-tests**: Windows-specific Go compile/tests
-- **package-linux**: Linux amd64 host build plus `.deb` and `.rpm` generation with pinned nFPM
+- **package-linux**: Linux amd64/ARM64 raw-host validation plus amd64 `.deb` and `.rpm` generation with pinned nFPM
 
 ### Release (`release.yml`) -- Runs on `v`* Tags or Manual Dispatch
 
@@ -806,9 +808,9 @@ The release workflow:
 4. **Verifies Firefox source ZIP**: extracts sources, rebuilds from scratch, `diff -qr` against original to ensure reproducibility
 5. Signs/notarizes macOS binaries
 6. Builds Linux `.deb`/`.rpm` packages with nFPM and the Windows `.msi` with WiX
-7. Generates `SHA256SUMS.txt` for the main release assets
-8. Creates build-provenance attestations for collected release artifacts, then creates/updates the GitHub Release
-9. Builds, signs, and notarizes the macOS `.pkg` in a follow-up job and uploads it to the release with its own `.sha256` checksum
+7. Collects every final asset, including `tailchrome-install.sh`, the Linux ARM64 helper, and the notarized macOS package
+8. Generates and verifies one canonical `SHA256SUMS.txt` for that final asset set
+9. Creates build-provenance attestations, then creates or updates the GitHub Release
 
 ### Publish (`publish.yml`) -- Manual Dispatch Only
 

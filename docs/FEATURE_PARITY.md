@@ -2,7 +2,7 @@
 
 > Comparison of the Tailchrome browser extension against the native Tailscale desktop/mobile clients (macOS, Windows, Linux, iOS, Android).
 
-Last updated: 2026-07-20
+Last updated: 2026-08-09
 
 ---
 
@@ -156,7 +156,7 @@ Last updated: 2026-07-20
 | Keyboard navigation    | Yes           | Yes        | Arrow keys in peer list                                                                                                                            |
 | Search                 | Yes           | Yes        | Peer search in popup                                                                                                                               |
 | Auto-update            | Yes           | Partial    | Extension auto-updates via Chrome Web Store; native host updates use the platform helper installer when the extension shows "needs-update" |
-| Cross-platform         | Yes           | Yes        | Extension: Chrome + Firefox. Host: macOS (amd64/arm64), Linux (amd64), Windows (amd64)                                                             |
+| Cross-platform         | Yes           | Yes        | Extension: Chrome + Firefox. Host: macOS (amd64/arm64), Linux raw helper (amd64/arm64), Linux packages (amd64/x86_64), and Windows (amd64)          |
 
 
 ---

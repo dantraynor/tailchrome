@@ -11,6 +11,7 @@
     "lint:firefox": "pnpm --filter @tailchrome/extension lint:firefox",
     "review:firefox": "pnpm lint:firefox && pnpm zip:firefox && pnpm validate:firefox-publish",
     "test": "pnpm -r test",
+    "test:installer": "bash ./scripts/install.test.sh",
     "typecheck": "pnpm -r typecheck",
     "e2e": "node ./scripts/e2e/run.mjs",
     "e2e:chrome": "node ./scripts/e2e/run.mjs --browser=chrome",

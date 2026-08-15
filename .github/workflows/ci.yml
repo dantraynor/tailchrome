@@ -7,15 +7,26 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Most jobs do not launch a browser. The e2e launcher installs its browser
+  # explicitly, so dependency installation never needs Puppeteer's postinstall
+  # download.
+  PUPPETEER_SKIP_DOWNLOAD: "1"
+
 jobs:
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       host: ${{ steps.filter.outputs.host }}
       packaging: ${{ steps.filter.outputs.packaging }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
         id: filter
         with:
           filters: |
@@ -25,30 +36,38 @@ jobs:
             packaging:
               - 'host/**'
               - 'packaging/**'
+              - 'scripts/install.sh'
+              - 'scripts/install.test.sh'
               - 'Makefile'
               - '.github/workflows/ci.yml'
               - '.github/workflows/release.yml'
 
   extension-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           package-manager-cache: false
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level high
       - run: pnpm validate:ids
       - run: pnpm typecheck
       - run: pnpm test
+      - name: Test installer shell script
+        run: bash scripts/install.test.sh
+      - name: Lint installer shell script
+        run: shellcheck scripts/install.sh scripts/install.test.sh
 
   e2e-chrome:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           package-manager-cache: false
@@ -58,43 +77,48 @@ jobs:
 
   build-chrome:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           package-manager-cache: false
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:chrome
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: chrome-build
+          overwrite: true
           path: packages/extension/.output/chrome-mv3/
 
   review-firefox:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           package-manager-cache: false
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm review:firefox
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: firefox-build
+          overwrite: true
           path: packages/extension/.output/firefox-mv3/
 
   host-build:
     needs: changes
     if: needs.changes.outputs.host == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: host/go.mod
           cache-dependency-path: host/go.sum
@@ -105,18 +129,20 @@ jobs:
       - run: go test -race ./...
         working-directory: host
       - run: make host
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: host-binary
+          overwrite: true
           path: dist/tailscale-browser-ext
 
   host-windows-tests:
     needs: changes
     if: needs.changes.outputs.host == 'true'
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: host/go.mod
           cache-dependency-path: host/go.sum
@@ -127,9 +153,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.packaging == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
         with:
           go-version-file: host/go.mod
           cache-dependency-path: host/go.sum
@@ -137,5 +164,16 @@ jobs:
         env:
           GOTOOLCHAIN: auto
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
-      - run: make host-linux-amd64
+      - name: Build and inspect raw Linux helpers
+        run: |
+          set -euo pipefail
+          make host-linux-amd64 host-linux-arm64
+          file dist/tailscale-browser-ext-linux-amd64 |
+            tee /dev/stderr |
+            grep -Eq 'x86-64|x86_64'
+          file dist/tailscale-browser-ext-linux-arm64 |
+            tee /dev/stderr |
+            grep -Eq 'ARM aarch64|ARM64'
+          go version -m dist/tailscale-browser-ext-linux-amd64
+          go version -m dist/tailscale-browser-ext-linux-arm64
       - run: VERSION=0.0.0 ./packaging/linux/build-packages.sh
