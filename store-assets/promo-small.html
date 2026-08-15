@@ -3,113 +3,102 @@
 <head>
 <meta charset="UTF-8">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
     width: 440px;
     height: 280px;
-    background: #fafaf9;
+    background: #0A1120;
     font-family: 'Inter', -apple-system, sans-serif;
+    overflow: hidden;
+    position: relative;
+    -webkit-font-smoothing: antialiased;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    overflow: hidden;
-    position: relative;
   }
 
-  body::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(168,162,158,0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(168,162,158,0.06) 1px, transparent 1px);
-    background-size: 40px 40px;
+  .bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(420px 300px at 90% -20%, rgba(76,120,198,0.42) 0%, transparent 62%),
+      radial-gradient(360px 260px at 4% 115%, rgba(76,120,198,0.24) 0%, transparent 60%),
+      linear-gradient(140deg, #101D38 0%, #0A1120 60%, #0A1120 100%);
+  }
+  .dots {
+    position: absolute; inset: 0;
+    background-image: radial-gradient(rgba(255,255,255,0.05) 1px, transparent 1.4px);
+    background-size: 24px 24px;
   }
 
-  .content {
+  .icon-tile {
+    position: relative; z-index: 2;
+    width: 58px; height: 58px;
+    border-radius: 15px;
+    background: linear-gradient(160deg, #26324E 0%, #1A2440 100%);
+    border: 1px solid rgba(139,168,220,0.3);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.45), 0 0 50px rgba(76,120,198,0.3), inset 0 1px 0 rgba(255,255,255,0.09);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 16px;
+  }
+  .icon-tile svg { width: 30px; height: 30px; }
+
+  .word {
+    position: relative; z-index: 2;
+    font-size: 27px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: -0.025em;
+    margin-bottom: 7px;
+  }
+
+  .tag {
+    position: relative; z-index: 2;
+    font-size: 12.5px;
+    color: rgba(235,240,250,0.62);
     text-align: center;
-    position: relative;
-    z-index: 1;
-  }
-
-  .icon {
-    width: 40px;
-    height: 40px;
-    margin: 0 auto 16px;
-    background: rgba(76,120,198,0.08);
-    border: 1px solid rgba(76,120,198,0.12);
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .logo-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 5px);
-    gap: 2.5px;
-  }
-  .logo-dot { width: 5px; height: 5px; border-radius: 50%; background: #1c1917; }
-  .logo-dot.dim { opacity: 0.3; }
-  .logo-dot.mid { opacity: 0.6; }
-
-  .title {
-    font-family: 'DM Serif Display', Georgia, serif;
-    font-size: 24px;
-    font-weight: 400;
-    color: #1c1917;
-    line-height: 1.2;
-    letter-spacing: -0.3px;
-    margin-bottom: 8px;
-  }
-
-  .desc {
-    font-size: 12px;
-    color: #78716c;
     line-height: 1.5;
     max-width: 320px;
-    margin: 0 auto 20px;
+    margin-bottom: 16px;
   }
 
   .meta {
-    display: flex;
-    justify-content: center;
-    gap: 16px;
+    position: relative; z-index: 2;
+    display: flex; align-items: center; gap: 7px;
   }
-
-  .meta-item {
-    font-size: 10px;
-    color: #a8a29e;
-    font-weight: 500;
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 10px; font-weight: 500;
+    color: rgba(235,240,250,0.75);
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    padding: 5px 11px; border-radius: 999px;
   }
+  .chip .dot { width: 5px; height: 5px; border-radius: 50%; background: #34C759; }
+  .chip .dot.blue { background: #6B96E0; }
 </style>
 </head>
 <body>
-  <div class="content">
-    <div class="icon">
-      <div class="logo-grid">
-        <div class="logo-dot dim"></div>
-        <div class="logo-dot"></div>
-        <div class="logo-dot mid"></div>
-        <div class="logo-dot"></div>
-        <div class="logo-dot mid"></div>
-        <div class="logo-dot dim"></div>
-        <div class="logo-dot mid"></div>
-        <div class="logo-dot dim"></div>
-        <div class="logo-dot"></div>
-      </div>
-    </div>
-    <div class="title">Tailchrome</div>
-    <div class="desc">Manage your Tailscale network from Chrome's toolbar. See peers, switch exit nodes, copy IPs.</div>
-    <div class="meta">
-      <span class="meta-item">Native CLI</span>
-      <span class="meta-item">Cross-platform</span>
-      <span class="meta-item">Free</span>
-    </div>
+  <div class="bg"></div>
+  <div class="dots"></div>
+
+  <div class="icon-tile">
+    <svg viewBox="0 0 28 28" fill="none">
+      <circle cx="7" cy="7" r="4.4" fill="#6B96E0"/>
+      <circle cx="7" cy="21" r="4.4" fill="#4C78C6"/>
+      <circle cx="21" cy="21" r="4.4" fill="#4C78C6"/>
+    </svg>
+  </div>
+
+  <div class="word">Tailchrome</div>
+  <div class="tag">Your Tailscale tailnet, right in the browser. No system VPN required.</div>
+
+  <div class="meta">
+    <span class="chip"><span class="dot blue"></span> Chrome &amp; Firefox</span>
+    <span class="chip"><span class="dot"></span> Free &amp; open source</span>
   </div>
 </body>
 </html>

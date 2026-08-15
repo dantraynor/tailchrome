@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  /* Faithful render of the connected popup view, using the product's design tokens. */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --ts-blue: #4C78C6;
+    --ts-green: #34C759;
+    --bg-primary: #F5F5F7;
+    --bg-secondary: #EFEFEF;
+    --bg-elevated: #FFFFFF;
+    --text-primary: #1D1D1F;
+    --text-secondary: #86868B;
+    --text-tertiary: #AEAEB2;
+    --border: #D2D2D7;
+    --border-light: #E5E5EA;
+  }
+
+  html, body {
+    width: 360px;
+    height: 540px;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .header-logo { display: flex; align-items: center; gap: 8px; }
+  .header-logo svg { height: 20px; width: 20px; color: var(--text-primary); }
+  .header-wordmark { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+
+  .toggle { position: relative; width: 44px; height: 24px; border-radius: 999px; background: var(--ts-green); flex-shrink: 0; }
+  .toggle .knob { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .toggle.off { background: var(--border); }
+  .toggle.off .knob { right: auto; left: 2px; }
+
+  .status-bar {
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 12px 20px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .status-row { display: flex; align-items: center; gap: 8px; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ts-green); flex-shrink: 0; }
+  .tailnet { font-size: 12px; font-weight: 500; }
+  .ip { font-size: 11px; font-family: 'SF Mono', Menlo, monospace; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; }
+  .ip svg { width: 14px; height: 14px; color: var(--text-tertiary); }
+  .hostname { font-size: 11px; color: var(--text-tertiary); }
+
+  .quick-settings { padding: 12px 20px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--border-light); background: var(--bg-primary); }
+  .setting-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 0; min-height: 36px; }
+  .setting-label { font-size: 13px; }
+  .setting-value { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; }
+  .chev { color: var(--text-tertiary); display: inline-flex; }
+  .chev svg { width: 12px; height: 12px; }
+
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 20px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .section-label { font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+  .section-count { font-size: 11px; color: var(--text-tertiary); }
+
+  .peer { display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--border-light); background: var(--bg-primary); }
+  .peer-icon {
+    width: 28px; height: 28px; flex-shrink: 0;
+    background: var(--bg-secondary); border-radius: 6px;
+    display: flex; align-items: center; justify-content: center; color: var(--text-secondary);
+  }
+  .peer-icon svg { width: 18px; height: 18px; }
+  .peer-info { flex: 1; min-width: 0; }
+  .peer-name { font-size: 13px; font-weight: 500; }
+  .peer-meta { font-size: 11px; color: var(--text-tertiary); display: flex; align-items: center; gap: 4px; }
+  .peer-ip { font-size: 11px; font-family: 'SF Mono', Menlo, monospace; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="header-logo">
+      <svg viewBox="0 0 20 20" fill="none">
+        <circle cx="4" cy="4" r="3.5" fill="currentColor" opacity="0.2"/><circle cx="4" cy="10" r="3.5" fill="currentColor"/><circle cx="4" cy="16" r="3.5" fill="currentColor" opacity="0.2"/>
+        <circle cx="10" cy="4" r="3.5" fill="currentColor"/><circle cx="10" cy="10" r="3.5" fill="currentColor"/><circle cx="10" cy="16" r="3.5" fill="currentColor"/>
+        <circle cx="16" cy="4" r="3.5" fill="currentColor" opacity="0.2"/><circle cx="16" cy="10" r="3.5" fill="currentColor"/><circle cx="16" cy="16" r="3.5" fill="currentColor" opacity="0.2"/>
+      </svg>
+      <span class="header-wordmark">Tailchrome</span>
+    </div>
+    <div class="toggle"><div class="knob"></div></div>
+  </div>
+
+  <div class="status-bar">
+    <div class="status-row"><span class="status-dot"></span><span class="tailnet">example.ts.net</span></div>
+    <div class="status-row">
+      <span class="ip">100.64.1.42
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      </span>
+    </div>
+    <div class="status-row"><span class="hostname">macbook-pro</span></div>
+  </div>
+
+  <div class="quick-settings">
+    <div class="setting-row"><span class="setting-label">Exit Node</span><span class="setting-value">None <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span></span></div>
+    <div class="setting-row"><span class="setting-label">Split tunneling</span><div class="toggle off"><div class="knob"></div></div></div>
+    <div class="setting-row"><span class="setting-label">Shields Up</span><div class="toggle off"><div class="knob"></div></div></div>
+    <div class="setting-row"><span class="setting-label">MagicDNS</span><div class="toggle"><div class="knob"></div></div></div>
+    <div class="setting-row"><span class="setting-label">Profile</span><span class="setting-value">Default <span class="chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span></span></div>
+  </div>
+
+  <div class="section-header"><span class="section-label">Online</span><span class="section-count">3</span></div>
+
+  <div class="peer">
+    <span class="peer-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8H4V6z"/><path d="M2 18h20"/></svg></span>
+    <div class="peer-info"><div class="peer-name">macbook-air</div><div class="peer-meta"><span class="status-dot"></span>macOS</div></div>
+    <span class="peer-ip">100.64.1.12</span>
+  </div>
+  <div class="peer">
+    <span class="peer-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="13" rx="2"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/></svg></span>
+    <div class="peer-info"><div class="peer-name">home-server</div><div class="peer-meta"><span class="status-dot"></span>Linux</div></div>
+    <span class="peer-ip">100.64.1.8</span>
+  </div>
+  <div class="peer">
+    <span class="peer-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="10" y1="18" x2="14" y2="18"/></svg></span>
+    <div class="peer-info"><div class="peer-name">iphone-15</div><div class="peer-meta"><span class="status-dot"></span>iOS</div></div>
+    <span class="peer-ip">100.64.1.20</span>
+  </div>
+</body>
+</html>

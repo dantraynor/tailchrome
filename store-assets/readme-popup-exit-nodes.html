@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  /* Faithful render of the exit node picker, using the product's design tokens. */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --ts-blue: #4C78C6;
+    --ts-green: #34C759;
+    --bg-primary: #F5F5F7;
+    --bg-secondary: #EFEFEF;
+    --bg-elevated: #FFFFFF;
+    --text-primary: #1D1D1F;
+    --text-secondary: #86868B;
+    --text-tertiary: #AEAEB2;
+    --border: #D2D2D7;
+    --border-light: #E5E5EA;
+  }
+
+  html, body {
+    width: 360px;
+    height: 540px;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .picker-header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .back { display: flex; align-items: center; gap: 2px; color: var(--text-secondary); font-size: 13px; }
+  .back svg { width: 14px; height: 14px; }
+  .picker-title { font-size: 14px; font-weight: 600; flex: 1; }
+
+  .search-wrap { padding: 8px 20px; border-bottom: 1px solid var(--border-light); background: var(--bg-elevated); }
+  .search {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    color: var(--text-tertiary);
+    font-size: 12px;
+  }
+  .search svg { width: 14px; height: 14px; }
+
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 20px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .section-label { font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border-light);
+    background: var(--bg-elevated);
+  }
+  .row.tinted { background: rgba(76,120,198,0.05); }
+
+  .radio {
+    width: 16px; height: 16px; border-radius: 50%;
+    border: 2px solid var(--border); flex-shrink: 0; position: relative;
+  }
+  .radio.on { border-color: var(--ts-blue); background: var(--ts-blue); }
+  .radio.on::after {
+    content: ""; position: absolute; top: 3px; left: 3px;
+    width: 6px; height: 6px; border-radius: 50%; background: #fff;
+  }
+
+  .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .name { font-size: 13px; }
+  .sub { font-size: 11px; color: var(--text-tertiary); display: flex; align-items: center; gap: 4px; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ts-green); }
+  .flag { font-size: 16px; flex-shrink: 0; width: 24px; text-align: center; }
+  .count { font-size: 11px; color: var(--text-tertiary); }
+  .chev { color: var(--text-tertiary); font-size: 14px; width: 12px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="picker-header">
+    <span class="back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>Back</span>
+    <span class="picker-title">Exit Nodes</span>
+  </div>
+
+  <div class="search-wrap">
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      Search exit nodes…
+    </div>
+  </div>
+
+  <div class="section-header"><span class="section-label">Recommended</span></div>
+  <div class="row tinted">
+    <span class="radio on"></span>
+    <div class="info">
+      <div class="name">San Francisco, US</div>
+      <div class="sub"><span class="status-dot"></span>Best available Mullvad VPN</div>
+    </div>
+    <span class="flag">🇺🇸</span>
+  </div>
+
+  <div class="row">
+    <span class="radio"></span>
+    <div class="info"><div class="name">None (direct connection)</div></div>
+  </div>
+
+  <div class="section-header"><span class="section-label">My Devices</span></div>
+  <div class="row">
+    <span class="radio"></span>
+    <div class="info">
+      <div class="name">home-server</div>
+      <div class="sub"><span class="status-dot"></span>Online</div>
+    </div>
+  </div>
+
+  <div class="section-header"><span class="section-label">Mullvad VPN</span></div>
+  <div class="row">
+    <span class="flag">🇩🇪</span>
+    <div class="info"><div class="name">Germany</div></div>
+    <span class="count">5</span><span class="chev">›</span>
+  </div>
+  <div class="row">
+    <span class="flag">🇯🇵</span>
+    <div class="info"><div class="name">Japan</div></div>
+    <span class="count">3</span><span class="chev">›</span>
+  </div>
+  <div class="row">
+    <span class="flag">🇬🇧</span>
+    <div class="info"><div class="name">United Kingdom</div></div>
+    <span class="count">4</span><span class="chev">›</span>
+  </div>
+  <div class="row">
+    <span class="flag">🇸🇬</span>
+    <div class="info"><div class="name">Singapore</div></div>
+    <span class="count">2</span><span class="chev">›</span>
+  </div>
+</body>
+</html>

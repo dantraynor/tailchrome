@@ -2,7 +2,7 @@
 
 Access your Tailscale network directly from your browser. No system VPN required.
 
-<img width="1400" height="560" alt="promo-marquee" src="https://github.com/user-attachments/assets/88f6953e-014c-4c35-aa44-d612786f6d17" />
+<img width="1400" height="560" alt="Tailchrome — your tailnet, right in the browser" src="store-assets/promo-marquee.png" />
 
 [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) | [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/) | [tesseras.org/tailchrome](https://tesseras.org/tailchrome/)
 

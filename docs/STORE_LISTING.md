@@ -80,7 +80,16 @@ Privacy & Security, Other
 
 ## Screenshot Descriptions
 
-For creating store screenshots, capture these states at 360px width:
+All listing images are HTML templates in `store-assets/`, rendered to PNG with headless Chrome:
+
+```
+scripts/render-store-assets.sh              # render every asset
+scripts/render-store-assets.sh promo-small  # render a single asset
+```
+
+Requires Google Chrome on macOS; no npm dependencies. Screenshots render at 1280x800, the marquee at 1400x560, the small promo tile at 440x280, and the README popup images at 2x scale.
+
+When capturing real product states instead of the templates, use these at 360px width:
 
 1. **Connected view** - Show the main popup with a connected tailnet, green status dot, IP address, and a few online peers
 2. **Exit node picker** - Show the exit node selection with suggested node and a few options with country flags
