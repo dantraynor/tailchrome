@@ -402,7 +402,10 @@ test_stops_when_attestation_verification_fails() {
   link_command "$case_dir/bin" shasum
   write_fixture_curl_stub "$case_dir/bin"
   write_stub "$case_dir/bin/gh" <<'STUB'
-printf "%s\n" "$@" >"$TEST_GH_LOG"
+printf "%s\n" "$@" >>"$TEST_GH_LOG"
+if [ "$1" = "auth" ]; then
+  exit 0
+fi
 exit 1
 STUB
   write_stub "$case_dir/artifact" <<'STUB'
@@ -479,6 +482,56 @@ STUB
     fail_test "installs after attestation verification" "installed path or uninstall command was incorrect: $output"
   else
     pass_test "installs after attestation verification"
+  fi
+
+  rm -rf "$case_dir"
+}
+
+test_warns_and_installs_when_gh_unauthenticated() {
+  local case_dir output asset digest installed_path
+  case_dir="$(mktemp -d "${TMPDIR:-/tmp}/tailchrome-install-test.XXXXXX")"
+  asset="tailscale-browser-ext-linux-amd64"
+  installed_path="$case_dir/home/.local/share/tailscale/browser-ext/tailscale-browser-ext"
+  make_platform_bin "$case_dir/bin" "Linux" "amd64"
+  link_command "$case_dir/bin" chmod
+  link_command "$case_dir/bin" mktemp
+  link_command "$case_dir/bin" mkdir
+  link_command "$case_dir/bin" rm
+  link_command "$case_dir/bin" shasum
+  write_fixture_curl_stub "$case_dir/bin"
+  write_stub "$case_dir/bin/gh" <<'STUB'
+printf "%s\n" "$@" >>"$TEST_GH_LOG"
+exit 1
+STUB
+  write_stub "$case_dir/artifact" <<'STUB'
+mkdir -p "${TEST_INSTALLED_PATH%/*}"
+cp "$0" "$TEST_INSTALLED_PATH"
+chmod 755 "$TEST_INSTALLED_PATH"
+printf "%s\n" "$@" >"$TEST_EXEC_LOG"
+STUB
+  digest="$(sha256_of "$case_dir/artifact")"
+  printf '%s  %s\n' "$digest" "$asset" >"$case_dir/SHA256SUMS.txt"
+
+  if ! output="$(
+    HOME="$case_dir/home" \
+      TEST_ARTIFACT_FIXTURE="$case_dir/artifact" \
+      TEST_CHECKSUM_FIXTURE="$case_dir/SHA256SUMS.txt" \
+      TEST_EXEC_LOG="$case_dir/exec.log" \
+      TEST_GH_LOG="$case_dir/gh.log" \
+      TEST_INSTALLED_PATH="$installed_path" \
+      TMPDIR="$case_dir" \
+      PATH="$case_dir/bin" \
+      "$INSTALLER" --version v1.2.3 2>&1
+  )"; then
+    fail_test "warns and installs when gh is unauthenticated" "unexpected error: $output"
+  elif [[ "$output" != *"checksum and artifact share the GitHub Release trust boundary"* ]]; then
+    fail_test "warns and installs when gh is unauthenticated" "missing trust-boundary warning: $output"
+  elif [[ "$(command cat "$case_dir/gh.log")" == *"attestation"* ]]; then
+    fail_test "warns and installs when gh is unauthenticated" "attestation verify ran without credentials"
+  elif [[ "$(command cat "$case_dir/exec.log")" != "-install-now" ]]; then
+    fail_test "warns and installs when gh is unauthenticated" "helper did not receive -install-now"
+  else
+    pass_test "warns and installs when gh is unauthenticated"
   fi
 
   rm -rf "$case_dir"
@@ -700,6 +753,7 @@ test_rejects_unsafe_checksum_entry
 test_rejects_checksum_mismatch
 test_stops_when_attestation_verification_fails
 test_installs_after_attestation_verification
+test_warns_and_installs_when_gh_unauthenticated
 test_warns_and_installs_without_gh
 test_reports_install_now_failure
 test_rejects_success_without_installed_helper

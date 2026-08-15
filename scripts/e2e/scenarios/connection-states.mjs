@@ -65,7 +65,7 @@ export const cases = [
           "Helper 0.0.11 is older than companion release",
         );
         await expectText(page, "example.ts.net");
-        await expectNoText(page, "Update Available");
+        await expectNoText(page, "Quick Setup");
       } finally {
         await page.close();
       }

@@ -383,7 +383,10 @@ jobs:
             candidate/release/tailscale-browser-ext-darwin-amd64 \
             candidate/release/tailscale-browser-ext-darwin-arm64; do
             codesign --verify --deep --strict --verbose=2 "$bin"
-            spctl --assess --type execute --verbose=2 "$bin"
+            # spctl --assess rejects bare Mach-O executables ("does not seem
+            # to be an app"); standalone binaries are checked per Apple's
+            # "Testing a Notarised Product" guidance instead.
+            codesign --verify --verbose=2 -R="notarized" --check-notarization "$bin"
           done
           pkg="candidate/release/tailchrome-helper-macos.pkg"
           expanded="$RUNNER_TEMP/tailchrome-pkg"

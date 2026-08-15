@@ -92,9 +92,10 @@ less tailchrome-install.sh
 bash ./tailchrome-install.sh --version "$VERSION"
 ```
 
-`gh attestation verify` is recommended when GitHub CLI is installed. Without
-it, the checksum still detects corruption, but the script and checksum share
-the same GitHub Release trust boundary.
+`gh attestation verify` is recommended when GitHub CLI is installed and
+authenticated (`gh auth login`). Without it, the checksum still detects
+corruption, but the script and checksum share the same GitHub Release trust
+boundary.
 
 The fallback installs the helper at:
 

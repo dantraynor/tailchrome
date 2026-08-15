@@ -108,7 +108,7 @@ if [[ "$uninstall" == false ]]; then
 
   artifact_path="$temp_dir/$asset"
   if ! curl --fail --silent --show-error --location \
-    --proto '=https' --tlsv1.2 \
+    --proto '=https' --proto-redir '=https' --tlsv1.2 \
     --output "$artifact_path" \
     "$release_base_url/$asset"; then
     die "artifact download failed for $platform/$architecture"
@@ -116,7 +116,7 @@ if [[ "$uninstall" == false ]]; then
 
   checksum_path="$temp_dir/SHA256SUMS.txt"
   if ! curl --fail --silent --show-error --location \
-    --proto '=https' --tlsv1.2 \
+    --proto '=https' --proto-redir '=https' --tlsv1.2 \
     --output "$checksum_path" \
     "$release_base_url/SHA256SUMS.txt"; then
     die "checksum download failed"
@@ -152,14 +152,14 @@ if [[ "$uninstall" == false ]]; then
     die "checksum verification failed"
   fi
 
-  if command -v gh >/dev/null 2>&1; then
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
     if ! gh attestation verify "$artifact_path" \
       --repo dantraynor/tailchrome >/dev/null; then
       die "attestation verification failed"
     fi
   else
     printf '%s\n' \
-      "Warning: gh is unavailable; the checksum and artifact share the GitHub Release trust boundary." >&2
+      "Warning: gh is unavailable or not authenticated; the checksum and artifact share the GitHub Release trust boundary." >&2
   fi
 
   chmod 755 "$artifact_path" || die "could not make the verified artifact executable"

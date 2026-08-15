@@ -173,7 +173,10 @@ jobs:
               --issuer "$APPLE_API_ISSUER_ID" \
               --wait
             codesign --verify --deep --strict --verbose=2 "$bin"
-            spctl --assess --type execute --verbose=2 "$bin"
+            # spctl --assess rejects bare Mach-O executables ("does not seem
+            # to be an app"); standalone binaries are checked per Apple's
+            # "Testing a Notarised Product" guidance instead.
+            codesign --verify --verbose=2 -R="notarized" --check-notarization "$bin"
           done
       - name: Upload final Darwin binaries
         uses: actions/upload-artifact@v6
@@ -985,7 +988,11 @@ jobs:
                   $detectedDuringCandidateScan = (
                     $null -ne $candidateScanStartedAt -and
                     $null -ne $initialDetectionTime -and
-                    ([DateTime]$initialDetectionTime) -ge $candidateScanStartedAt
+                    [DateTime]::Parse(
+                      $initialDetectionTime,
+                      [System.Globalization.CultureInfo]::InvariantCulture,
+                      [System.Globalization.DateTimeStyles]::AdjustToUniversal
+                    ) -ge $candidateScanStartedAt
                   )
                   if ($matchesCandidate -or
                       ($detectedDuringCandidateScan -and -not $isSmokeDetection)) {

@@ -410,6 +410,12 @@ function createDiscoveryRetryButton(): HTMLButtonElement {
     requestNativeHostRetries("manual");
     retry.disabled = true;
     retry.textContent = "Retrying\u2026";
+    // A failed retry produces no state change (equivalent failures are
+    // deduped), so no re-render will recreate this button; re-enable it.
+    setTimeout(() => {
+      retry.disabled = false;
+      retry.textContent = "Retry discovery";
+    }, 3000);
   });
   return retry;
 }

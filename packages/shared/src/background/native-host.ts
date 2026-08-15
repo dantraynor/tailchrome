@@ -414,7 +414,7 @@ function isPrefs(value: unknown): boolean {
     isBoolean(value["exitNodeAllowLANAccess"]) &&
     isBoolean(value["corpDNS"]) &&
     isBoolean(value["shieldsUp"]) &&
-    isBoolean(value["advertiseExitNode"]) &&
+    optionalField(value, "advertiseExitNode", isBoolean) &&
     optionalField(value, "runSSH", isBoolean) &&
     optionalField(value, "advertiseRoutes", isNullableStringArray) &&
     optionalField(value, "controlURL", isString)
@@ -490,15 +490,11 @@ function isProcRunning(value: unknown): boolean {
 }
 
 function isInit(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    Object.keys(value).every((key) => key === "error") &&
-    optionalField(value, "error", isString)
-  );
+  return isRecord(value) && optionalField(value, "error", isString);
 }
 
 function isPong(value: unknown): boolean {
-  return isRecord(value) && Object.keys(value).length === 0;
+  return isRecord(value);
 }
 
 function isProfiles(value: unknown): boolean {

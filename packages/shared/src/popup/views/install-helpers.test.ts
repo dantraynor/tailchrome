@@ -206,6 +206,34 @@ describe("renderInstallFlow", () => {
     },
   );
 
+  it("re-enables the discovery retry button after a quiet retry", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+
+    await renderInstallFlow(root, {
+      mode: "install",
+      state: baseState({ hostConnected: false }),
+    });
+
+    const retry = root.querySelector<HTMLButtonElement>(
+      ".helper-discovery-retry",
+    )!;
+    retry.click();
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: "retry-native-host",
+      source: "manual",
+    });
+    expect(retry.disabled).toBe(true);
+    expect(retry.textContent).toBe("Retrying…");
+
+    // A retry that keeps failing never re-renders the view (equivalent
+    // failures are deduped), so the button must recover on its own.
+    vi.advanceTimersByTime(3000);
+    expect(retry.disabled).toBe(false);
+    expect(retry.textContent).toBe("Retry discovery");
+  });
+
   it("renders both Linux package links with install commands on amd64", async () => {
     chrome.runtime.getPlatformInfo = vi.fn().mockResolvedValue({
       os: "linux",

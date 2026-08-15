@@ -373,8 +373,6 @@ describe("NativeHostConnection", () => {
       {},
       { unknown: true },
       { init: "bad" },
-      { init: { arbitrary: "data" } },
-      { pong: { arbitrary: "data" } },
       {
         status: {
           ...makeValidStatus(),
@@ -733,7 +731,24 @@ describe("isValidNativeReply", () => {
     );
     expect(isValidNativeReply({ init: {} })).toBe(true);
     expect(isValidNativeReply({ pong: {} })).toBe(true);
+    // Unknown fields from newer helpers are tolerated, not rejected.
+    expect(isValidNativeReply({ init: { arbitrary: "data" } })).toBe(true);
+    expect(isValidNativeReply({ pong: { arbitrary: "data" } })).toBe(true);
     expect(isValidNativeReply({ status: makeValidStatus() })).toBe(true);
+    // Helpers before v0.1.7 omit advertiseExitNode from prefs.
+    expect(
+      isValidNativeReply({
+        status: {
+          ...makeValidStatus(),
+          prefs: {
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+          },
+        },
+      }),
+    ).toBe(true);
     expect(
       isValidNativeReply({
         exitNodeSuggestion: {
@@ -806,8 +821,8 @@ describe("isValidNativeReply", () => {
       },
     },
     { procRunning: { port: "1055", pid: 1 } },
-    { init: { arbitrary: "data" } },
-    { pong: { arbitrary: "data" } },
+    { init: { error: 42 } },
+    { pong: "bad" },
     { profiles: { current: null, profiles: [] } },
     {
       fileSendProgress: {

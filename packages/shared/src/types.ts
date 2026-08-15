@@ -152,7 +152,8 @@ export interface TailscalePrefs {
   exitNodeAllowLANAccess: boolean;
   corpDNS: boolean;
   shieldsUp: boolean;
-  advertiseExitNode: boolean;
+  /** When omitted, treat as false (hosts before v0.1.7). */
+  advertiseExitNode?: boolean;
   /** When omitted, treat as false (older hosts). */
   runSSH?: boolean;
   advertiseRoutes?: string[];

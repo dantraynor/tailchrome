@@ -56,9 +56,9 @@ chmod 755 tailchrome-install.sh
 ./tailchrome-install.sh --version "$VERSION"
 ```
 
-The `gh` attestation check is optional when GitHub CLI is unavailable. In that
-case the installer prints a warning that its checksum and artifact share the
-same GitHub Release trust boundary. Do not pipe a remote script directly to a
+The `gh` attestation check is optional when GitHub CLI is unavailable or not
+authenticated (`gh auth login`). In that case the installer prints a warning
+that its checksum and artifact share the same GitHub Release trust boundary. Do not pipe a remote script directly to a
 shell.
 
 The installed Linux helper path is:
