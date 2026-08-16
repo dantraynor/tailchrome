@@ -345,7 +345,7 @@ Defined in `packages/shared/src/constants.ts`:
 | `RECONNECT_MAX_MS`      | `30000`                             | Reconnection backoff ceiling                              |
 | `ADMIN_URL`             | `https://login.tailscale.com/admin` | Tailscale admin console                                   |
 | `DEFAULT_CONTROL_URL`   | `https://controlplane.tailscale.com` | Default coordination server                              |
-| `EXPECTED_HOST_VERSION` | `0.1.12`                            | Expected native host version (major.minor match required) |
+| `EXPECTED_HOST_VERSION` | `0.1.12`                            | Minimum native host version (major.minor, newer accepted) |
 
 
 ---
@@ -964,7 +964,7 @@ For a configured custom coordination server, delegated login URLs may use anothe
 
 ### Host Version Checking
 
-The extension enforces major.minor version matching between the expected version (`EXPECTED_HOST_VERSION`) and the host's reported version. Patch version differences are tolerated. A mismatch shows the "needs-update" view.
+The extension treats `EXPECTED_HOST_VERSION` as a minimum at major.minor granularity: a host reporting an older major.minor shows the "needs-update" view, while patch differences and hosts newer than expected are accepted (the helper never self-updates, so a rebuilt helper must stay usable).
 
 ### Proxy Scope
 

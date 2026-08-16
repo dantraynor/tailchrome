@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ProxyManager, TailscaleState, NativeReply } from "../types";
-import { initBackground, isValidLoginURL } from "./background";
+import { initBackground, isValidLoginURL, isVersionMismatch } from "./background";
 
 type MessageListener = (msg: unknown) => void;
 type DisconnectListener = (port: unknown) => void;
@@ -101,6 +101,38 @@ describe("isValidLoginURL", () => {
         "https://headscale.example.com",
       ),
     ).toBe(false);
+  });
+});
+
+describe("isVersionMismatch", () => {
+  // EXPECTED_HOST_VERSION is "0.1.12" — the gate is a minimum, not an exact match.
+  it("accepts the expected version and tolerates patch differences", () => {
+    expect(isVersionMismatch("0.1.12")).toBe(false);
+    expect(isVersionMismatch("0.1.0")).toBe(false);
+    expect(isVersionMismatch("0.1.99")).toBe(false);
+    expect(isVersionMismatch("v0.1.12")).toBe(false);
+  });
+
+  it("accepts hosts newer than expected", () => {
+    expect(isVersionMismatch("0.2.0")).toBe(false);
+    expect(isVersionMismatch("1.0.0")).toBe(false);
+    expect(isVersionMismatch("1.0.0-rc1")).toBe(false);
+  });
+
+  it("compares fields numerically, not lexically", () => {
+    expect(isVersionMismatch("0.10.0")).toBe(false);
+  });
+
+  it("rejects hosts older than expected", () => {
+    expect(isVersionMismatch("0.0.1")).toBe(true);
+    expect(isVersionMismatch("0.0.99")).toBe(true);
+  });
+
+  it("rejects missing or unparseable versions", () => {
+    expect(isVersionMismatch(null)).toBe(true);
+    expect(isVersionMismatch("")).toBe(true);
+    expect(isVersionMismatch("1")).toBe(true);
+    expect(isVersionMismatch("abc.def")).toBe(true);
   });
 });
 
