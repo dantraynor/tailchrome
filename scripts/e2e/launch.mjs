@@ -108,6 +108,11 @@ async function launchChrome(extensionDir) {
       `--load-extension=${extensionDir}`,
       "--no-first-run",
       "--no-default-browser-check",
+      // CI runners restrict unprivileged user namespaces (AppArmor on current
+      // Ubuntu images), which crashes Chrome's sandbox at launch. The suite
+      // only visits extension pages and localhost, so dropping the sandbox
+      // there is acceptable; local runs keep it.
+      ...(process.env.CI ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
     ],
   });
 

@@ -338,6 +338,15 @@ func (h *Host) handleRequest(req Request) {
 	}
 }
 
+func startupPrefs() *ipn.MaskedPrefs {
+	return &ipn.MaskedPrefs{
+		Prefs: ipn.Prefs{
+			RouteAll: true,
+		},
+		RouteAllSet: true,
+	}
+}
+
 // handleInit initializes (or reuses) a tsnet.Server for the given browser profile.
 func (h *Host) handleInit(req Request) {
 	if !validInitID.MatchString(req.InitID) {
@@ -421,6 +430,21 @@ func (h *Host) handleInit(req Request) {
 		h.send(Reply{
 			Cmd:  "init",
 			Init: &InitReply{Error: fmt.Sprintf("failed to get local client: %v", err)},
+		})
+		server.Close()
+		return
+	}
+
+	// tsnet does not accept subnet routes by default. Tailchrome's proxy rules
+	// are built from accepted PrimaryRoutes, so enable route acceptance before
+	// publishing the first status update.
+	prefsCtx, prefsCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	_, err = lc.EditPrefs(prefsCtx, startupPrefs())
+	prefsCancel()
+	if err != nil {
+		h.send(Reply{
+			Cmd:  "init",
+			Init: &InitReply{Error: fmt.Sprintf("failed to accept subnet routes: %v", err)},
 		})
 		server.Close()
 		return
