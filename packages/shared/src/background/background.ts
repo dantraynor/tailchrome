@@ -147,18 +147,39 @@ function controlServerChanged(
 }
 
 /**
- * Returns true if the host version's major.minor doesn't match the expected version.
- * Patch differences are tolerated. Missing or unparseable versions are treated as a mismatch.
+ * Returns true if the host version's major.minor is older than the expected
+ * version's. Patch differences are tolerated, and a host newer than expected
+ * is accepted: the helper never self-updates, so rebuilding it against newer
+ * sources is the only way to move it forward and must not lock out the UI
+ * (#109). Missing or unparseable versions are treated as a mismatch.
  */
-function isVersionMismatch(hostVersion: string | null): boolean {
+export function isVersionMismatch(hostVersion: string | null): boolean {
   if (!hostVersion) return true;
   // Strip leading "v" if present
   const host = hostVersion.replace(/^v/, "");
   const expected = EXPECTED_HOST_VERSION.replace(/^v/, "");
+  // Leading digits only, so pre-release suffixes ("2-beta1") still parse.
+  const field = (part: string | undefined): number | null => {
+    const digits = part?.match(/^\d+/)?.[0];
+    return digits === undefined ? null : Number(digits);
+  };
   const hostParts = host.split(".");
   const expectedParts = expected.split(".");
   if (hostParts.length < 2 || expectedParts.length < 2) return true;
-  return hostParts[0] !== expectedParts[0] || hostParts[1] !== expectedParts[1];
+  const hostMajor = field(hostParts[0]);
+  const hostMinor = field(hostParts[1]);
+  const expectedMajor = field(expectedParts[0]);
+  const expectedMinor = field(expectedParts[1]);
+  if (
+    hostMajor === null ||
+    hostMinor === null ||
+    expectedMajor === null ||
+    expectedMinor === null
+  ) {
+    return true;
+  }
+  if (hostMajor !== expectedMajor) return hostMajor < expectedMajor;
+  return hostMinor < expectedMinor;
 }
 
 const NATIVE_HOST_UNREACHABLE =
