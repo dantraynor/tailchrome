@@ -25,9 +25,14 @@ concurrency:
 #   APPLE_API_ISSUER_ID          - App Store Connect API issuer UUID
 #   APPLE_API_KEY_P8             - contents of the AuthKey_*.p8 file
 #
-# Windows candidate creation remains intentionally blocked until one signing
-# provider and exact WINDOWS_EXPECTED_SIGNER_SUBJECT repository variable are
-# recorded. No unsigned or provider-switching fallback is present.
+# Signed Windows candidate creation remains blocked until one signing provider
+# and the exact WINDOWS_EXPECTED_SIGNER_SUBJECT repository variable are
+# recorded. The only alternative is the explicit unsigned mode: setting the
+# WINDOWS_ALLOW_UNSIGNED_RELEASE repository variable to "true" ships the raw
+# EXE and MSI without Authenticode signatures and without Defender evidence,
+# and records that choice in the candidate metadata. Unsigned mode refuses to
+# run while a signer subject is configured; there is no silent fallback
+# between the two modes.
 #
 # Defender evidence runs only on a controlled, single-use x64 Windows runner
 # carrying a run-specific tailchrome-defender-${run_id} label. Its runner
@@ -335,6 +340,7 @@ jobs:
 
   validate-windows-defender-environment:
     needs: build
+    if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -386,6 +392,7 @@ jobs:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
       WINDOWS_SIGNTOOL_PATH: C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe
       WINDOWS_EXPECTED_SIGNER_SUBJECT: ${{ vars.WINDOWS_EXPECTED_SIGNER_SUBJECT }}
+      WINDOWS_ALLOW_UNSIGNED_RELEASE: ${{ vars.WINDOWS_ALLOW_UNSIGNED_RELEASE }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -397,11 +404,18 @@ jobs:
       - name: Require Windows release signing configuration
         shell: pwsh
         run: |
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_EXPECTED_SIGNER_SUBJECT)) {
-            throw "WINDOWS_EXPECTED_SIGNER_SUBJECT must contain the exact selected publisher subject."
-          }
-          if (-not (Test-Path -LiteralPath $env:WINDOWS_SIGNTOOL_PATH -PathType Leaf)) {
-            throw "Expected SignTool was not found at $env:WINDOWS_SIGNTOOL_PATH"
+          if ($env:WINDOWS_ALLOW_UNSIGNED_RELEASE -eq 'true') {
+            if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_EXPECTED_SIGNER_SUBJECT)) {
+              throw "WINDOWS_ALLOW_UNSIGNED_RELEASE cannot be combined with WINDOWS_EXPECTED_SIGNER_SUBJECT; remove one."
+            }
+            Write-Warning "WINDOWS_ALLOW_UNSIGNED_RELEASE is enabled: this candidate ships UNSIGNED Windows binaries."
+          } else {
+            if ([string]::IsNullOrWhiteSpace($env:WINDOWS_EXPECTED_SIGNER_SUBJECT)) {
+              throw "WINDOWS_EXPECTED_SIGNER_SUBJECT must contain the exact selected publisher subject."
+            }
+            if (-not (Test-Path -LiteralPath $env:WINDOWS_SIGNTOOL_PATH -PathType Leaf)) {
+              throw "Expected SignTool was not found at $env:WINDOWS_SIGNTOOL_PATH"
+            }
           }
       - name: Download reviewed build outputs
         uses: actions/download-artifact@v6
@@ -409,10 +423,21 @@ jobs:
           name: build-output
       - name: Install WiX
         run: dotnet tool install --global wix --version 6.0.2
-      # Provider integration gate: the selected provider must place the
-      # timestamped raw EXE in signed-windows before MSI construction, then
-      # sign the unsigned MSI to the final filename before verification.
+      # Provider integration gate (signed mode): the selected provider must
+      # place the timestamped raw EXE in signed-windows before MSI
+      # construction, then sign the unsigned MSI to the final filename before
+      # verification. Unsigned mode stages the reviewed raw EXE directly and
+      # builds the MSI without any signature validation.
+      - name: Stage unsigned helper
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE == 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path .\signed-windows | Out-Null
+          Copy-Item `
+            -LiteralPath .\dist\tailscale-browser-ext-windows-amd64.exe `
+            -Destination .\signed-windows\tailscale-browser-ext-windows-amd64.exe
       - name: Build Windows MSI from the signed helper
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
         shell: pwsh
         run: |
           $signedExe = ".\signed-windows\tailscale-browser-ext-windows-amd64.exe"
@@ -425,7 +450,17 @@ jobs:
             -OutPath .\signed-windows\tailchrome-helper-windows-x64.unsigned.msi `
             -ExpectedSignerSubject "$env:WINDOWS_EXPECTED_SIGNER_SUBJECT" `
             -SignToolPath "$env:WINDOWS_SIGNTOOL_PATH"
+      - name: Build Windows MSI from the unsigned helper
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE == 'true'
+        shell: pwsh
+        run: |
+          .\packaging\windows\build-msi.ps1 `
+            -Version "$env:RELEASE_TAG" `
+            -HelperExe .\signed-windows\tailscale-browser-ext-windows-amd64.exe `
+            -OutPath .\signed-windows\tailchrome-helper-windows-x64.msi `
+            -AllowUnsignedDevelopmentBuild
       - name: Verify raw, embedded, and outer Windows signatures
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
         shell: pwsh
         run: |
           if (-not (Test-Path -LiteralPath $env:WINDOWS_SIGNTOOL_PATH -PathType Leaf)) {
@@ -437,6 +472,29 @@ jobs:
             -ExpectedSignerSubject "$env:WINDOWS_EXPECTED_SIGNER_SUBJECT" `
             -SignToolPath "$env:WINDOWS_SIGNTOOL_PATH" `
             -SummaryPath .\signed-windows\windows-signature-verification.json
+      - name: Record unsigned Windows evidence
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE == 'true'
+        shell: pwsh
+        run: |
+          $rawHash = (
+            Get-FileHash `
+              -LiteralPath .\signed-windows\tailscale-browser-ext-windows-amd64.exe `
+              -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          $msiHash = (
+            Get-FileHash `
+              -LiteralPath .\signed-windows\tailchrome-helper-windows-x64.msi `
+              -Algorithm SHA256
+          ).Hash.ToLowerInvariant()
+          [ordered]@{
+            schemaVersion = 1
+            mode          = "unsigned"
+            rawExe        = @{ sha256 = $rawHash }
+            msi           = @{ sha256 = $msiHash }
+          } | ConvertTo-Json |
+            Out-File `
+              -FilePath .\signed-windows\windows-signature-verification.json `
+              -Encoding utf8NoBOM
       - name: Record final Windows hashes
         id: windows-hashes
         shell: pwsh
@@ -467,6 +525,7 @@ jobs:
 
   scan-windows-defender:
     needs: [build, package-windows, validate-windows-defender-environment]
+    if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
     runs-on:
       [self-hosted, Windows, X64, "tailchrome-defender-${{ github.run_id }}"]
     environment: windows-defender-validation
@@ -1124,6 +1183,18 @@ jobs:
   assemble-release-candidate:
     needs:
       [build, sign-macos, package-macos, package-linux, package-windows, scan-windows-defender]
+    # scan-windows-defender is skipped (not failed) in unsigned mode; every
+    # other upstream job must still succeed.
+    if: >-
+      ${{ !cancelled() &&
+          needs.build.result == 'success' &&
+          needs.sign-macos.result == 'success' &&
+          needs.package-macos.result == 'success' &&
+          needs.package-linux.result == 'success' &&
+          needs.package-windows.result == 'success' &&
+          (needs.scan-windows-defender.result == 'success' ||
+           (vars.WINDOWS_ALLOW_UNSIGNED_RELEASE == 'true' &&
+            needs.scan-windows-defender.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1136,6 +1207,7 @@ jobs:
       PACKAGE_ARTIFACT_ID: ${{ needs.package-windows.outputs.artifact_id }}
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
       SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+      WINDOWS_ALLOW_UNSIGNED_RELEASE: ${{ vars.WINDOWS_ALLOW_UNSIGNED_RELEASE }}
     outputs:
       sha256sums_digest: ${{ steps.manifest.outputs.sha256sums_digest }}
     steps:
@@ -1169,6 +1241,7 @@ jobs:
           name: signed-windows
           path: signed-windows
       - name: Download automated Defender evidence
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
         uses: actions/download-artifact@v6
         with:
           name: windows-defender-evidence
@@ -1193,23 +1266,29 @@ jobs:
           cp signed-windows/tailchrome-helper-windows-x64.msi candidate/release/
           install -m 0755 scripts/install.sh candidate/release/tailchrome-install.sh
           cp signed-windows/windows-signature-verification.json candidate/evidence/
-          cp windows-defender-evidence/windows-defender-verification.json candidate/evidence/
 
-          defender_summary="candidate/evidence/windows-defender-verification.json"
-          test "$(jq -r .result "$defender_summary")" = "clean"
-          test "$(jq -r .repository "$defender_summary")" = "$GITHUB_REPOSITORY"
-          test "$(jq -r .runId "$defender_summary")" = "$GITHUB_RUN_ID"
-          test "$(jq -r .runAttempt "$defender_summary")" = "$GITHUB_RUN_ATTEMPT"
-          test "$(jq -r .sourceSha "$defender_summary")" = "$SOURCE_SHA"
-          test "$(jq -r .releaseTag "$defender_summary")" = "$RELEASE_TAG"
-          test "$(jq -r .releaseRef "$defender_summary")" = "refs/tags/$RELEASE_TAG"
-          test "$(jq -r .packageArtifactId "$defender_summary")" = "$PACKAGE_ARTIFACT_ID"
-          test "$(jq -r .packageArtifactDigest "$defender_summary")" = "$PACKAGE_ARTIFACT_DIGEST"
-          test "$(jq -r .packageDownloadOutcome "$defender_summary")" = "success"
-          jq -e '
-            (.controlledImageId | strings | length > 0) and
-            .observedControlledImageId == .controlledImageId
-          ' "$defender_summary" >/dev/null
+          if [ "$WINDOWS_ALLOW_UNSIGNED_RELEASE" = "true" ]; then
+            signature_summary="candidate/evidence/windows-signature-verification.json"
+            test "$(jq -r .mode "$signature_summary")" = "unsigned"
+          else
+            cp windows-defender-evidence/windows-defender-verification.json candidate/evidence/
+
+            defender_summary="candidate/evidence/windows-defender-verification.json"
+            test "$(jq -r .result "$defender_summary")" = "clean"
+            test "$(jq -r .repository "$defender_summary")" = "$GITHUB_REPOSITORY"
+            test "$(jq -r .runId "$defender_summary")" = "$GITHUB_RUN_ID"
+            test "$(jq -r .runAttempt "$defender_summary")" = "$GITHUB_RUN_ATTEMPT"
+            test "$(jq -r .sourceSha "$defender_summary")" = "$SOURCE_SHA"
+            test "$(jq -r .releaseTag "$defender_summary")" = "$RELEASE_TAG"
+            test "$(jq -r .releaseRef "$defender_summary")" = "refs/tags/$RELEASE_TAG"
+            test "$(jq -r .packageArtifactId "$defender_summary")" = "$PACKAGE_ARTIFACT_ID"
+            test "$(jq -r .packageArtifactDigest "$defender_summary")" = "$PACKAGE_ARTIFACT_DIGEST"
+            test "$(jq -r .packageDownloadOutcome "$defender_summary")" = "success"
+            jq -e '
+              (.controlledImageId | strings | length > 0) and
+              .observedControlledImageId == .controlledImageId
+            ' "$defender_summary" >/dev/null
+          fi
           test "$(
             sha256sum signed-windows/tailscale-browser-ext-windows-amd64.exe |
               cut -d' ' -f1
@@ -1240,10 +1319,16 @@ jobs:
           diff -u candidate/expected-assets.txt candidate/actual-assets.txt
           find candidate/evidence -mindepth 1 -maxdepth 1 -type f -printf '%f\n' |
             sort > candidate/actual-evidence.txt
-          printf '%s\n' \
-            windows-defender-verification.json \
-            windows-signature-verification.json \
-            > candidate/expected-evidence.txt
+          if [ "$WINDOWS_ALLOW_UNSIGNED_RELEASE" = "true" ]; then
+            printf '%s\n' \
+              windows-signature-verification.json \
+              > candidate/expected-evidence.txt
+          else
+            printf '%s\n' \
+              windows-defender-verification.json \
+              windows-signature-verification.json \
+              > candidate/expected-evidence.txt
+          fi
           diff -u candidate/expected-evidence.txt candidate/actual-evidence.txt
       - name: Generate final checksum manifest
         id: manifest
@@ -1257,14 +1342,21 @@ jobs:
             sha256sum --check SHA256SUMS.txt
           )
           digest="$(sha256sum candidate/release/SHA256SUMS.txt | cut -d' ' -f1)"
-          defender_image_id="$(
-            jq -r .controlledImageId \
-              candidate/evidence/windows-defender-verification.json
-          )"
-          defender_evidence_sha256="$(
-            sha256sum candidate/evidence/windows-defender-verification.json |
-              cut -d' ' -f1
-          )"
+          if [ "$WINDOWS_ALLOW_UNSIGNED_RELEASE" = "true" ]; then
+            windows_signing="unsigned"
+            defender_image_id=""
+            defender_evidence_sha256=""
+          else
+            windows_signing="signed"
+            defender_image_id="$(
+              jq -r .controlledImageId \
+                candidate/evidence/windows-defender-verification.json
+            )"
+            defender_evidence_sha256="$(
+              sha256sum candidate/evidence/windows-defender-verification.json |
+                cut -d' ' -f1
+            )"
+          fi
           echo "sha256sums_digest=$digest" >> "$GITHUB_OUTPUT"
           jq -n \
             --arg repository "$GITHUB_REPOSITORY" \
@@ -1274,6 +1366,7 @@ jobs:
             --arg release_tag "$RELEASE_TAG" \
             --arg source_sha "$SOURCE_SHA" \
             --arg sha256sums_sha256 "$digest" \
+            --arg windows_signing "$windows_signing" \
             --arg windows_package_artifact_id "$PACKAGE_ARTIFACT_ID" \
             --arg windows_package_artifact_digest "$PACKAGE_ARTIFACT_DIGEST" \
             --arg windows_raw_sha256 "$EXPECTED_RAW_SHA256" \
@@ -1289,6 +1382,7 @@ jobs:
               releaseTag: $release_tag,
               sourceSha: $source_sha,
               sha256sumsSha256: $sha256sums_sha256,
+              windowsSigning: $windows_signing,
               windowsPackageArtifactId: $windows_package_artifact_id,
               windowsPackageArtifactDigest: $windows_package_artifact_digest,
               windowsRawSha256: $windows_raw_sha256,
@@ -1321,5 +1415,9 @@ jobs:
             cat candidate/release/SHA256SUMS.txt
             echo '```'
             echo
-            echo "Publication remains blocked until the exact Windows hashes pass Defender and Malwarebytes review and the protected publication workflow is approved."
+            if [ "$WINDOWS_ALLOW_UNSIGNED_RELEASE" = "true" ]; then
+              echo "**This candidate carries UNSIGNED Windows binaries** (WINDOWS_ALLOW_UNSIGNED_RELEASE). Publication remains blocked until the protected publication workflow is approved."
+            else
+              echo "Publication remains blocked until the exact Windows hashes pass Defender and Malwarebytes review and the protected publication workflow is approved."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
