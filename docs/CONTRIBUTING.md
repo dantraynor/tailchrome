@@ -42,12 +42,14 @@ pnpm zip:firefox         # firefox.zip + firefox-sources.zip
 pnpm lint:firefox        # AMO-style validation
 pnpm review:firefox      # Full Firefox validation pipeline
 pnpm test                # All tests
+pnpm test:installer      # Verified installer shell tests
 pnpm typecheck           # TypeScript validation
 pnpm e2e:chrome          # Puppeteer smoke suite (Chrome)
 pnpm e2e:firefox         # Puppeteer smoke suite (Firefox)
 pnpm e2e:full            # Full Puppeteer suite, both browsers
 make host                # Native host for current platform
 make host-all            # All platform binaries
+make host-linux-arm64    # Linux ARM64 raw helper
 make dev                 # Chrome watch mode (WXT)
 ```
 

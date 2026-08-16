@@ -12,7 +12,12 @@ The packages install the helper binary at `/usr/lib/tailchrome/tailscale-browser
 - Edge: `/etc/opt/edge/native-messaging-hosts/`
 - Firefox: `/usr/lib/mozilla/native-messaging-hosts/` (the .rpm additionally installs to `/usr/lib64/mozilla/native-messaging-hosts/`, where Fedora/RHEL Firefox builds look)
 
-For additional Chromium-family browsers that do not support these system manifest locations, use the raw helper binary fallback from the release page. The raw binary runs `-install-now` for the current user and writes per-user manifests.
+For Linux ARM64, or for additional Chromium-family browsers that do not use
+these system manifest locations, use `tailchrome-install.sh` from the matching
+tagged release. The version-pinned script selects the amd64 or ARM64 raw helper,
+verifies its release checksum, runs `-install-now`, and confirms the per-user
+installation was created. Verify the installer itself against the same release's
+`SHA256SUMS.txt` before running it; do not pipe a mutable download into a shell.
 
 ## Build
 

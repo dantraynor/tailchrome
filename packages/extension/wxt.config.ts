@@ -77,6 +77,7 @@ export default defineConfig({
       "tsconfig.base.json",
       "docs/SOURCE_CODE_REVIEW.md",
       "config/extension-ids.json",
+      "patches/**",
       "packages/extension/**",
       "packages/shared/**",
     ],
