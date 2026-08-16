@@ -133,11 +133,22 @@ jobs:
           CANDIDATE_RUN_ATTEMPT: ${{ steps.validate-source.outputs.run_attempt }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           EXPECTED_MANIFEST_DIGEST: ${{ inputs.sha256sums_digest }}
+          WINDOWS_ALLOW_UNSIGNED_RELEASE: ${{ vars.WINDOWS_ALLOW_UNSIGNED_RELEASE }}
         run: |
           set -euo pipefail
           source_sha="$(git rev-parse HEAD)"
           metadata="candidate/candidate-metadata.json"
           test "$(jq -r .schemaVersion "$metadata")" = "1"
+          windows_signing="$(jq -r '.windowsSigning // "signed"' "$metadata")"
+          case "$windows_signing" in
+            signed) ;;
+            unsigned)
+              # Publishing an unsigned candidate requires the same explicit
+              # repository-variable consent that created it.
+              test "$WINDOWS_ALLOW_UNSIGNED_RELEASE" = "true"
+              ;;
+            *) echo "Unknown windowsSigning mode: $windows_signing" >&2; exit 1 ;;
+          esac
           test "$(jq -r .repository "$metadata")" = "$GITHUB_REPOSITORY"
           test "$(jq -r .workflow "$metadata")" = "$CANDIDATE_WORKFLOW_PATH"
           test "$(jq -r .runId "$metadata")" = "$CANDIDATE_RUN_ID"
@@ -178,10 +189,16 @@ jobs:
           diff -u "$RUNNER_TEMP/expected-manifest-assets.txt" "$RUNNER_TEMP/manifest-assets.txt"
           (cd candidate/release && sha256sum --check SHA256SUMS.txt)
 
-          printf '%s\n' \
-            windows-defender-verification.json \
-            windows-signature-verification.json \
-            > "$RUNNER_TEMP/expected-evidence.txt"
+          if [[ "$windows_signing" == "unsigned" ]]; then
+            printf '%s\n' \
+              windows-signature-verification.json \
+              > "$RUNNER_TEMP/expected-evidence.txt"
+          else
+            printf '%s\n' \
+              windows-defender-verification.json \
+              windows-signature-verification.json \
+              > "$RUNNER_TEMP/expected-evidence.txt"
+          fi
           find candidate/evidence -mindepth 1 -maxdepth 1 -type f -printf '%f\n' |
             sort > "$RUNNER_TEMP/actual-evidence.txt"
           diff -u "$RUNNER_TEMP/expected-evidence.txt" "$RUNNER_TEMP/actual-evidence.txt"
@@ -189,6 +206,14 @@ jobs:
           signature_summary="candidate/evidence/windows-signature-verification.json"
           raw_hash="$(sha256sum candidate/release/tailscale-browser-ext-windows-amd64.exe | cut -d' ' -f1)"
           msi_hash="$(sha256sum candidate/release/tailchrome-helper-windows-x64.msi | cut -d' ' -f1)"
+          if [[ "$windows_signing" == "unsigned" ]]; then
+            test "$(jq -r .mode "$signature_summary")" = "unsigned"
+            test "$(jq -r .rawExe.sha256 "$signature_summary")" = "$raw_hash"
+            test "$(jq -r .msi.sha256 "$signature_summary")" = "$msi_hash"
+            test "$(jq -r .windowsRawSha256 "$metadata")" = "$raw_hash"
+            test "$(jq -r .windowsMsiSha256 "$metadata")" = "$msi_hash"
+            exit 0
+          fi
           test "$(jq -r .embeddedMatchesRaw "$signature_summary")" = "true"
           test "$(jq -r .rawExe.sha256 "$signature_summary")" = "$raw_hash"
           test "$(jq -r .embeddedExe.sha256 "$signature_summary")" = "$raw_hash"
@@ -331,6 +356,7 @@ jobs:
 
   validate-windows-signatures:
     needs: validate-candidate
+    if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
     runs-on: windows-2025
     env:
       WINDOWS_SIGNTOOL_PATH: C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe
@@ -403,6 +429,15 @@ jobs:
       - validate-candidate
       - validate-windows-signatures
       - validate-macos-signatures
+    # validate-windows-signatures is skipped (not failed) for an unsigned
+    # candidate; the protected approval itself always runs.
+    if: >-
+      ${{ !cancelled() &&
+          needs.validate-candidate.result == 'success' &&
+          needs.validate-macos-signatures.result == 'success' &&
+          (needs.validate-windows-signatures.result == 'success' ||
+           (vars.WINDOWS_ALLOW_UNSIGNED_RELEASE == 'true' &&
+            needs.validate-windows-signatures.result == 'skipped')) }}
     runs-on: ubuntu-latest
     environment: windows-release-clearance
     steps:
@@ -420,6 +455,14 @@ jobs:
       - validate-windows-signatures
       - validate-macos-signatures
       - windows-release-clearance
+    if: >-
+      ${{ !cancelled() &&
+          needs.validate-candidate.result == 'success' &&
+          needs.validate-macos-signatures.result == 'success' &&
+          needs.windows-release-clearance.result == 'success' &&
+          (needs.validate-windows-signatures.result == 'success' ||
+           (vars.WINDOWS_ALLOW_UNSIGNED_RELEASE == 'true' &&
+            needs.validate-windows-signatures.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       actions: read

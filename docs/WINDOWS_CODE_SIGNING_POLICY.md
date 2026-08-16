@@ -5,12 +5,22 @@ This policy covers the Windows helper executable and MSI published from
 
 ## Current release gate
 
-Windows publication is blocked until one signing provider has accepted the
-project, issued one stable publisher identity, and produced a successfully
+Signed Windows publication is blocked until one signing provider has accepted
+the project, issued one stable publisher identity, and produced a successfully
 timestamped test signature. The repository currently has no selected Windows
 provider or approved Authenticode signer subject. A release must not substitute
-an unsigned artifact, a locally generated certificate, or a second provider
-when signing is unavailable.
+a locally generated certificate or a second provider when signing is
+unavailable.
+
+While provider onboarding is pending, the maintainer may explicitly ship
+unsigned Windows binaries by setting the `WINDOWS_ALLOW_UNSIGNED_RELEASE`
+repository variable to `true`. Unsigned mode is mutually exclusive with a
+configured signer subject, skips Defender clearance evidence, records
+`windowsSigning: unsigned` in the candidate metadata, and still requires the
+protected publication approval. Users installing these builds see the ordinary
+SmartScreen unknown-publisher warning. The variable must be removed as soon as
+a signing provider and expected signer subject are recorded, at which point the
+fail-closed signed gate below is the only release path again.
 
 SignPath Foundation and Azure Artifact Signing Individual are the evaluated
 onboarding paths. SignPath is preferred if the Foundation application is
