@@ -5,6 +5,7 @@ import {
 import { registerStartupWakeListener } from "@tailchrome/shared/background/startup-wake";
 import { registerSidebarOpener } from "@tailchrome/shared/background/ui-surface";
 import { KEEPALIVE_INTERVAL_MS } from "@tailchrome/shared/constants";
+import { sanitizeDiagnosticMessage } from "@tailchrome/shared/helper-diagnostics";
 import { FIREFOX_NATIVE_HOST_ID } from "../constants";
 import { FirefoxProxyManager } from "./firefox-proxy-manager";
 
@@ -60,13 +61,17 @@ export function startFirefoxBackground(): void {
     skipKeepalive: true,
     browserKind: "firefox",
   });
+  const retryRestorePromise = backgroundHandle.rehydrateHelperRetries();
 
   browser.alarms.create("keepalive", {
     periodInMinutes: KEEPALIVE_PERIOD_MINUTES,
   });
 
-  void restorePromise
+  void Promise.all([restorePromise, retryRestorePromise])
     .catch((err) => {
-      console.error("[Firefox] Background start failed:", err);
+      console.error(
+        "[Firefox] Background start failed:",
+        sanitizeDiagnosticMessage(err) ?? "unknown error",
+      );
     });
 }

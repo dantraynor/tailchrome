@@ -1,6 +1,7 @@
 import { initBackground } from "@tailchrome/shared/background/background";
 import { ChromeAlarmTimerService } from "@tailchrome/shared/background/chrome-alarm-timer-service";
 import { registerStartupWakeListener } from "@tailchrome/shared/background/startup-wake";
+import { sanitizeDiagnosticMessage } from "@tailchrome/shared/helper-diagnostics";
 import { CHROME_NATIVE_HOST_ID } from "../constants";
 import { ChromeProxyManager } from "./chrome-proxy-manager";
 
@@ -9,7 +10,7 @@ export function startChromeBackground(): void {
   // runs auto-connect without waiting for the popup (#90).
   registerStartupWakeListener();
 
-  const { proxyManager } = initBackground(
+  const background = initBackground(
     new ChromeProxyManager(),
     CHROME_NATIVE_HOST_ID,
     {
@@ -17,6 +18,13 @@ export function startChromeBackground(): void {
       timerService: new ChromeAlarmTimerService(),
     },
   );
+  const { proxyManager } = background;
+  void background.rehydrateHelperRetries().catch((err) => {
+    console.warn(
+      "[Chrome] Could not restore pending helper discovery retry:",
+      sanitizeDiagnosticMessage(err) ?? "unknown error",
+    );
+  });
 
   chrome.runtime.onSuspend?.addListener(() => {
     proxyManager.clear();

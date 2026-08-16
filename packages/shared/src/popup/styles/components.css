@@ -845,6 +845,34 @@ button.setting-row {
   max-width: 280px;
 }
 
+.helper-version-notice {
+  position: relative;
+  padding: var(--space-md) calc(var(--space-xl) + var(--space-lg))
+    var(--space-md) var(--space-xl);
+  background: color-mix(in srgb, var(--ts-blue) 8%, var(--bg-primary));
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--ts-blue) 22%, var(--border-light));
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-relaxed);
+}
+
+.helper-version-copy {
+  margin: 0 0 var(--space-xs);
+}
+
+.helper-version-dismiss {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-md);
+  border: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--font-size-lg);
+}
+
 /* ==============================
    Code Block (for install view)
    ============================== */
@@ -1331,6 +1359,39 @@ button.setting-row {
 .centered-view-text.install-pkg-hint {
   margin: 0 auto var(--space-lg);
   max-width: 280px;
+}
+
+.helper-registration-repair {
+  width: 100%;
+  margin: 0 0 var(--space-xl);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  text-align: left;
+  font-size: var(--font-size-sm);
+}
+
+.helper-registration-repair p {
+  margin: var(--space-xs) 0 0;
+  color: var(--text-secondary);
+  line-height: var(--line-height-relaxed);
+}
+
+.helper-discovery-retry {
+  margin-top: var(--space-sm);
+}
+
+.helper-diagnostic-actions {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-xl);
+}
+
+.helper-diagnostic-actions .btn {
+  flex: 1 1 130px;
 }
 
 /* ==============================

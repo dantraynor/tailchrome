@@ -4,6 +4,7 @@ import { FIREFOX_NATIVE_HOST_ID } from "../constants";
 const mocks = vi.hoisted(() => ({
   initBackground: vi.fn(),
   restoreFromStorage: vi.fn(),
+  rehydrateHelperRetries: vi.fn(),
   sendKeepalive: vi.fn(),
   proxyManagerInstance: {
     listener: vi.fn(),
@@ -92,6 +93,8 @@ describe("startFirefoxBackground", () => {
     mocks.sendKeepalive.mockReset();
     mocks.initBackground.mockReset();
     mocks.restoreFromStorage.mockReset();
+    mocks.rehydrateHelperRetries.mockReset();
+    mocks.rehydrateHelperRetries.mockResolvedValue(undefined);
     mocks.proxyManagerInstance = {
       listener: vi.fn(),
       restoreFromStorage: mocks.restoreFromStorage,
@@ -104,6 +107,7 @@ describe("startFirefoxBackground", () => {
       proxyManager: mocks.proxyManagerInstance,
       reconnect: vi.fn(),
       sendKeepalive: mocks.sendKeepalive,
+      rehydrateHelperRetries: mocks.rehydrateHelperRetries,
     });
   });
 
@@ -156,6 +160,7 @@ describe("startFirefoxBackground", () => {
     expect(alarmsCreate).toHaveBeenCalledWith("keepalive", {
       periodInMinutes: 25_000 / 60_000,
     });
+    expect(mocks.rehydrateHelperRetries).toHaveBeenCalledTimes(1);
 
     resolveRestore(true);
     await flushMicrotasks();
@@ -213,9 +218,26 @@ describe("startFirefoxBackground", () => {
 
     expect(errorSpy).toHaveBeenCalledWith(
       "[Firefox] Background start failed:",
-      error,
+      "restore failed",
     );
 
+    errorSpy.mockRestore();
+  });
+
+  it("logs sanitized helper retry restoration failures", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.restoreFromStorage.mockResolvedValue(true);
+    mocks.rehydrateHelperRetries.mockRejectedValue(
+      new Error("failed for /Users/alice/private"),
+    );
+
+    startFirefoxBackground();
+    await flushMicrotasks();
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[Firefox] Background start failed:",
+      "failed for [redacted-home]/private",
+    );
     errorSpy.mockRestore();
   });
 });

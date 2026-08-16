@@ -1,0 +1,551 @@
+name: Publish Helper Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful Release Candidate workflow run ID
+        required: true
+        type: string
+      release_tag:
+        description: Exact candidate release tag, for example v0.1.5
+        required: true
+        type: string
+      sha256sums_digest:
+        description: SHA-256 of the candidate SHA256SUMS.txt
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: publish-helper-release-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_WORKFLOW_FILE: release.yml
+  CANDIDATE_WORKFLOW_PATH: .github/workflows/release.yml
+  CANDIDATE_ARTIFACT: helper-release-candidate
+  CLEARANCE_ENVIRONMENT: windows-release-clearance
+
+jobs:
+  validate-candidate:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+    outputs:
+      candidate_artifact_id: ${{ steps.validate-source.outputs.candidate_artifact_id }}
+      run_attempt: ${{ steps.validate-source.outputs.run_attempt }}
+      source_sha: ${{ steps.validate-source.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.release_tag }}
+      - name: Validate dispatch inputs and source run
+        id: validate-source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_MANIFEST_DIGEST: ${{ inputs.sha256sums_digest }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$EXPECTED_MANIFEST_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+
+          expected_workflow_id="$(
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$CANDIDATE_WORKFLOW_FILE" --jq .id
+          )"
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
+          test "$(jq -r .repository.full_name <<<"$run_json")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r .head_repository.full_name <<<"$run_json")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r .workflow_id <<<"$run_json")" = "$expected_workflow_id"
+          test "$(jq -r .status <<<"$run_json")" = "completed"
+          test "$(jq -r .conclusion <<<"$run_json")" = "success"
+          case "$(jq -r .event <<<"$run_json")" in
+            push|workflow_dispatch) ;;
+            *) echo "Candidate run used an unexpected event." >&2; exit 1 ;;
+          esac
+
+          source_sha="$(git rev-parse HEAD)"
+          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$source_sha"
+          test "$(
+            gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha
+          )" = "$source_sha"
+          test "$(jq -r .head_sha <<<"$run_json")" = "$source_sha"
+          run_attempt="$(jq -r .run_attempt <<<"$run_json")"
+          [[ "$run_attempt" =~ ^[1-9][0-9]*$ ]]
+
+          artifacts_json="$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID/artifacts?per_page=100"
+          )"
+          candidate_artifact_id="$(
+            jq -r --arg name "$CANDIDATE_ARTIFACT" '
+              [.artifacts[] |
+                select(.name == $name and .expired == false)] as $matches |
+              if ($matches | length) == 1
+              then $matches[0].id
+              else empty
+              end
+            ' <<<"$artifacts_json"
+          )"
+          [[ "$candidate_artifact_id" =~ ^[1-9][0-9]*$ ]]
+          {
+            echo "candidate_artifact_id=$candidate_artifact_id"
+            echo "run_attempt=$run_attempt"
+            echo "source_sha=$source_sha"
+          } >> "$GITHUB_OUTPUT"
+
+          environment_json="$(
+            gh api "repos/$GITHUB_REPOSITORY/environments/$CLEARANCE_ENVIRONMENT"
+          )"
+          reviewer_count="$(
+            jq '[.protection_rules[]? |
+              select(.type == "required_reviewers") |
+              .reviewers[]?] | length' <<<"$environment_json"
+          )"
+          if [[ "$reviewer_count" -lt 1 ]]; then
+            echo "$CLEARANCE_ENVIRONMENT must exist with at least one required reviewer." >&2
+            exit 1
+          fi
+          if ! jq -e '.can_admins_bypass == false' <<<"$environment_json" >/dev/null; then
+            echo "$CLEARANCE_ENVIRONMENT must prevent administrator bypass." >&2
+            exit 1
+          fi
+      - name: Download original candidate artifact
+        uses: actions/download-artifact@v6
+        with:
+          artifact-ids: ${{ steps.validate-source.outputs.candidate_artifact_id }}
+          path: candidate
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+      - name: Revalidate metadata, allowlist, and hashes
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CANDIDATE_RUN_ATTEMPT: ${{ steps.validate-source.outputs.run_attempt }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_MANIFEST_DIGEST: ${{ inputs.sha256sums_digest }}
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          metadata="candidate/candidate-metadata.json"
+          test "$(jq -r .schemaVersion "$metadata")" = "1"
+          test "$(jq -r .repository "$metadata")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r .workflow "$metadata")" = "$CANDIDATE_WORKFLOW_PATH"
+          test "$(jq -r .runId "$metadata")" = "$CANDIDATE_RUN_ID"
+          test "$(jq -r .runAttempt "$metadata")" = "$CANDIDATE_RUN_ATTEMPT"
+          test "$(jq -r .releaseTag "$metadata")" = "$RELEASE_TAG"
+          test "$(jq -r .sourceSha "$metadata")" = "$source_sha"
+          test "$(jq -r .sha256sumsSha256 "$metadata")" = "$EXPECTED_MANIFEST_DIGEST"
+          test "$(sha256sum candidate/release/SHA256SUMS.txt | cut -d' ' -f1)" = "$EXPECTED_MANIFEST_DIGEST"
+
+          cat > "$RUNNER_TEMP/expected-release-assets.txt" <<'ASSETS'
+          SHA256SUMS.txt
+          chrome.zip
+          firefox-sources.zip
+          firefox.zip
+          tailchrome-helper-linux-amd64.deb
+          tailchrome-helper-linux-x86_64.rpm
+          tailchrome-helper-macos.pkg
+          tailchrome-helper-windows-x64.msi
+          tailchrome-install.sh
+          tailscale-browser-ext-darwin-amd64
+          tailscale-browser-ext-darwin-arm64
+          tailscale-browser-ext-linux-amd64
+          tailscale-browser-ext-linux-arm64
+          tailscale-browser-ext-windows-amd64.exe
+          ASSETS
+          sed -i 's/^          //' "$RUNNER_TEMP/expected-release-assets.txt"
+          find candidate/release -mindepth 1 -maxdepth 1 -type f -printf '%f\n' |
+            sort > "$RUNNER_TEMP/actual-release-assets.txt"
+          diff -u "$RUNNER_TEMP/expected-release-assets.txt" "$RUNNER_TEMP/actual-release-assets.txt"
+
+          awk '
+            $1 !~ /^[0-9a-f]{64}$/ || NF != 2 { exit 1 }
+            { print $2 }
+          ' candidate/release/SHA256SUMS.txt |
+            sort > "$RUNNER_TEMP/manifest-assets.txt"
+          grep -v '^SHA256SUMS.txt$' "$RUNNER_TEMP/expected-release-assets.txt" \
+            > "$RUNNER_TEMP/expected-manifest-assets.txt"
+          diff -u "$RUNNER_TEMP/expected-manifest-assets.txt" "$RUNNER_TEMP/manifest-assets.txt"
+          (cd candidate/release && sha256sum --check SHA256SUMS.txt)
+
+          printf '%s\n' \
+            windows-defender-verification.json \
+            windows-signature-verification.json \
+            > "$RUNNER_TEMP/expected-evidence.txt"
+          find candidate/evidence -mindepth 1 -maxdepth 1 -type f -printf '%f\n' |
+            sort > "$RUNNER_TEMP/actual-evidence.txt"
+          diff -u "$RUNNER_TEMP/expected-evidence.txt" "$RUNNER_TEMP/actual-evidence.txt"
+
+          signature_summary="candidate/evidence/windows-signature-verification.json"
+          raw_hash="$(sha256sum candidate/release/tailscale-browser-ext-windows-amd64.exe | cut -d' ' -f1)"
+          msi_hash="$(sha256sum candidate/release/tailchrome-helper-windows-x64.msi | cut -d' ' -f1)"
+          test "$(jq -r .embeddedMatchesRaw "$signature_summary")" = "true"
+          test "$(jq -r .rawExe.sha256 "$signature_summary")" = "$raw_hash"
+          test "$(jq -r .embeddedExe.sha256 "$signature_summary")" = "$raw_hash"
+          test "$(jq -r .msi.sha256 "$signature_summary")" = "$msi_hash"
+          jq -e '.expectedSignerSubject | strings | length > 0' "$signature_summary" >/dev/null
+
+          defender_summary="candidate/evidence/windows-defender-verification.json"
+          defender_evidence_hash="$(
+            sha256sum "$defender_summary" | cut -d' ' -f1
+          )"
+          test "$(jq -r .schemaVersion "$defender_summary")" = "1"
+          test "$(jq -r .result "$defender_summary")" = "clean"
+          test "$(jq -r .repository "$defender_summary")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r .workflow "$defender_summary")" = "Release Candidate"
+          test "$(
+            jq -r .workflowRef "$defender_summary"
+          )" = "$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$RELEASE_TAG"
+          test "$(jq -r .runId "$defender_summary")" = "$CANDIDATE_RUN_ID"
+          test "$(jq -r .runAttempt "$defender_summary")" = "$CANDIDATE_RUN_ATTEMPT"
+          test "$(jq -r .sourceSha "$defender_summary")" = "$source_sha"
+          test "$(jq -r .releaseTag "$defender_summary")" = "$RELEASE_TAG"
+          test "$(jq -r .releaseRef "$defender_summary")" = "refs/tags/$RELEASE_TAG"
+          test "$(jq -r .packageDownloadOutcome "$defender_summary")" = "success"
+          test "$(
+            jq -r .packageArtifactId "$defender_summary"
+          )" = "$(jq -r .windowsPackageArtifactId "$metadata")"
+          test "$(
+            jq -r .packageArtifactDigest "$defender_summary"
+          )" = "$(jq -r .windowsPackageArtifactDigest "$metadata")"
+          test "$(
+            jq -r .controlledImageId "$defender_summary"
+          )" = "$(jq -r .windowsDefenderImageId "$metadata")"
+          test "$(
+            jq -r .windowsDefenderEvidenceSha256 "$metadata"
+          )" = "$defender_evidence_hash"
+          test "$(jq -r .defenderServiceStatus "$defender_summary")" = "Running"
+          test "$(jq -r .antimalwareRunningMode "$defender_summary")" = "Normal"
+          test "$(jq -r .antivirusEnabled "$defender_summary")" = "true"
+          test "$(jq -r .antimalwareServiceEnabled "$defender_summary")" = "true"
+          test "$(jq -r .realTimeProtectionEnabled "$defender_summary")" = "true"
+          test "$(jq -r .behaviorMonitorEnabled "$defender_summary")" = "true"
+          test "$(jq -r .ioavProtectionEnabled "$defender_summary")" = "true"
+          test "$(jq -r .onAccessProtectionEnabled "$defender_summary")" = "true"
+          test "$(jq -r .cloudDeliveredProtectionEnabled "$defender_summary")" = "true"
+          test "$(jq -r .blockAtFirstSeenEnabled "$defender_summary")" = "true"
+          test "$(jq -r .automaticSampleSubmissionEnabled "$defender_summary")" = "true"
+          test "$(jq -r .puaProtectionEnabled "$defender_summary")" = "true"
+          test "$(jq -r .mapsReporting "$defender_summary")" = "2"
+          test "$(jq -r .submitSamplesConsent "$defender_summary")" = "1"
+          test "$(jq -r .mapsConnectionValidated "$defender_summary")" = "true"
+          test "$(jq -r .mapsValidationExitCode "$defender_summary")" = "0"
+          test "$(jq -r .detectionSmokeTestPassed "$defender_summary")" = "true"
+          test "$(jq -r .newDetectionCount "$defender_summary")" = "0"
+          test "$(jq -r .filesystemPathExclusionCount "$defender_summary")" = "0"
+          test "$(jq -r .fileExtensionExclusionCount "$defender_summary")" = "0"
+          test "$(jq -r .processExclusionCount "$defender_summary")" = "0"
+          jq -e '
+            .securityIntelligenceUpdateSource == "MicrosoftUpdateServer" or
+            .securityIntelligenceUpdateSource == "MMPC"
+          ' "$defender_summary" >/dev/null
+          test "$(jq -r .runnerEnvironment "$defender_summary")" = "self-hosted"
+          test "$(jq -r .runnerOS "$defender_summary")" = "Windows"
+          test "$(jq -r .runnerArchitecture "$defender_summary")" = "X64"
+          jq -e '.runAttempt | strings | test("^[1-9][0-9]*$")' "$defender_summary" >/dev/null
+          jq -e '.packageArtifactId | strings | test("^[1-9][0-9]*$")' "$defender_summary" >/dev/null
+          jq -e '.packageArtifactDigest | strings | test("^[0-9a-f]{64}$")' "$defender_summary" >/dev/null
+          jq -e '
+            (.controlledImageId | strings | length > 0) and
+            .observedControlledImageId == .controlledImageId
+          ' "$defender_summary" >/dev/null
+          test "$(
+            jq -r .defenderPolicyBlobId "$defender_summary"
+          )" = "$(git rev-parse "$source_sha:scripts/initialize-windows-defender.ps1")"
+          test "$(
+            jq -r .releaseWorkflowBlobId "$defender_summary"
+          )" = "$(git rev-parse "$source_sha:.github/workflows/release.yml")"
+          jq -e '.operatingSystemVersion | strings | length > 0' "$defender_summary" >/dev/null
+          jq -e '.antimalwareEngineVersion | strings | length > 0' "$defender_summary" >/dev/null
+          jq -e '.antimalwareProductVersion | strings | length > 0' "$defender_summary" >/dev/null
+          jq -e '.antivirusSignatureVersion | strings | length > 0' "$defender_summary" >/dev/null
+          jq -e '.antivirusSignatureAge | numbers | . <= 1' "$defender_summary" >/dev/null
+          jq -e '.antivirusSignatureLastUpdated | strings | length > 0' "$defender_summary" >/dev/null
+          jq -e '.scanCompletedAt | strings | length > 0' "$defender_summary" >/dev/null
+          jq -e '
+            .files |
+            length == 2 and all(
+              (
+                .name == "tailscale-browser-ext-windows-amd64.exe" or
+                .name == "tailchrome-helper-windows-x64.msi"
+              ) and
+              .scanResult == "clean" and
+              .excluded == false and
+              .exclusionCheckExitCode == 1 and
+              .scanExitCode == 0 and
+              .detectionDelta == 0 and
+              (.sha256 | strings | test("^[0-9a-f]{64}$")) and
+              .preScanSha256 == .sha256 and
+              .postScanSha256 == .sha256 and
+              (.scanStartedAt | strings | length > 0) and
+              (.scanCompletedAt | strings | length > 0)
+            )
+          ' "$defender_summary" >/dev/null
+          test "$(
+            jq -r --arg name tailscale-browser-ext-windows-amd64.exe \
+              '.files[] | select(.name == $name) | .sha256' "$defender_summary"
+          )" = "$raw_hash"
+          test "$(jq -r .windowsRawSha256 "$metadata")" = "$raw_hash"
+          test "$(
+            jq -r --arg name tailchrome-helper-windows-x64.msi \
+              '.files[] | select(.name == $name) | .sha256' "$defender_summary"
+          )" = "$msi_hash"
+          test "$(jq -r .windowsMsiSha256 "$metadata")" = "$msi_hash"
+      - name: Verify final artifact attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          find candidate/release -mindepth 1 -maxdepth 1 -type f -printf '%f\n' |
+            sort > "$RUNNER_TEMP/attestation-assets.txt"
+          while IFS= read -r asset; do
+            gh attestation verify "candidate/release/$asset" --repo "$GITHUB_REPOSITORY"
+          done < "$RUNNER_TEMP/attestation-assets.txt"
+      - name: Write reviewer summary
+        env:
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_MANIFEST_DIGEST: ${{ inputs.sha256sums_digest }}
+        run: |
+          {
+            echo "## Candidate awaiting security clearance"
+            echo
+            echo "- Candidate run ID: \`$CANDIDATE_RUN_ID\`"
+            echo "- Release tag: \`$RELEASE_TAG\`"
+            echo "- SHA256SUMS.txt digest: \`$EXPECTED_MANIFEST_DIGEST\`"
+            echo
+            echo '```text'
+            cat candidate/release/SHA256SUMS.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  validate-windows-signatures:
+    needs: validate-candidate
+    runs-on: windows-2025
+    env:
+      WINDOWS_SIGNTOOL_PATH: C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe
+      WINDOWS_EXPECTED_SIGNER_SUBJECT: ${{ vars.WINDOWS_EXPECTED_SIGNER_SUBJECT }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate-candidate.outputs.source_sha }}
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+      - name: Install WiX
+        run: dotnet tool install --global wix --version 6.0.2
+      - name: Download original candidate artifact
+        uses: actions/download-artifact@v6
+        with:
+          artifact-ids: ${{ needs.validate-candidate.outputs.candidate_artifact_id }}
+          path: candidate
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify final Windows signatures again
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath $env:WINDOWS_SIGNTOOL_PATH -PathType Leaf)) {
+            throw "Expected SignTool was not found at $env:WINDOWS_SIGNTOOL_PATH"
+          }
+          .\scripts\verify-windows-signatures.ps1 `
+            -RawExe .\candidate\release\tailscale-browser-ext-windows-amd64.exe `
+            -Msi .\candidate\release\tailchrome-helper-windows-x64.msi `
+            -ExpectedSignerSubject "$env:WINDOWS_EXPECTED_SIGNER_SUBJECT" `
+            -SignToolPath "$env:WINDOWS_SIGNTOOL_PATH"
+
+  validate-macos-signatures:
+    needs: validate-candidate
+    runs-on: macos-latest
+    steps:
+      - name: Download original candidate artifact
+        uses: actions/download-artifact@v6
+        with:
+          artifact-ids: ${{ needs.validate-candidate.outputs.candidate_artifact_id }}
+          path: candidate
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify final macOS signatures again
+        run: |
+          set -euo pipefail
+          for bin in \
+            candidate/release/tailscale-browser-ext-darwin-amd64 \
+            candidate/release/tailscale-browser-ext-darwin-arm64; do
+            codesign --verify --deep --strict --verbose=2 "$bin"
+            # spctl --assess rejects bare Mach-O executables ("does not seem
+            # to be an app"); standalone binaries are checked per Apple's
+            # "Testing a Notarised Product" guidance instead.
+            codesign --verify --verbose=2 -R="notarized" --check-notarization "$bin"
+          done
+          pkg="candidate/release/tailchrome-helper-macos.pkg"
+          expanded="$RUNNER_TEMP/tailchrome-pkg"
+          pkgutil --check-signature "$pkg"
+          xcrun stapler validate "$pkg"
+          pkgutil --expand-full "$pkg" "$expanded"
+          app="$expanded/Payload/Applications/Tailchrome Helper.app"
+          test -x "$app/Contents/MacOS/tailchrome-helper"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl --assess --type execute --verbose=2 "$app"
+
+  windows-release-clearance:
+    needs:
+      - validate-candidate
+      - validate-windows-signatures
+      - validate-macos-signatures
+    runs-on: ubuntu-latest
+    environment: windows-release-clearance
+    steps:
+      - name: Record protected approval
+        run: |
+          {
+            echo "## Protected release approval"
+            echo
+            echo "The required reviewer approved publication of candidate run \`${{ inputs.candidate_run_id }}\` with SHA256SUMS.txt digest \`${{ inputs.sha256sums_digest }}\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    needs:
+      - validate-candidate
+      - validate-windows-signatures
+      - validate-macos-signatures
+      - windows-release-clearance
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_ARTIFACT_ID: ${{ needs.validate-candidate.outputs.candidate_artifact_id }}
+      CANDIDATE_RUN_ATTEMPT: ${{ needs.validate-candidate.outputs.run_attempt }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      CANDIDATE_SOURCE_SHA: ${{ needs.validate-candidate.outputs.source_sha }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      EXPECTED_MANIFEST_DIGEST: ${{ inputs.sha256sums_digest }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.validate-candidate.outputs.source_sha }}
+      - name: Revalidate source run after approval
+        run: |
+          set -euo pipefail
+          expected_workflow_id="$(
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$CANDIDATE_WORKFLOW_FILE" --jq .id
+          )"
+          run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_RUN_ID")"
+          test "$(jq -r .repository.full_name <<<"$run_json")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r .head_repository.full_name <<<"$run_json")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r .workflow_id <<<"$run_json")" = "$expected_workflow_id"
+          test "$(jq -r .status <<<"$run_json")" = "completed"
+          test "$(jq -r .conclusion <<<"$run_json")" = "success"
+          test "$(jq -r .run_attempt <<<"$run_json")" = "$CANDIDATE_RUN_ATTEMPT"
+          source_sha="$CANDIDATE_SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$source_sha"
+          test "$(
+            gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha
+          )" = "$source_sha"
+          test "$(jq -r .head_sha <<<"$run_json")" = "$source_sha"
+          artifact_json="$(
+            gh api \
+              "repos/$GITHUB_REPOSITORY/actions/artifacts/$CANDIDATE_ARTIFACT_ID"
+          )"
+          test "$(jq -r .name <<<"$artifact_json")" = "$CANDIDATE_ARTIFACT"
+          test "$(jq -r .expired <<<"$artifact_json")" = "false"
+          test "$(jq -r .workflow_run.id <<<"$artifact_json")" = "$CANDIDATE_RUN_ID"
+      - name: Download original candidate artifact again
+        uses: actions/download-artifact@v6
+        with:
+          artifact-ids: ${{ needs.validate-candidate.outputs.candidate_artifact_id }}
+          path: candidate
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ github.token }}
+      - name: Revalidate exact candidate bytes after approval
+        run: |
+          set -euo pipefail
+          metadata="candidate/candidate-metadata.json"
+          source_sha="$CANDIDATE_SOURCE_SHA"
+          test "$(jq -r .repository "$metadata")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r .workflow "$metadata")" = "$CANDIDATE_WORKFLOW_PATH"
+          test "$(jq -r .runId "$metadata")" = "$CANDIDATE_RUN_ID"
+          test "$(jq -r .runAttempt "$metadata")" = "$CANDIDATE_RUN_ATTEMPT"
+          test "$(jq -r .releaseTag "$metadata")" = "$RELEASE_TAG"
+          test "$(jq -r .sourceSha "$metadata")" = "$source_sha"
+          test "$(jq -r .sha256sumsSha256 "$metadata")" = "$EXPECTED_MANIFEST_DIGEST"
+          test "$(sha256sum candidate/release/SHA256SUMS.txt | cut -d' ' -f1)" = "$EXPECTED_MANIFEST_DIGEST"
+          (cd candidate/release && sha256sum --check SHA256SUMS.txt)
+      - name: Create or resume coordinated draft
+        run: |
+          set -euo pipefail
+          mkdir -p existing-assets
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true"
+            existing_count="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets | length')"
+            if [[ "$existing_count" -gt 0 ]]; then
+              gh release download "$RELEASE_TAG" --dir existing-assets
+            fi
+          else
+            gh release create "$RELEASE_TAG" \
+              --verify-tag \
+              --title "$RELEASE_TAG" \
+              --generate-notes \
+              --draft
+          fi
+
+          for existing in existing-assets/*; do
+            [[ -e "$existing" ]] || break
+            name="$(basename "$existing")"
+            candidate="candidate/release/$name"
+            test -f "$candidate"
+            cmp --silent "$existing" "$candidate"
+          done
+
+          missing=()
+          while IFS= read -r candidate; do
+            name="$(basename "$candidate")"
+            if [[ ! -f "existing-assets/$name" ]]; then
+              missing+=("$candidate")
+            fi
+          done < <(find candidate/release -mindepth 1 -maxdepth 1 -type f | sort)
+          if [[ "${#missing[@]}" -gt 0 ]]; then
+            gh release upload "$RELEASE_TAG" "${missing[@]}"
+          fi
+      - name: Verify draft assets and publish
+        run: |
+          set -euo pipefail
+          mkdir -p published-assets
+          gh release download "$RELEASE_TAG" --dir published-assets
+          find candidate/release -mindepth 1 -maxdepth 1 -type f -printf '%f\n' |
+            sort > "$RUNNER_TEMP/candidate-assets.txt"
+          find published-assets -mindepth 1 -maxdepth 1 -type f -printf '%f\n' |
+            sort > "$RUNNER_TEMP/published-assets.txt"
+          diff -u "$RUNNER_TEMP/candidate-assets.txt" "$RUNNER_TEMP/published-assets.txt"
+          while IFS= read -r name; do
+            cmp --silent "candidate/release/$name" "published-assets/$name"
+          done < "$RUNNER_TEMP/candidate-assets.txt"
+          source_sha="$CANDIDATE_SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$source_sha"
+          test "$(
+            gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha
+          )" = "$source_sha"
+          gh release edit "$RELEASE_TAG" --draft=false
+      - name: Write publication summary
+        run: |
+          {
+            echo "## Coordinated helper release published"
+            echo
+            echo "- Release: $(gh release view "$RELEASE_TAG" --json url --jq .url)"
+            echo "- Candidate run ID: \`$CANDIDATE_RUN_ID\`"
+            echo "- SHA256SUMS.txt digest: \`$EXPECTED_MANIFEST_DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"

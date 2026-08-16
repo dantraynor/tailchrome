@@ -40,7 +40,7 @@ macos-pkg:
 
 # Windows only: per-user .msi installer (requires WiX)
 windows-msi:
-	pwsh ./packaging/windows/build-msi.ps1
+	pwsh ./packaging/windows/build-msi.ps1 -AllowUnsignedDevelopmentBuild
 
 # Linux only: .deb and .rpm installers (requires nFPM)
 linux-packages:

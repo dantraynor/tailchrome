@@ -112,7 +112,9 @@ async function launchChrome(extensionDir) {
       // Ubuntu images), which crashes Chrome's sandbox at launch. The suite
       // only visits extension pages and localhost, so dropping the sandbox
       // there is acceptable; local runs keep it.
-      ...(process.env.CI ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
+      ...(process.platform === "linux" && process.env.CI === "true"
+        ? ["--no-sandbox", "--disable-setuid-sandbox"]
+        : []),
     ],
   });
 

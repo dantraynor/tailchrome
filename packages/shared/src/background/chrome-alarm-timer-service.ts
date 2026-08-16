@@ -24,11 +24,23 @@ export class ChromeAlarmTimerService implements TimerService {
   }
 
   setTimeout(name: string, callback: () => void, delayMs: number): void {
+    this.setTimeoutAt(name, callback, Date.now() + delayMs);
+  }
+
+  setTimeoutAt(
+    name: string,
+    callback: () => void,
+    deadlineMs: number,
+  ): void {
     this.clear(name);
     this.timeouts.set(name, callback);
-    this.fallback.setTimeout(name, () => this.fire(name), delayMs);
+    this.fallback.setTimeout(
+      name,
+      () => this.fire(name),
+      Math.max(0, deadlineMs - Date.now()),
+    );
     chrome.alarms.create(ALARM_PREFIX + name, {
-      when: Date.now() + delayMs,
+      when: deadlineMs,
     });
   }
 

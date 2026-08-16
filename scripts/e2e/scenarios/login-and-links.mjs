@@ -18,6 +18,7 @@ export const cases = [
       const page = await openPopup();
       try {
         await waitForPopup(page);
+        await expectText(page, "Log In");
         const targetPromise = browser.waitForTarget((target) =>
           target.url().startsWith("https://login.tailscale.com/a/test"),
         );
@@ -40,6 +41,7 @@ export const cases = [
       const page = await openPopup();
       try {
         await waitForPopup(page);
+        await expectText(page, "Log In");
         await clickText(page, "Log In", "button");
         await new Promise((resolve) => setTimeout(resolve, 500));
         const opened = browser
@@ -64,6 +66,7 @@ export const cases = [
       const page = await openPopup();
       try {
         await waitForPopup(page);
+        await expectText(page, "Log In");
         const targetPromise = browser.waitForTarget((target) =>
           target.url().startsWith("https://login.tailscale.com/a/refreshed"),
         );

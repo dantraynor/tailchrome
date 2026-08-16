@@ -4,7 +4,7 @@
 
 **Version:** 0.1.13 (native host) | Manifest V3
 **Browsers:** Chrome, Firefox
-**Platforms:** macOS (amd64, arm64), Linux (amd64, arm64 raw helper), Windows (amd64)
+**Platforms:** macOS (amd64, arm64), Linux (amd64 packages; amd64/arm64 raw helpers), Windows (amd64, including x64 emulation on Windows ARM64)
 **License:** MIT
 **Website:** [tesseras.org/tailchrome](https://tesseras.org/)
 **Chrome Web Store:** [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
@@ -144,6 +144,10 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 
 - **Badge status** -- extension icon reflects online/offline/warning state with text badge for active exit node
 - **Auto-reconnect** -- exponential backoff reconnection to native host (1s base, 30s max)
+- **Reliable helper activation** -- package downloads start a session-persisted discovery retry schedule; current-user registration repair is promoted only if package discovery still fails
+- **Actionable helper recovery** -- missing registration, permission denial, startup failure, unexpected stop, helper-reported errors, and explicit protocol incompatibility have distinct recovery copy
+- **Local helper diagnostics** -- on-demand copy/export produces a bounded, allowlisted report with sensitive values redacted; nothing is submitted automatically
+- **Non-blocking version notices** -- a helper/release version difference is informational; optional commands remain gated by advertised capabilities
 - **Exit node persistence** -- last-selected exit node restored automatically after reconnection
 - **Toast notifications** -- in-popup toasts for operations (file send, errors, suggestions)
 - **Keyboard navigation** -- peer list supports arrow key navigation
@@ -258,8 +262,9 @@ The shared package contains all the platform-agnostic logic. The extension packa
 | File | Purpose |
 | --- | --- |
 | `background.ts` | Core service worker: native host management, popup communication, state subscriptions, context menus, diagnostics, and keepalive |
-| `native-host.ts` | Serialized native-host connection lifecycle with identity-safe disconnect handling and exponential reconnect backoff |
+| `native-host.ts` | Serialized native-host connection lifecycle, typed connection events, evidence-based disconnect classification, and exponential reconnect backoff |
 | `state-store.ts` | `StateStore` with no-op deduplication, subscriptions, and native status mapping |
+| `../helper-diagnostics.ts` | Pure diagnostic sanitizer, allowlist, bounds, and local report formatter |
 | `badge-manager.ts` | Extension icon/badge updates for online, offline, warning, and exit-node states |
 | `proxy-utils.ts` | IPv4/CIDR helpers, MagicDNS/split-domain sanitization, subnet collection, and proxy decisions |
 | `domain-split.ts` | Split-tunneling config storage and normalization |
@@ -276,6 +281,7 @@ The shared package contains all the platform-agnostic logic. The extension packa
 | File | Purpose |
 | --- | --- |
 | `popup.ts` | Custom-URL hydration, background connection, view routing, and live/deferred sub-view state |
+| `helper-diagnostics.ts` | On-demand copy/download UI for the shared local helper report |
 | `utils.ts` | Clipboard, toast notifications, keyboard navigation, formatting, and platform detection |
 | `custom-urls.ts` | Per-device custom port/URL storage using `chrome.storage.local` |
 | `peer-filters.ts` | Device-list filtering rules |
@@ -292,9 +298,8 @@ The shared package contains all the platform-agnostic logic. The extension packa
 | `profiles.ts` | Profile switcher: create, switch, and delete actions |
 | `disconnected.ts` | Starting, reconnecting, stopped, and helper-error recovery states |
 | `needs-login.ts` | Login prompt and coordination-server settings |
-| `needs-install.ts` | Native host installation guide |
-| `needs-update.ts` | Host version mismatch guide |
-| `install-helpers.ts` | Shared helpers for install/update views |
+| `needs-install.ts` | Package installation and registration-repair entry point |
+| `install-helpers.ts` | Runtime platform/architecture selection, package-first instructions, and verified repair UI |
 
 
 `**packages/shared/src/popup/components/**`
@@ -345,9 +350,6 @@ Defined in `packages/shared/src/constants.ts`:
 | `RECONNECT_MAX_MS`      | `30000`                             | Reconnection backoff ceiling                              |
 | `ADMIN_URL`             | `https://login.tailscale.com/admin` | Tailscale admin console                                   |
 | `DEFAULT_CONTROL_URL`   | `https://controlplane.tailscale.com` | Default coordination server                              |
-| `EXPECTED_HOST_VERSION` | `0.1.13`                            | Minimum native host version (major.minor, newer accepted) |
-
-
 ---
 
 ## Native Host Internals
@@ -457,9 +459,11 @@ interface TailscaleState {
   exitNodeSuggestion: ExitNodeSuggestion | null;
   domainSplit: { mode: "bypass" | "only"; domains: string[] };
   error: string | null;
-  installError: boolean;
   hostVersion: string | null;
-  hostVersionMismatch: boolean;
+  helperFailure: HelperFailure | null;
+  helperDiagnostic: HelperDiagnostic | null;
+  helperVersionNotice: HelperVersionNotice | null;
+  repairRegistrationAvailable: boolean;
   supportsNetcheck: boolean;
   supportsPingPeer: boolean;
   supportsLogin: boolean;
@@ -483,7 +487,42 @@ interface TailscaleState {
 
 **BackgroundMessage** (popup -> background):
 
-- `toggle`, `login`, `logout`, `set-exit-node`, `clear-exit-node`, `set-pref`, `switch-profile`, `new-profile`, `delete-profile`, `send-file`, `suggest-exit-node`, `open-admin`, `open-web-client`
+- `toggle`, `login`, `logout`, `retry-native-host`, `set-exit-node`, `clear-exit-node`, `set-pref`, `switch-profile`, `new-profile`, `delete-profile`, `send-file`, `suggest-exit-node`, `open-admin`, `open-web-client`
+
+### Helper activation state
+
+`helperFailure` is evidence-based and uses these stable categories:
+
+| Failure kind | Evidence | Recovery surface |
+| --- | --- | --- |
+| `helper-unavailable` | Browser reports that the native-messaging host is absent | Platform release package installation, followed by registration repair only after discovery retries fail |
+| `helper-not-allowed` | Browser reports that the host exists but this extension is not allowed | Registration repair is promoted immediately |
+| `helper-start-failed` | The browser found the host, but startup failed before a healthy connection | Retry, package repair, and local diagnostics |
+| `helper-stopped` | A previously healthy helper connection closed | Automatic reconnect plus manual retry |
+| `helper-reported-error` | The helper started and returned an explicit startup/protocol error | Retry, package repair, and local diagnostics |
+| `helper-incompatible` | An explicit unsupported future protocol is reported | Compatible release installer update/repair; a version string alone never causes this state |
+
+Starting a package or verified repair records a retry deadline in
+`chrome.storage.session`. Attempts run after 2, 5, 10, 20, and 30 seconds and
+are restored after a Manifest V3 worker restart. Successful initialization
+clears the retry and repair state. If a package/fallback retry sequence ends
+with `helper-unavailable` or `helper-not-allowed`,
+`repairRegistrationAvailable` promotes current-user registration repair; a
+manual retry or any other failure category does not.
+
+`helperVersionNotice` compares the installed helper version with the extension
+release only to show a dismissible notice. It never replaces the active popup
+view. Optional commands such as login, custom coordination servers, netcheck,
+and peer ping remain controlled by the capabilities advertised in
+`procRunning`. Only an explicit future-protocol incompatibility blocks setup.
+
+Helper diagnostic details are sanitized as they cross the native connection
+boundary. The report is created only when the user clicks copy or export. Its
+schema is versioned and capped at 8 KiB; it contains extension/helper/release
+versions, operating system, architecture, browser family, connection flags,
+failure kind/code, sanitized detail, advertised capabilities, and repair
+availability. It deliberately does not spread the full extension state into
+the report.
 
 ---
 
@@ -496,14 +535,15 @@ The popup is a vanilla TypeScript UI (no framework) rendered into the extension 
 `popup.ts` routes to views based on `TailscaleState`:
 
 
-| Condition                       | View            |
-| ------------------------------- | --------------- |
-| `installError`                  | `needs-install` |
-| `hostVersionMismatch`           | `needs-update`  |
-| `!hostConnected`                | `disconnected`  |
-| `backendState === "NeedsLogin"` | `needs-login`   |
-| `backendState === "Running"`    | `connected`     |
-| Everything else                 | `disconnected`  |
+| Condition | View |
+| --- | --- |
+| `helper-unavailable`, `helper-not-allowed`, or `helper-incompatible` | `needs-install` |
+| `backendState === "NeedsLogin"` | `needs-login` |
+| `backendState === "Running"` | `connected` |
+| Startup failure, unexpected stop, helper-reported error, retry, or any other state | `disconnected` |
+
+A helper version notice is inserted above whichever normal view is active; it
+does not participate in routing.
 
 
 ### Connected View Layout
@@ -575,13 +615,13 @@ The popup is a vanilla TypeScript UI (no framework) rendered into the extension 
 **Chrome:**
 
 1. Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
-2. Install the native helper from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest): **`tailchrome-helper-macos.pkg`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the **`.deb`/`.rpm`** package on Linux.
+2. Install the native helper from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest): **`tailchrome-helper-macos.pkg`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the **`.deb`/`.rpm`** package on Linux amd64. Linux ARM64 uses the version-pinned verified repair installer.
 3. Log in to your Tailscale account
 
 **Firefox:**
 
 1. Install from [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/) or the matching [GitHub Release](https://github.com/dantraynor/tailchrome/releases/latest)
-2. Install the same native helper package used for Chrome: **`.pkg`** on macOS, **`.msi`** on Windows, or **`.deb`/`.rpm`** on Linux.
+2. Install the same native helper used for Chrome: **`.pkg`** on macOS, **`.msi`** on Windows, **`.deb`/`.rpm`** on Linux amd64, or the verified raw-helper installer on Linux ARM64.
 3. Log in to your Tailscale account
 
 ### Native Host Installation
@@ -589,16 +629,26 @@ The popup is a vanilla TypeScript UI (no framework) rendered into the extension 
 The installer packages are the primary path:
 
 - **macOS:** `tailchrome-helper-macos.pkg` installs a universal binary and runs `tailscale-browser-ext -install-now` for the logged-in user during package postinstall. `Tailchrome Helper.app` remains in `/Applications` as a repair/re-run fallback.
-- **Windows:** `tailchrome-helper-windows-x64.msi` installs a staged helper under `%LOCALAPPDATA%\Tailscale\BrowserExt\installer\` and runs it with `-install-now`, which writes HKCU native messaging registrations.
-- **Linux:** amd64 `.deb` and `.rpm` packages install `/usr/lib/tailchrome/tailscale-browser-ext` plus system-wide manifests for Chrome, Chromium, Edge, and Firefox. The version-pinned `tailchrome-install.sh` fallback verifies and installs the matching amd64 or ARM64 raw helper for per-user registration.
+- **Windows:** the Authenticode-signed `tailchrome-helper-windows-x64.msi` embeds the identically signed raw EXE, installs a staged helper under `%LOCALAPPDATA%\Tailscale\BrowserExt\installer\`, and runs it with `-install-now`, which writes HKCU native messaging registrations. Windows ARM64 uses this package through x64 emulation. After downloading the MSI, repair from either Command Prompt or PowerShell with `powershell.exe -NoProfile -Command "msiexec.exe /fa (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\tailchrome-helper-windows-x64.msi')"`; uninstall through **Installed apps**.
+- **Linux amd64:** `.deb` and `.rpm` packages install `/usr/lib/tailchrome/tailscale-browser-ext` plus system-wide manifests for Chrome, Chromium, Edge, and Firefox. They do not write per-user state in package hooks.
+- **Linux ARM64:** download `tailchrome-install.sh` from the exact versioned release, inspect it, download `SHA256SUMS.txt`, and run `bash ~/Downloads/tailchrome-install.sh --version "vX.Y.Z"`. The script selects and verifies `tailscale-browser-ext-linux-arm64`, optionally verifies its GitHub attestation when `gh` is available and authenticated, invokes `-install-now`, and confirms the installed executable. Never pipe a remote script directly into a shell.
 
-The raw native host binary remains available for advanced/manual installs. Download and verify `tailchrome-install.sh` from the matching tagged release instead of piping a mutable network response to a shell. The script verifies the selected raw helper before invoking **`tailscale-browser-ext -install-now`**, which:
+On macOS and Linux, the same version-pinned script is the advanced
+current-user repair path after package discovery fails. It selects the exact
+amd64/arm64 artifact for the machine. The raw native host binary remains
+available for advanced/manual installs. When run interactively in a terminal,
+or non-interactively via **`tailscale-browser-ext -install-now`**, it:
 
 - Detects installed browsers and writes per-browser manifests for the whole Chromium family (Chrome stable/beta/canary/dev, Chromium, Brave, Edge, Vivaldi, Opera, Arc on macOS) plus Firefox
 - Copies itself to `~/.local/share/tailscale/browser-ext/` (Linux), `~/Library/Application Support/Tailscale/BrowserExt/` (macOS), or `%LOCALAPPDATA%\Tailscale\BrowserExt\` (Windows)
 - Reports per-browser install status so unsupported or missing browsers are skipped cleanly
 - Manual install: `./tailscale-browser-ext --install C<extensionID>` (Chromium-family) or `--install F<extensionID>` (Firefox)
-- Uninstall: `./tailscale-browser-ext --uninstall` removes manifests from every browser it installed into
+- Uninstall the per-user helper by running the installed executable with
+  `-uninstall`: `~/.local/share/tailscale/browser-ext/tailscale-browser-ext`
+  on Linux or
+  `~/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext`
+  on macOS. The verified script also accepts `--uninstall` with the same
+  required release version and invokes this installed path.
 
 ### State Directory
 
@@ -634,6 +684,7 @@ tailchrome/
 |       +-- src/
 |       |   +-- types.ts              # All TypeScript type definitions
 |       |   +-- constants.ts          # Configuration constants
+|       |   +-- helper-diagnostics.ts # Allowlisted local report formatter
 |       |   +-- background/           # Service worker core logic
 |       |   |   +-- background.ts     # Main background initialization
 |       |   |   +-- native-host.ts    # Native host connection manager
@@ -648,6 +699,7 @@ tailchrome/
 |       |   |   +-- ui-surface.ts     # Popup/side-panel behavior
 |       |   +-- popup/                # Popup UI views & components
 |       |   |   +-- popup.ts          # View router
+|       |   |   +-- helper-diagnostics.ts # Copy/export actions
 |       |   |   +-- utils.ts
 |       |   |   +-- custom-urls.ts
 |       |   |   +-- icons.ts
@@ -658,7 +710,6 @@ tailchrome/
 |       |   |   |   +-- disconnected.ts   # Error recovery view
 |       |   |   |   +-- needs-login.ts    # Login view
 |       |   |   |   +-- needs-install.ts  # Install guide view
-|       |   |   |   +-- needs-update.ts   # Update guide view
 |       |   |   |   +-- install-helpers.ts
 |       |   |   +-- components/
 |       |   |   |   +-- peer-list.ts
@@ -693,6 +744,9 @@ tailchrome/
 |
 +-- scripts/
 |   +-- e2e/                         # Puppeteer runner, fixtures, native-host mock, scenarios
+|   +-- install.sh                   # Pinned, verified macOS/Linux repair installer
+|   +-- install.test.sh              # Hermetic installer tests
+|   +-- verify-windows-signatures.ps1 # Authenticode and embedded-EXE verifier
 |   +-- validate-extension-ids.mjs   # Extension/native manifest drift check
 |   +-- validate-release-tag.mjs     # Cross-file release version check
 +-- store-assets/                     # Store listing images
@@ -708,11 +762,14 @@ tailchrome/
 |   +-- CONTRIBUTING.md
 |   +-- SOURCE_CODE_REVIEW.md         # Firefox AMO reviewer guide
 |   +-- SECURITY.md
+|   +-- WINDOWS_CODE_SIGNING_POLICY.md
+|   +-- RELEASE_CHECKLIST.md
 |   +-- CODE_OF_CONDUCT.md
 |
 +-- .github/workflows/
 |   +-- ci.yml                        # PR checks
-|   +-- release.yml                   # Tagged release builds
+|   +-- release.yml                   # Immutable tagged candidate builds
+|   +-- publish-helper-release.yml    # Protected exact-candidate publication
 |   +-- publish.yml                   # Store submission
 |
 +-- Makefile                          # Top-level build targets
@@ -748,7 +805,7 @@ tailchrome/
 | `pnpm review:firefox`             | Full Firefox review gate (build + lint + zip + publish validation) |
 | `pnpm typecheck`                  | Run TypeScript type checking                                       |
 | `pnpm test`                       | Run all tests (vitest)                                             |
-| `pnpm test:installer`             | Run the verified installer shell test suite                        |
+| `pnpm test:installer`             | Run hermetic verified-installer shell tests                        |
 | `pnpm validate:ids`               | Validate extension ID consistency                                  |
 | `pnpm validate:release-tag <tag>` | Validate release tag format                                        |
 | `make host`                       | Build native host for current platform                             |
@@ -792,25 +849,56 @@ WXT (`packages/extension/wxt.config.ts`) handles:
 
 ### CI (`ci.yml`) -- Runs on Pull Requests
 
-The workflow runs extension unit/type/ID checks, a real Chrome smoke suite, a Chrome build, and the Firefox build/lint/review gate on every pull request. A SHA-pinned path filter enables host/packaging work only when relevant files change:
+The workflow runs extension unit/type/ID checks, verified-installer tests,
+the Chrome browser smoke suite, extension builds, the Firefox
+build/lint/review gate, actionlint, and ShellCheck on every pull request. A
+SHA-pinned path filter enables host/packaging work only when relevant files
+change:
 
-- **host-build** (Linux): dependency download, `go vet`, `go test`, and a native host build
-- **host-windows-tests**: Windows-specific Go compile/tests
-- **package-linux**: Linux amd64/ARM64 raw-host validation plus amd64 `.deb` and `.rpm` generation with pinned nFPM
+- **host-build** (Linux): dependency download, `go vet`, race-enabled Go tests, and the native host build
+- **host-windows-tests**: Windows-specific Go tests
+- **package-linux**: amd64/arm64 raw builds with architecture checks plus `.deb` and `.rpm` generation with pinned nFPM and ownership-boundary inspection
+- **macos-package-smoke**: unsigned package smoke build that asserts the launchable `/Applications/Tailchrome Helper.app` payload
+- **windows-signature-verifier**: fixed-SDK positive/negative Authenticode verifier fixtures
 
-### Release (`release.yml`) -- Runs on `v`* Tags or Manual Dispatch
+### Candidate (`release.yml`) -- Runs on `v`* Tags or Manual Dispatch
 
-The release workflow:
+The candidate workflow resolves the exact tagged source commit and uses that
+immutable SHA in every downstream checkout. It:
 
-1. Validates extension IDs and release tag
+1. Validates extension IDs, the release tag, and the tag-to-source relationship
 2. Builds `chrome.zip`, `firefox.zip`, `firefox-sources.zip`
-3. Builds host binaries for all platforms
+3. Builds raw helpers for macOS amd64/arm64, Linux amd64/arm64, and Windows amd64
 4. **Verifies Firefox source ZIP**: extracts sources, rebuilds from scratch, `diff -qr` against original to ensure reproducibility
-5. Signs/notarizes macOS binaries
-6. Builds Linux `.deb`/`.rpm` packages with nFPM and the Windows `.msi` with WiX
-7. Collects every final asset, including `tailchrome-install.sh`, the Linux ARM64 helper, and the notarized macOS package
-8. Generates and verifies one canonical `SHA256SUMS.txt` for that final asset set
-9. Creates build-provenance attestations, then creates or updates the GitHub Release
+5. Signs/notarizes the macOS binaries, app, and package and verifies every layer
+6. Builds and inspects Linux `.deb`/`.rpm` packages and includes the version-pinned repair script
+7. Requires exactly one configured Windows signing integration to sign and verify the raw EXE before MSI construction, then signs and verifies the outer MSI and its embedded EXE
+8. Runs Defender on the exact Windows candidate with cloud-delivered protection enabled
+9. Assembles the complete allowlisted matrix, generates `SHA256SUMS.txt` only after final signing/packaging, creates build-provenance attestations, and stores the immutable candidate for 90 days
+
+The candidate workflow has no release-write permission and never publishes
+assets. The currently documented external Windows signer selection and
+publisher subject are intentionally fail-closed; see
+[WINDOWS_CODE_SIGNING_POLICY.md](WINDOWS_CODE_SIGNING_POLICY.md).
+
+### Helper publication (`publish-helper-release.yml`) -- Manual Dispatch Only
+
+Publication accepts a candidate run ID, tag, and checksum-manifest digest. It
+resolves and pins the source SHA from the validated tag and candidate run,
+then verifies that the candidate came from this repository's candidate
+workflow, succeeded for that immutable source, is still available, matches the
+exact asset allowlist and checksums, and has valid signatures. It also
+verifies the candidate attestations before the protected
+`windows-release-clearance` environment approval.
+
+After approval, publication is retry-safe: it creates or reuses a draft release,
+refuses conflicting existing bytes, uploads only missing identical assets
+without clobbering, re-verifies the complete draft, and publishes it explicitly.
+The reviewer-approved bytes and published bytes therefore share the same
+candidate manifest digest. Defender/Malwarebytes findings apply only to those
+exact hashes; an ordinary SmartScreen unknown-reputation warning is tracked
+separately from a malware or PUA detection. The complete operator procedure and
+asset matrix are in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
 
 ### Publish (`publish.yml`) -- Manual Dispatch Only
 
@@ -947,6 +1035,8 @@ The Puppeteer harness lives in `scripts/e2e/`; see [puppeteer-testing-suite.md](
 | `uiSurface`           | `chrome.storage.local`                   | Toolbar surface: `popup` or `sidePanel`/Firefox sidebar                 |
 | `autoConnectHandled`  | `chrome.storage.session`                 | Per-session flag that prevents auto-connect from overriding an explicit manual disconnect |
 | `desiredWantRunning`  | `chrome.storage.session`                 | Per-session connection intent sent as the `wantRunning` hint with host init |
+| `helperActivationRetry` | `chrome.storage.session`               | Source, retry index, and absolute helper-discovery deadline |
+| `helperRegistrationRepairAvailable` | `chrome.storage.session`    | Whether package/fallback discovery exhausted and repair should be promoted |
 | `proxyConfig`         | `browser.storage.session` (Firefox only) | Proxy state for surviving background suspension                         |
 
 
@@ -964,9 +1054,31 @@ For Tailscale's default control plane, login URLs from the native host (`browseT
 
 For a configured custom coordination server, delegated login URLs may use another origin. The URL must still be valid HTTP(S), and an HTTPS coordination server may only delegate to HTTPS. A stale default-Tailscale login URL is held briefly while the new server emits its current URL.
 
-### Host Version Checking
+### Helper compatibility
 
-The extension treats `EXPECTED_HOST_VERSION` as a minimum at major.minor granularity: a host reporting an older major.minor shows the "needs-update" view, while patch differences and hosts newer than expected are accepted (the helper never self-updates, so a rebuilt helper must stay usable).
+The extension does not infer protocol incompatibility from semantic versions.
+An installed/release version difference produces only a dismissible notice, and
+features are enabled from the capabilities advertised by the connected helper.
+Setup is blocked only when the helper explicitly reports an unsupported future
+protocol.
+
+### Helper artifacts
+
+`SHA256SUMS.txt` covers every final release asset after signing,
+notarization, and packaging. When GitHub CLI is available,
+`gh attestation verify <asset> --repo dantraynor/tailchrome` verifies the
+artifact's build provenance. On macOS, use `pkgutil --check-signature` for the
+package and `codesign --verify --deep --strict` plus `spctl` for the embedded
+app. On Windows, use `Get-AuthenticodeSignature` or SignTool; the release gate
+additionally verifies the raw EXE, the byte-identical MSI-embedded EXE, and the
+outer MSI against one exact publisher subject and timestamp policy.
+
+Windows publication remains disabled until one signing provider and its exact
+publisher subject have been recorded. Missing credentials, policy values,
+signatures, timestamps, nested identity, or security evidence fail the
+candidate rather than producing an unsigned release. See
+[WINDOWS_CODE_SIGNING_POLICY.md](WINDOWS_CODE_SIGNING_POLICY.md) and
+[SECURITY.md](SECURITY.md) for verification and false-positive reporting.
 
 ### Proxy Scope
 
@@ -999,6 +1111,9 @@ Native messaging is restricted to the declared extension IDs in the native host 
 | `autoConnectOnStart`                      | Browser local storage   | "Auto-connect on start" preference (off by default)                |
 | `uiSurface`                               | Browser local storage   | Popup versus side-panel/sidebar preference                          |
 | `autoConnectHandled`                      | Browser session storage | Per-session flag to honor an explicit manual disconnect            |
+| `desiredWantRunning`                      | Browser session storage | Per-session helper startup intent                                   |
+| `helperActivationRetry`                   | Browser session storage | Pending package/fallback discovery retry deadline                   |
+| `helperRegistrationRepairAvailable`       | Browser session storage | Session-scoped registration-repair promotion                        |
 | `proxyConfig`                             | Firefox session storage | Proxy state restoration after suspension                           |
 | `~/.config/tailscale-browser-ext/<UUID>/` | Filesystem              | tsnet state directory (keys, config)                               |
 
@@ -1017,6 +1132,18 @@ Data is sent only to: the local native host, the user's tailnet and configured c
 ### Data NOT Collected
 
 Tailchrome does not include analytics, crash telemetry, advertising identifiers, or marketing data.
+
+Helper activation diagnostics do not change that promise. A report is
+generated only after the user clicks **Copy diagnostic report** or **Export
+diagnostic report** and remains local until the user chooses to paste or share
+the copied/exported file. The allowlist excludes tailnet/account identity,
+profile and peer data, browsing history and URLs, login/authentication data,
+credentials, file-transfer content, Tailscale state directories, extension
+storage contents, filesystem user names, and registry values containing user
+data. Plain-text native errors
+are sanitized for home paths, URLs, hosts, email addresses, IP addresses,
+tokens/secrets, UUIDs, and registry paths before they can be retained in the
+bounded report.
 
 Full policy: [docs/privacy-policy.md](privacy-policy.md)
 

@@ -49,6 +49,33 @@ The same UI renders in either surface.
 2. Install the native helper from the [latest release](https://github.com/dantraynor/tailchrome/releases/latest) — **`tailchrome-helper-macos.pkg`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the **`.deb`/`.rpm`** package on Linux amd64. Linux ARM64 and per-user repair flows use the release's checksum-verifying **`tailchrome-install.sh`**.
 3. Log in to your Tailscale account
 
+The platform release package is the primary installation path. The macOS
+installer is platform-signed. A Windows installer is release-quality only when
+the raw helper, embedded helper, and outer MSI pass the
+[Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md); older
+releases may predate that gate. Linux packages are covered by the release
+checksum and build-provenance attestation. If Tailchrome still cannot discover
+the helper after the package is installed, the popup
+offers a current-user registration repair for the browser that requested it.
+On macOS, `/Applications/Tailchrome Helper.app` provides the same repair entry
+point. The macOS/Linux fallback installer is pinned to one release version,
+checks the downloaded helper before running it, and uses the helper's own
+tested registration targets; see the
+[Linux](packaging/linux/README.md) and [macOS](packaging/macos/README.md)
+instructions.
+
+Helper release differences do not disable the connection. Tailchrome keeps
+using the capabilities the installed helper advertises and shows a
+non-blocking release notice when versions differ. Helper diagnostic reports
+are created only when you choose **Copy diagnostic report** or
+**Export diagnostic report**; they remain local until you copy, save, or share
+them.
+
+Release artifacts are assembled and checksummed only after platform signing
+and packaging. Windows publication is additionally gated by the
+[Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md) and the
+[release security checklist](docs/RELEASE_CHECKLIST.md).
+
 ## Development
 
 ```
@@ -57,7 +84,12 @@ make dev              # Chrome extension (watch mode)
 make host             # Native host binary
 ```
 
-PRs run CI (lint, typecheck, TypeScript and Go tests, Chrome browser smoke tests, packaging checks, and the Firefox review gate). Tagged releases build all artifacts and publish to the Chrome Web Store and Firefox Add-ons. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for full setup and build commands.
+PRs run CI (lint, typecheck, TypeScript and Go tests, browser tests,
+packaging checks, and the Firefox review gate). A release tag assembles one
+immutable helper candidate; the protected publication workflow publishes only
+the cleared candidate bytes. Chrome Web Store and Firefox Add-ons submissions
+remain separate gated jobs. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for
+full setup and build commands.
 
 ## Contributing
 

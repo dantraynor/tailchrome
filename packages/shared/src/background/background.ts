@@ -4,18 +4,24 @@ import type {
   BackgroundMessage,
   PopupMessage,
   ProxyManager,
+  HelperDiagnostic,
+  HelperFailure,
+  HelperVersionNotice,
 } from "../types";
 import {
   KEEPALIVE_INTERVAL_MS,
   ADMIN_URL,
   TAILSCALE_SERVICE_IP,
-  EXPECTED_HOST_VERSION,
   DEFAULT_LOGIN_ORIGINS,
   isCustomControlURL,
   isValidControlURL,
 } from "../constants";
 import { StateStore } from "./state-store";
-import { NativeHostConnection } from "./native-host";
+import {
+  NativeHostConnection,
+  type NativeConnectionEvent,
+} from "./native-host";
+import { sanitizeDiagnosticMessage } from "../helper-diagnostics";
 import { BadgeManager } from "./badge-manager";
 import { DefaultTimerService, type TimerService } from "./timer-service";
 import { applyUiSurface, readUiSurface, type BrowserKind } from "./ui-surface";
@@ -47,6 +53,8 @@ export interface BackgroundHandle {
   sendKeepalive(): void;
   /** Reconnect to the native host. */
   reconnect(): Promise<void>;
+  /** Restore a pending helper-discovery retry after an MV3 worker wake. */
+  rehydrateHelperRetries(): Promise<void>;
 }
 
 export interface InitBackgroundOptions {
@@ -146,47 +154,155 @@ function controlServerChanged(
   return key(next) !== key(current);
 }
 
-/**
- * Returns true if the host version's major.minor is older than the expected
- * version's. Patch differences are tolerated, and a host newer than expected
- * is accepted: the helper never self-updates, so rebuilding it against newer
- * sources is the only way to move it forward and must not lock out the UI
- * (#109). Missing or unparseable versions are treated as a mismatch.
- */
-export function isVersionMismatch(hostVersion: string | null): boolean {
-  if (!hostVersion) return true;
-  // Strip leading "v" if present
-  const host = hostVersion.replace(/^v/, "");
-  const expected = EXPECTED_HOST_VERSION.replace(/^v/, "");
-  // Leading digits only, so pre-release suffixes ("2-beta1") still parse.
-  const field = (part: string | undefined): number | null => {
-    const digits = part?.match(/^\d+/)?.[0];
-    return digits === undefined ? null : Number(digits);
-  };
-  const hostParts = host.split(".");
-  const expectedParts = expected.split(".");
-  if (hostParts.length < 2 || expectedParts.length < 2) return true;
-  const hostMajor = field(hostParts[0]);
-  const hostMinor = field(hostParts[1]);
-  const expectedMajor = field(expectedParts[0]);
-  const expectedMinor = field(expectedParts[1]);
-  if (
-    hostMajor === null ||
-    hostMinor === null ||
-    expectedMajor === null ||
-    expectedMinor === null
-  ) {
-    return true;
+export function getHelperVersionNotice(
+  installedVersion: string | null,
+  releaseVersion: string,
+): HelperVersionNotice | null {
+  const installed = parseReleaseVersion(installedVersion);
+  const release = parseReleaseVersion(releaseVersion);
+  if (!installed || !release) return null;
+  if (installed.normalized === release.normalized) return null;
+
+  for (let i = 0; i < installed.numbers.length; i++) {
+    const installedPart = installed.numbers[i]!;
+    const releasePart = release.numbers[i]!;
+    if (installedPart < releasePart) {
+      return { installedVersion: installed.raw, releaseVersion: release.raw, relation: "older" };
+    }
+    if (installedPart > releasePart) {
+      return { installedVersion: installed.raw, releaseVersion: release.raw, relation: "newer" };
+    }
   }
-  if (hostMajor !== expectedMajor) return hostMajor < expectedMajor;
-  return hostMinor < expectedMinor;
+
+  return {
+    installedVersion: installed.raw,
+    releaseVersion: release.raw,
+    relation: "different",
+  };
+}
+
+function parseReleaseVersion(value: string | null): {
+  raw: string;
+  normalized: string;
+  numbers: [number, number, number];
+} | null {
+  if (!value) return null;
+  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+]([0-9A-Za-z.-]+))?$/.exec(
+    value,
+  );
+  if (!match) return null;
+  const numbers = [Number(match[1]), Number(match[2]), Number(match[3])] as [
+    number,
+    number,
+    number,
+  ];
+  if (numbers.some((part) => !Number.isSafeInteger(part))) return null;
+  return {
+    raw: value.replace(/^v/, ""),
+    normalized: value.replace(/^v/, ""),
+    numbers,
+  };
+}
+
+function normalizedHelperVersion(value: string | undefined): string | null {
+  return parseReleaseVersion(value ?? null)?.raw ?? null;
+}
+
+function extensionReleaseVersion(): string {
+  try {
+    return chrome.runtime.getManifest().version;
+  } catch {
+    return "unknown";
+  }
 }
 
 const NATIVE_HOST_UNREACHABLE =
   "Could not reach Tailscale service. Please check that the native host is installed.";
 
+function nativeCommandErrorCopy(command: string): string {
+  switch (command) {
+    case "login":
+      return "The helper could not start login. Please try again.";
+    case "up":
+    case "down":
+      return "The helper could not change the connection state.";
+    case "set-exit-node":
+      return "The helper could not change the exit node.";
+    case "set-prefs":
+      return "The helper could not save that setting.";
+    case "send-file":
+      return "The helper could not send the file.";
+    case "switch-profile":
+    case "new-profile":
+    case "delete-profile":
+      return "The helper could not update the selected profile.";
+    case "ping-peer":
+    case "netcheck":
+      return "The helper could not run that diagnostic.";
+    default:
+      return "The helper could not complete that request.";
+  }
+}
+
 /** Poll schedule for native-host discovery after the user starts an installer. */
 const INSTALL_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000, 30_000];
+const INSTALL_RETRY_SETTLE_MS = 2_000;
+const HELPER_RETRY_TIMER_NAME = "helper-activation-retry";
+const HELPER_RETRY_STORAGE_KEY = "helperActivationRetry";
+const HELPER_REPAIR_STORAGE_KEY = "helperRegistrationRepairAvailable";
+
+type HelperRetrySource = "package" | "fallback" | "manual";
+
+interface HelperRetryRecord {
+  source: HelperRetrySource;
+  nextRetryIndex: number;
+  nextRetryAt: number;
+}
+
+function reuseEquivalentHelperDiagnostic(
+  current: HelperDiagnostic | null,
+  next: HelperDiagnostic | null,
+): HelperDiagnostic | null {
+  if (current === next) return current;
+  if (current === null || next === null) return next;
+  if (
+    current.diagnosticCode === next.diagnosticCode &&
+    current.diagnosticMessage === next.diagnosticMessage
+  ) {
+    return current;
+  }
+  return next;
+}
+
+function reuseEquivalentHelperFailure(
+  current: HelperFailure | null,
+  next: HelperFailure | null,
+): HelperFailure | null {
+  if (current === next) return current;
+  if (current === null || next === null) return next;
+  if (
+    current.kind === next.kind &&
+    current.diagnosticCode === next.diagnosticCode &&
+    current.diagnosticMessage === next.diagnosticMessage
+  ) {
+    return current;
+  }
+  return next;
+}
+
+function isHelperRetryRecord(value: unknown): value is HelperRetryRecord {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Partial<HelperRetryRecord>;
+  return (
+    (record.source === "package" ||
+      record.source === "fallback" ||
+      record.source === "manual") &&
+    Number.isInteger(record.nextRetryIndex) &&
+    (record.nextRetryIndex ?? -1) >= 0 &&
+    typeof record.nextRetryAt === "number" &&
+    Number.isFinite(record.nextRetryAt)
+  );
+}
 
 function domainSplitEquals(
   a: { mode: string; domains: string[] },
@@ -205,8 +321,10 @@ export function initBackground(
   nativeHostId: string,
   options?: InitBackgroundOptions,
 ): BackgroundHandle {
-  const timerService = options?.timerService ?? new DefaultTimerService();
+  const timerService: TimerService =
+    options?.timerService ?? new DefaultTimerService();
   const browserKind: BrowserKind = options?.browserKind ?? "chrome";
+  const releaseVersion = extensionReleaseVersion();
 
   // Apply the persisted UI-surface preference and react to changes.
   // Catch rejections so the service worker startup never fails on a
@@ -265,7 +383,7 @@ export function initBackground(
   let intentWriteChain: Promise<void> = Promise.resolve();
   // One corrective `down` per native-host connection. A fresh host process
   // re-applies tsnet's forced auto-up at init, so the latch resets when the
-  // host disconnects (see handleNativeStateChange) and the next connection
+  // host disconnects (see handleNativeConnectionEvent) and the next connection
   // gets its own corrective window.
   let autoDisconnectAttempted = false;
   // True once the mirror holds a deliberate decision (user action, login,
@@ -383,6 +501,9 @@ export function initBackground(
   // Track whether we've attempted to restore exit node for this connection
   let exitNodeRestoreAttempted = false;
   let latestBackendState: TailscaleState["backendState"] | null = null;
+  let sawHealthyProcRunning = false;
+  let sawHealthyInit = false;
+  let helperRetryRecord: HelperRetryRecord | null = null;
   // Last coordination server the host has actually confirmed. Used to drop
   // switch-scoped persistent state (the saved exit node) only once the server
   // change is committed — never optimistically, since the host can roll a
@@ -431,47 +552,124 @@ export function initBackground(
     broadcastToPopup(state);
   });
 
+  function diagnosticFrom(
+    diagnosticCode: string,
+    detail: unknown,
+  ): HelperDiagnostic {
+    return {
+      diagnosticCode,
+      diagnosticMessage: sanitizeDiagnosticMessage(detail),
+    };
+  }
+
+  function setHelperReportedFailure(
+    diagnosticCode: string,
+    detail: unknown,
+  ): void {
+    const current = store.getState();
+    const diagnostic = reuseEquivalentHelperDiagnostic(
+      current.helperDiagnostic,
+      diagnosticFrom(diagnosticCode, detail),
+    );
+    const nextFailure: HelperFailure = {
+      kind: "helper-reported-error",
+      diagnosticCode,
+      diagnosticMessage: diagnostic?.diagnosticMessage ?? null,
+    };
+    const failure = reuseEquivalentHelperFailure(
+      current.helperFailure,
+      nextFailure,
+    );
+    store.update({
+      helperFailure: failure,
+      helperDiagnostic: diagnostic,
+      reconnecting: false,
+    });
+  }
+
+  function clearHelperRetryStorage(): Promise<void> {
+    helperRetryRecord = null;
+    timerService.clear(HELPER_RETRY_TIMER_NAME);
+    return Promise.all([
+      chrome.storage.session.remove(HELPER_RETRY_STORAGE_KEY),
+      chrome.storage.session.remove(HELPER_REPAIR_STORAGE_KEY),
+    ]).then(() => undefined);
+  }
+
+  function maybeCompleteHelperRecovery(): void {
+    if (!sawHealthyProcRunning || !sawHealthyInit) return;
+    store.update({
+      helperFailure: null,
+      helperDiagnostic: null,
+      repairRegistrationAvailable: false,
+      reconnecting: false,
+    });
+    void clearHelperRetryStorage().catch((err) => {
+      console.warn(
+        `[Background] Could not clear helper retry session state: ${sanitizeDiagnosticMessage(err) ?? "unknown"}`,
+      );
+    });
+  }
+
   function handleNativeMessage(msg: NativeReply): void {
     // Process running: the native host tells us which port to proxy through
     if (msg.procRunning) {
-      const hostVersion = msg.procRunning.version ?? null;
-      const hostVersionMismatch = isVersionMismatch(hostVersion);
+      const hostVersion = normalizedHelperVersion(msg.procRunning.version);
+      const helperVersionNotice = getHelperVersionNotice(
+        hostVersion,
+        releaseVersion,
+      );
+      if (msg.procRunning.version && !hostVersion) {
+        store.update({
+          helperDiagnostic: diagnosticFrom(
+            "helper-version-unparseable",
+            msg.procRunning.version,
+          ),
+        });
+      }
 
       if (msg.procRunning.error) {
-        console.error(
-          "[Background] procRunning error:",
-          msg.procRunning.error
+        sawHealthyProcRunning = false;
+        setHelperReportedFailure(
+          "helper-proc-running-error",
+          msg.procRunning.error,
         );
         store.update({
-          error: msg.procRunning.error,
           hostVersion,
-          hostVersionMismatch,
+          helperVersionNotice,
+          proxyPort: null,
+          proxyEnabled: false,
           supportsNetcheck: false,
           supportsPingPeer: false,
           supportsLogin: false,
           supportsCustomControlURL: false,
         });
       } else {
+        sawHealthyProcRunning = true;
         store.update({
           proxyPort: msg.procRunning.port,
           proxyEnabled: true,
           hostVersion,
-          hostVersionMismatch,
+          helperVersionNotice,
           supportsNetcheck: msg.procRunning.supportsNetcheck === true,
           supportsPingPeer: msg.procRunning.supportsPingPeer === true,
           supportsLogin: msg.procRunning.supportsLogin === true,
           supportsCustomControlURL: msg.procRunning.supportsCustomControlURL === true,
         });
+        maybeCompleteHelperRecovery();
       }
     }
 
     // Init acknowledgement
     if (msg.init) {
       if (msg.init.error) {
-        console.error("[Background] Init error:", msg.init.error);
-        store.update({ error: msg.init.error });
+        sawHealthyInit = false;
+        setHelperReportedFailure("helper-init-error", msg.init.error);
+        store.update({ initialized: false });
       } else {
+        sawHealthyInit = true;
         store.update({ initialized: true });
+        maybeCompleteHelperRecovery();
         // Request initial status and profile list
         nativeHost.send({ cmd: "get-status" });
         nativeHost.send({ cmd: "list-profiles" });
@@ -576,8 +774,16 @@ export function initBackground(
     // File send progress
     if (msg.fileSendProgress) {
       if (msg.fileSendProgress.done) {
+        if (msg.fileSendProgress.error) {
+          store.update({
+            helperDiagnostic: diagnosticFrom(
+              "helper-file-send-error",
+              msg.fileSendProgress.error,
+            ),
+          });
+        }
         const message = msg.fileSendProgress.error
-          ? `File send failed: ${msg.fileSendProgress.error}`
+          ? "The helper could not send the file."
           : `File "${msg.fileSendProgress.name}" sent successfully`;
         sendToastToPopup(message, msg.fileSendProgress.error ? "error" : "info");
       } else {
@@ -599,13 +805,20 @@ export function initBackground(
 
     // Error from native host
     if (msg.error) {
-      if (msg.error.message === "install_error") {
-        store.update({
-          installError: true,
-          hostConnected: false,
-          reconnecting: false,
-        });
-      } else if (msg.error.cmd === "suggest-exit-node") {
+      const safeCommand = /^[a-z][a-z0-9-]{0,48}$/.test(msg.error.cmd)
+        ? msg.error.cmd
+        : "unknown";
+      store.update({
+        helperDiagnostic: diagnosticFrom(
+          `helper-command-${safeCommand}-error`,
+          msg.error.message,
+        ),
+        ...(msg.error.cmd === "set-exit-node"
+          ? { pendingExitNodeID: null }
+          : {}),
+      });
+
+      if (msg.error.cmd === "suggest-exit-node") {
         // Recommendation is a passive feature: log the failure but don't
         // pollute the popup with a toast or set a sticky error.
         //
@@ -613,53 +826,91 @@ export function initBackground(
         // are not correlated to a specific request in this code path, so a
         // late error from an older request could otherwise erase a newer
         // successful recommendation.
-        console.warn(
-          `[Background] suggest-exit-node failed:`,
-          msg.error.message
-        );
+        console.warn("[Background] suggest-exit-node failed");
       } else {
-        console.error(
-          `[Background] Native error for cmd="${msg.error.cmd}":`,
-          msg.error.message
-        );
         if (msg.error.cmd === "login") {
           clearPendingLoginOpen();
         }
-        store.update({
-          error: msg.error.message,
-          ...(msg.error.cmd === "set-exit-node"
-            ? { pendingExitNodeID: null }
-            : {}),
-        });
-        sendToastToPopup(msg.error.message, "error");
+        sendToastToPopup(nativeCommandErrorCopy(msg.error.cmd), "error");
       }
     }
   }
 
-  function handleNativeStateChange(connected: boolean): void {
-    if (!connected) {
-      exitNodeRestoreAttempted = false;
-      autoDisconnectAttempted = false;
-      clearPendingLoginOpen();
+  function handleNativeConnectionEvent(event: NativeConnectionEvent): void {
+    if (event.type === "diagnostic") {
+      const currentDiagnostic = store.getState().helperDiagnostic;
+      store.update({
+        helperDiagnostic: reuseEquivalentHelperDiagnostic(currentDiagnostic, {
+          diagnosticCode: event.diagnosticCode,
+          diagnosticMessage: event.diagnosticMessage,
+        }),
+      });
+      return;
     }
+
+    if (event.type === "connected") {
+      // A valid reply clears browser-level connection failures and resets
+      // backoff. Helper-reported/explicit incompatibility failures remain
+      // until procRunning and init both succeed on this connection.
+      sawHealthyProcRunning = false;
+      sawHealthyInit = false;
+      const currentFailure = store.getState().helperFailure;
+      const keepFailure =
+        currentFailure?.kind === "helper-reported-error" ||
+        currentFailure?.kind === "helper-incompatible";
+      store.update({
+        hostConnected: true,
+        reconnecting: false,
+        helperFailure: keepFailure ? currentFailure : null,
+      });
+      return;
+    }
+
+    exitNodeRestoreAttempted = false;
+    autoDisconnectAttempted = false;
+    sawHealthyProcRunning = false;
+    sawHealthyInit = false;
+    clearPendingLoginOpen();
+
+    const currentState = store.getState();
+    const currentFailure = currentState.helperFailure;
+    const keepSpecificFailure =
+      currentFailure?.kind === "helper-reported-error" ||
+      currentFailure?.kind === "helper-incompatible";
+    const helperFailure = reuseEquivalentHelperFailure(
+      currentFailure,
+      keepSpecificFailure ? currentFailure : event.failure,
+    );
+    const authoritative =
+      helperFailure?.kind === "helper-unavailable" ||
+      helperFailure?.kind === "helper-not-allowed" ||
+      helperFailure?.kind === "helper-reported-error" ||
+      helperFailure?.kind === "helper-incompatible";
+    const helperDiagnostic = reuseEquivalentHelperDiagnostic(
+      currentState.helperDiagnostic,
+      helperFailure
+        ? {
+            diagnosticCode: helperFailure.diagnosticCode,
+            diagnosticMessage: helperFailure.diagnosticMessage,
+          }
+        : currentState.helperDiagnostic,
+    );
+
     store.update({
-      hostConnected: connected,
-      reconnecting: !connected && !store.getState().installError,
-      // Clear install error on successful connection, reset state when disconnected
-      ...(connected
-        ? { installError: false }
-        : {
-            initialized: false,
-            proxyPort: null,
-            proxyEnabled: false,
-            backendState: "NoState" as const,
-            hostVersion: null,
-            hostVersionMismatch: false,
-            supportsNetcheck: false,
-            supportsPingPeer: false,
-            supportsLogin: false,
-            supportsCustomControlURL: false,
-          }),
+      hostConnected: false,
+      initialized: false,
+      proxyPort: null,
+      proxyEnabled: false,
+      backendState: "NoState",
+      hostVersion: null,
+      helperVersionNotice: null,
+      helperFailure,
+      helperDiagnostic,
+      reconnecting: !authoritative && event.reconnecting,
+      supportsNetcheck: false,
+      supportsPingPeer: false,
+      supportsLogin: false,
+      supportsCustomControlURL: false,
     });
   }
 
@@ -723,7 +974,7 @@ export function initBackground(
   const nativeHost = new NativeHostConnection(
     nativeHostId,
     handleNativeMessage,
-    handleNativeStateChange,
+    handleNativeConnectionEvent,
     timerService,
     async () => {
       // A decision already made this lifetime is fresher than storage — a
@@ -867,43 +1118,141 @@ export function initBackground(
     }
   }
 
-  /**
-   * Polls native-host discovery after the user starts an installer. Each
-   * attempt is skipped once the helper is connected: connect() tears down a
-   * live port, and the browser then respawns the helper, so retrying a
-   * healthy connection would bounce the Tailscale node.
-   */
-  function scheduleInstallRetries(): void {
-    INSTALL_RETRY_DELAYS_MS.forEach((delay, i) => {
-      timerService.setTimeout(`install-retry-${i}`, () => {
-        const state = store.getState();
-        if (state.hostConnected) return;
-        if (!state.installError && !state.hostVersionMismatch) return;
-        nativeHost.connect().catch(() => {
-          // The installer may still be running; later retries or the
-          // built-in backoff loop pick up the helper once registration lands.
-        });
-      }, delay);
+  function writeHelperRetryRecord(record: HelperRetryRecord): Promise<void> {
+    helperRetryRecord = record;
+    return chrome.storage.session.set({
+      [HELPER_RETRY_STORAGE_KEY]: record,
     });
+  }
+
+  function armHelperRetry(record: HelperRetryRecord): void {
+    helperRetryRecord = record;
+    const callback = () => executeHelperRetry(record);
+    if (timerService.setTimeoutAt) {
+      timerService.setTimeoutAt(
+        HELPER_RETRY_TIMER_NAME,
+        callback,
+        record.nextRetryAt,
+      );
+    } else {
+      timerService.setTimeout(
+        HELPER_RETRY_TIMER_NAME,
+        callback,
+        Math.max(0, record.nextRetryAt - Date.now()),
+      );
+    }
+  }
+
+  function persistAndArmHelperRetry(record: HelperRetryRecord): void {
+    void writeHelperRetryRecord(record)
+      .then(() => armHelperRetry(record))
+      .catch((err) => {
+        console.warn(
+          `[Background] Could not persist helper retry: ${sanitizeDiagnosticMessage(err) ?? "unknown"}`,
+        );
+        armHelperRetry(record);
+      });
+  }
+
+  function finishUnsuccessfulHelperRetries(source: HelperRetrySource): void {
+    helperRetryRecord = null;
+    timerService.clear(HELPER_RETRY_TIMER_NAME);
+    void chrome.storage.session.remove(HELPER_RETRY_STORAGE_KEY);
+    const state = store.getState();
+    const failureKind = state.helperFailure?.kind;
+    if (
+      source === "manual" ||
+      state.hostConnected ||
+      (failureKind !== "helper-unavailable" &&
+        failureKind !== "helper-not-allowed")
+    ) {
+      return;
+    }
+
+    store.update({ repairRegistrationAvailable: true });
+    void chrome.storage.session
+      .set({ [HELPER_REPAIR_STORAGE_KEY]: true })
+      .catch((err) => {
+        console.warn(
+          `[Background] Could not persist registration repair state: ${sanitizeDiagnosticMessage(err) ?? "unknown"}`,
+        );
+      });
+  }
+
+  function executeHelperRetry(expected: HelperRetryRecord): void {
+    const current = helperRetryRecord;
+    if (
+      !current ||
+      current.source !== expected.source ||
+      current.nextRetryIndex !== expected.nextRetryIndex ||
+      current.nextRetryAt !== expected.nextRetryAt
+    ) {
+      return;
+    }
+    if (store.getState().hostConnected) {
+      void clearHelperRetryStorage();
+      return;
+    }
+    if (current.nextRetryIndex >= INSTALL_RETRY_DELAYS_MS.length) {
+      finishUnsuccessfulHelperRetries(current.source);
+      return;
+    }
+
+    void nativeHost.connect();
+    const nextRetryIndex = current.nextRetryIndex + 1;
+    const delay =
+      nextRetryIndex < INSTALL_RETRY_DELAYS_MS.length
+        ? INSTALL_RETRY_DELAYS_MS[nextRetryIndex]!
+        : INSTALL_RETRY_SETTLE_MS;
+    persistAndArmHelperRetry({
+      source: current.source,
+      nextRetryIndex,
+      nextRetryAt: Date.now() + delay,
+    });
+  }
+
+  function startHelperRetries(source: HelperRetrySource): void {
+    timerService.clear(HELPER_RETRY_TIMER_NAME);
+    if (source !== "manual") {
+      store.update({ repairRegistrationAvailable: false });
+      void chrome.storage.session.remove(HELPER_REPAIR_STORAGE_KEY);
+    }
+    if (source === "manual") {
+      void nativeHost.connect();
+    }
+    persistAndArmHelperRetry({
+      source,
+      nextRetryIndex: 0,
+      nextRetryAt: Date.now() + INSTALL_RETRY_DELAYS_MS[0]!,
+    });
+  }
+
+  async function rehydrateHelperRetries(): Promise<void> {
+    const stored = await chrome.storage.session.get([
+      HELPER_RETRY_STORAGE_KEY,
+      HELPER_REPAIR_STORAGE_KEY,
+    ]);
+    if (stored[HELPER_REPAIR_STORAGE_KEY] === true) {
+      store.update({ repairRegistrationAvailable: true });
+    }
+    const record = stored[HELPER_RETRY_STORAGE_KEY];
+    if (!isHelperRetryRecord(record)) return;
+    helperRetryRecord = record;
+    if (store.getState().hostConnected) {
+      await clearHelperRetryStorage();
+      return;
+    }
+    if (record.nextRetryAt <= Date.now()) {
+      executeHelperRetry(record);
+      return;
+    }
+    armHelperRetry(record);
   }
 
   chrome.runtime.onConnect.addListener((port: chrome.runtime.Port) => {
     if (port.name !== "popup") return;
 
     popupPorts.add(port);
-
-    // If we're in install error or version mismatch state, retry the native
-    // host connection in case the user just installed or updated the helper.
-    // Skip while a port is live: connect() would bounce a working host.
-    const currentState = store.getState();
-    if (
-      !currentState.hostConnected &&
-      (currentState.installError || currentState.hostVersionMismatch)
-    ) {
-      nativeHost.connect().catch(() => {
-        // Still in error state, popup will show needs-install or needs-update
-      });
-    }
 
     // Immediately send current state to the newly connected popup
     const stateMsg: PopupMessage = {
@@ -999,7 +1348,7 @@ export function initBackground(
       }
 
       case "retry-native-host": {
-        scheduleInstallRetries();
+        startHelperRetries(msg.source);
         break;
       }
 
@@ -1194,5 +1543,6 @@ export function initBackground(
     reconnect() {
       return nativeHost.connect();
     },
+    rehydrateHelperRetries,
   };
 }

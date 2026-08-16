@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
 import {
   NativeHostConnection,
+  isValidNativeReply,
+  type NativeConnectionEventHandler,
   type NativeMessageHandler,
-  type NativeStateChangeHandler,
 } from "./native-host";
 
 // @types/chrome 0.2.x declares runtime.lastError as a `const` (read-only)
@@ -36,13 +37,25 @@ function createMockPort() {
   };
 }
 
+function makeValidStatus() {
+  return {
+    backendState: "Running",
+    running: true,
+    tailnet: "example.ts.net",
+    magicDNSSuffix: "example.ts.net",
+    needsLogin: false,
+    peers: [],
+    health: [],
+  };
+}
+
 describe("NativeHostConnection", () => {
   let connectNativeSpy: ReturnType<typeof vi.fn>;
   let storageGetSpy: ReturnType<typeof vi.fn>;
   let storageSetSpy: ReturnType<typeof vi.fn>;
   let mockPort: ReturnType<typeof createMockPort>;
   let onMessage: Mock<NativeMessageHandler>;
-  let onStateChange: Mock<NativeStateChangeHandler>;
+  let onStateChange: Mock<NativeConnectionEventHandler>;
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -57,7 +70,7 @@ describe("NativeHostConnection", () => {
     setChromeLastError(undefined);
 
     onMessage = vi.fn<NativeMessageHandler>();
-    onStateChange = vi.fn<NativeStateChangeHandler>();
+    onStateChange = vi.fn<NativeConnectionEventHandler>();
   });
 
   afterEach(() => {
@@ -146,7 +159,62 @@ describe("NativeHostConnection", () => {
 
       first.disconnectListeners[0]!(first.port);
       second.messageListeners[0]!({ pong: {} });
-      expect(onStateChange).toHaveBeenLastCalledWith(true);
+      expect(onStateChange).toHaveBeenLastCalledWith({ type: "connected" });
+    });
+
+    it("reports a synchronous connectNative exception as start failed", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      connectNativeSpy.mockImplementation(() => {
+        throw new Error(
+          "launch failed for /Users/alice/Library/Tailchrome https://example.test",
+        );
+      });
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+      );
+
+      await conn.connect();
+
+      expect(onStateChange).toHaveBeenCalledWith({
+        type: "disconnected",
+        failure: {
+          kind: "helper-start-failed",
+          diagnosticCode: "native-connect-threw",
+          diagnosticMessage:
+            "launch failed for [redacted-home]/Library/Tailchrome [redacted-url]",
+        },
+        reconnecting: true,
+      });
+      vi.restoreAllMocks();
+    });
+
+    it("reports an initial init post failure as start failed", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      mockPort.port.postMessage.mockImplementation(() => {
+        throw new Error("init port closed");
+      });
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+      );
+
+      await conn.connect();
+
+      expect(onStateChange).toHaveBeenCalledWith({
+        type: "disconnected",
+        failure: {
+          kind: "helper-start-failed",
+          diagnosticCode: "native-init-send-failed",
+          diagnosticMessage: "init port closed",
+        },
+        reconnecting: true,
+      });
+      vi.restoreAllMocks();
     });
   });
 
@@ -243,7 +311,6 @@ describe("NativeHostConnection", () => {
     });
 
     it("omits wantRunning and still sends init when the resolver rejects", async () => {
-      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const getWantRunning = vi.fn().mockRejectedValue(new Error("boom"));
       const conn = new NativeHostConnection(
         "com.tailscale.test",
@@ -258,11 +325,11 @@ describe("NativeHostConnection", () => {
         cmd: "init",
         initID: "test-profile-id",
       });
-      expect(warnSpy).toHaveBeenCalledWith(
-        "[NativeHost] wantRunning resolution failed:",
-        expect.any(Error),
-      );
-      warnSpy.mockRestore();
+      expect(onStateChange).toHaveBeenCalledWith({
+        type: "diagnostic",
+        diagnosticCode: "native-want-running-failed",
+        diagnosticMessage: "boom",
+      });
     });
   });
 
@@ -274,7 +341,7 @@ describe("NativeHostConnection", () => {
       // Simulate a message from native host
       mockPort.messageListeners[0]!({ pong: {} });
 
-      expect(onStateChange).toHaveBeenCalledWith(true);
+      expect(onStateChange).toHaveBeenCalledWith({ type: "connected" });
       expect(onMessage).toHaveBeenCalledWith({ pong: {} });
     });
 
@@ -294,11 +361,54 @@ describe("NativeHostConnection", () => {
       const conn = new NativeHostConnection("com.tailscale.test", onMessage, onStateChange);
       await conn.connect();
 
-      const statusMsg = { status: { backendState: "Running" } };
+      const statusMsg = { status: makeValidStatus() };
       mockPort.messageListeners[0]!(statusMsg);
 
       expect(onMessage).toHaveBeenCalledWith(statusMsg);
     });
+
+    it.each([
+      undefined,
+      null,
+      {},
+      { unknown: true },
+      { init: "bad" },
+      {
+        status: {
+          ...makeValidStatus(),
+          peers: {},
+        },
+      },
+      {
+        pong: {},
+        status: {
+          ...makeValidStatus(),
+          health: "not-an-array",
+        },
+      },
+    ])(
+      "does not mark an invalid native reply healthy: %j",
+      async (invalidReply) => {
+        const conn = new NativeHostConnection(
+          "com.tailscale.test",
+          onMessage,
+          onStateChange,
+        );
+        await conn.connect();
+
+        mockPort.messageListeners[0]!(invalidReply);
+
+        expect(onMessage).not.toHaveBeenCalled();
+        expect(onStateChange).not.toHaveBeenCalledWith({ type: "connected" });
+        expect(onStateChange).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "diagnostic",
+            diagnosticCode: "native-message-invalid",
+            diagnosticMessage: null,
+          }),
+        );
+      },
+    );
   });
 
   describe("send", () => {
@@ -323,7 +433,6 @@ describe("NativeHostConnection", () => {
     });
 
     it("handles postMessage errors gracefully", async () => {
-      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       const conn = new NativeHostConnection("com.tailscale.test", onMessage, onStateChange);
       await conn.connect();
 
@@ -333,8 +442,11 @@ describe("NativeHostConnection", () => {
 
       // Should not throw
       conn.send({ cmd: "ping" });
-      expect(errorSpy).toHaveBeenCalledWith("[NativeHost] Send error:", expect.any(Error));
-      errorSpy.mockRestore();
+      expect(onStateChange).toHaveBeenCalledWith({
+        type: "diagnostic",
+        diagnosticCode: "native-send-ping-failed",
+        diagnosticMessage: "port closed",
+      });
     });
   });
 
@@ -349,7 +461,11 @@ describe("NativeHostConnection", () => {
 
       conn.disconnect();
       expect(mockPort.port.disconnect).toHaveBeenCalled();
-      expect(onStateChange).toHaveBeenCalledWith(false);
+      expect(onStateChange).toHaveBeenCalledWith({
+        type: "disconnected",
+        failure: null,
+        reconnecting: false,
+      });
     });
 
     it("does not reconnect after intentional disconnect", async () => {
@@ -447,7 +563,7 @@ describe("NativeHostConnection", () => {
       vi.restoreAllMocks();
     });
 
-    it("detects install error from 'not found' message", async () => {
+    it("classifies Chromium native-host discovery failure as unavailable", async () => {
       vi.spyOn(console, "error").mockImplementation(() => {});
       vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -460,15 +576,21 @@ describe("NativeHostConnection", () => {
       });
       mockPort.disconnectListeners[0]!(mockPort.port);
 
-      expect(onMessage).toHaveBeenCalledWith({
-        error: { cmd: "connect", message: "install_error" },
+      expect(onStateChange).toHaveBeenCalledWith({
+        type: "disconnected",
+        failure: {
+          kind: "helper-unavailable",
+          diagnosticCode: "native-host-unavailable",
+          diagnosticMessage: "Specified native messaging host not found",
+        },
+        reconnecting: false,
       });
 
       setChromeLastError(undefined);
       vi.restoreAllMocks();
     });
 
-    it("detects install error from Firefox 'No such native application'", async () => {
+    it("classifies Firefox native-host discovery failure as unavailable", async () => {
       vi.spyOn(console, "error").mockImplementation(() => {});
       vi.spyOn(console, "log").mockImplementation(() => {});
 
@@ -482,10 +604,97 @@ describe("NativeHostConnection", () => {
       });
       mockPort.disconnectListeners[0]!(mockPort.port);
 
-      expect(onMessage).toHaveBeenCalledWith({
-        error: { cmd: "connect", message: "install_error" },
+      expect(onStateChange).toHaveBeenCalledWith({
+        type: "disconnected",
+        failure: {
+          kind: "helper-unavailable",
+          diagnosticCode: "native-host-unavailable",
+          diagnosticMessage: "No such native application [redacted-host]",
+        },
+        reconnecting: false,
       });
 
+      vi.restoreAllMocks();
+    });
+
+    it("classifies a forbidden native host as not allowed", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+      );
+      await conn.connect();
+
+      setChromeLastError({
+        message: "Access to the specified native messaging host is forbidden.",
+      });
+      mockPort.disconnectListeners[0]!(mockPort.port);
+
+      expect(onStateChange).toHaveBeenCalledWith({
+        type: "disconnected",
+        failure: {
+          kind: "helper-not-allowed",
+          diagnosticCode: "native-host-not-allowed",
+          diagnosticMessage:
+            "Access to the specified native messaging host is forbidden.",
+        },
+        reconnecting: false,
+      });
+      setChromeLastError(undefined);
+      vi.restoreAllMocks();
+    });
+
+    it("classifies an unknown disconnect before health as start failed", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+      );
+      await conn.connect();
+
+      mockPort.disconnectListeners[0]!(mockPort.port);
+
+      expect(onStateChange).toHaveBeenCalledWith({
+        type: "disconnected",
+        failure: {
+          kind: "helper-start-failed",
+          diagnosticCode: "native-host-start-failed",
+          diagnosticMessage: null,
+        },
+        reconnecting: true,
+      });
+      vi.restoreAllMocks();
+    });
+
+    it("classifies a disconnect after one valid message as stopped", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const conn = new NativeHostConnection(
+        "com.tailscale.test",
+        onMessage,
+        onStateChange,
+      );
+      await conn.connect();
+      mockPort.messageListeners[0]!({ pong: {} });
+      onStateChange.mockClear();
+
+      setChromeLastError({ message: "port closed unexpectedly" });
+      mockPort.disconnectListeners[0]!(mockPort.port);
+
+      expect(onStateChange).toHaveBeenCalledWith({
+        type: "disconnected",
+        failure: {
+          kind: "helper-stopped",
+          diagnosticCode: "native-host-stopped",
+          diagnosticMessage: "port closed unexpectedly",
+        },
+        reconnecting: true,
+      });
+      setChromeLastError(undefined);
       vi.restoreAllMocks();
     });
   });
@@ -512,5 +721,116 @@ describe("NativeHostConnection", () => {
 
       vi.restoreAllMocks();
     });
+  });
+});
+
+describe("isValidNativeReply", () => {
+  it("accepts recognized reply envelopes and rejects arbitrary objects", () => {
+    expect(isValidNativeReply({ procRunning: { port: 1055, pid: 1 } })).toBe(
+      true,
+    );
+    expect(isValidNativeReply({ init: {} })).toBe(true);
+    expect(isValidNativeReply({ pong: {} })).toBe(true);
+    // Unknown fields from newer helpers are tolerated, not rejected.
+    expect(isValidNativeReply({ init: { arbitrary: "data" } })).toBe(true);
+    expect(isValidNativeReply({ pong: { arbitrary: "data" } })).toBe(true);
+    expect(isValidNativeReply({ status: makeValidStatus() })).toBe(true);
+    // Helpers before v0.1.7 omit advertiseExitNode from prefs.
+    expect(
+      isValidNativeReply({
+        status: {
+          ...makeValidStatus(),
+          prefs: {
+            exitNodeID: "",
+            exitNodeAllowLANAccess: false,
+            corpDNS: true,
+            shieldsUp: false,
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isValidNativeReply({
+        exitNodeSuggestion: {
+          id: "node-id",
+          hostname: "exit-node",
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isValidNativeReply({
+        fileSendProgress: {
+          targetNodeID: "node-id",
+          name: "file.txt",
+          percent: 100,
+          done: true,
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isValidNativeReply({
+        status: {
+          ...makeValidStatus(),
+          peers: [
+            {
+              id: "peer-id",
+              hostname: "peer",
+              dnsName: "peer.example.ts.net.",
+              tailscaleIPs: ["100.64.0.1"],
+              os: "linux",
+              online: true,
+              active: true,
+              exitNode: false,
+              exitNodeOption: false,
+              isSubnetRouter: false,
+              rxBytes: 0,
+              txBytes: 0,
+              taildropTarget: false,
+              sshHost: false,
+              userId: 0,
+              userName: "",
+              userLoginName: "",
+              userProfilePicURL: "",
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
+    expect(isValidNativeReply({ arbitrary: "object" })).toBe(false);
+    expect(isValidNativeReply({})).toBe(false);
+  });
+
+  it.each([
+    {
+      status: {
+        ...makeValidStatus(),
+        peers: {},
+      },
+    },
+    {
+      status: {
+        ...makeValidStatus(),
+        peers: [{}],
+      },
+    },
+    {
+      pong: {},
+      status: {
+        ...makeValidStatus(),
+        health: "not-an-array",
+      },
+    },
+    { procRunning: { port: "1055", pid: 1 } },
+    { init: { error: 42 } },
+    { pong: "bad" },
+    { profiles: { current: null, profiles: [] } },
+    {
+      fileSendProgress: {
+        targetNodeID: "node",
+        name: "file.txt",
+      },
+    },
+  ])("rejects malformed recognized envelopes: %j", (reply) => {
+    expect(isValidNativeReply(reply)).toBe(false);
   });
 });

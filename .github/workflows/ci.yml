@@ -38,9 +38,11 @@ jobs:
               - 'packaging/**'
               - 'scripts/install.sh'
               - 'scripts/install.test.sh'
+              - 'scripts/initialize-windows-defender.ps1'
+              - 'scripts/verify-windows-signatures.ps1'
+              - 'scripts/verify-windows-signatures.test.ps1'
               - 'Makefile'
-              - '.github/workflows/ci.yml'
-              - '.github/workflows/release.yml'
+              - '.github/workflows/*.yml'
 
   extension-tests:
     runs-on: ubuntu-latest
@@ -57,8 +59,7 @@ jobs:
       - run: pnpm validate:ids
       - run: pnpm typecheck
       - run: pnpm test
-      - name: Test installer shell script
-        run: bash scripts/install.test.sh
+      - run: pnpm test:installer
       - name: Lint installer shell script
         run: shellcheck scripts/install.sh scripts/install.test.sh
 
@@ -138,7 +139,7 @@ jobs:
   host-windows-tests:
     needs: changes
     if: needs.changes.outputs.host == 'true'
-    runs-on: windows-latest
+    runs-on: windows-2025
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
@@ -177,3 +178,117 @@ jobs:
           go version -m dist/tailscale-browser-ext-linux-amd64
           go version -m dist/tailscale-browser-ext-linux-arm64
       - run: VERSION=0.0.0 ./packaging/linux/build-packages.sh
+      - name: Inspect Linux package ownership and metadata
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes rpm
+          dpkg-deb --info dist/tailchrome-helper-linux-amd64.deb
+          deb_control="$RUNNER_TEMP/tailchrome-deb-control"
+          dpkg-deb --control dist/tailchrome-helper-linux-amd64.deb "$deb_control"
+          for script in preinst postinst prerm postrm config triggers; do
+            test ! -e "$deb_control/$script"
+          done
+          dpkg-deb --contents dist/tailchrome-helper-linux-amd64.deb |
+            tee /tmp/tailchrome-deb-contents.txt
+          rpm -qip dist/tailchrome-helper-linux-x86_64.rpm
+          test -z "$(rpm -qp --scripts dist/tailchrome-helper-linux-x86_64.rpm)"
+          rpm -qlp dist/tailchrome-helper-linux-x86_64.rpm |
+            tee /tmp/tailchrome-rpm-contents.txt
+          if grep -E '(^|/)(home|Users)/' \
+            /tmp/tailchrome-deb-contents.txt \
+            /tmp/tailchrome-rpm-contents.txt; then
+            echo "Linux packages contain an unexpected user-home path." >&2
+            exit 1
+          fi
+
+  macos-package-smoke:
+    needs: changes
+    if: needs.changes.outputs.packaging == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: host/go.mod
+          cache-dependency-path: host/go.sum
+      - name: Validate repair app sources
+        run: |
+          set -euo pipefail
+          plutil -lint packaging/macos/TailchromeHelper.app/Contents/Info.plist
+          bash -n \
+            packaging/macos/TailchromeHelper.app/Contents/MacOS/tailchrome-helper \
+            packaging/macos/build-pkg.sh \
+            packaging/macos/scripts/postinstall
+          test -x packaging/macos/TailchromeHelper.app/Contents/MacOS/tailchrome-helper
+      - name: Build and inspect unsigned package
+        run: |
+          set -euo pipefail
+          VERSION=0.0.0 ./packaging/macos/build-pkg.sh
+          expanded="$RUNNER_TEMP/tailchrome-pkg"
+          pkgutil --expand-full dist/tailchrome-helper-macos.pkg "$expanded"
+          app="$expanded/Payload/Applications/Tailchrome Helper.app"
+          test -f "$app/Contents/Info.plist"
+          test -x "$app/Contents/MacOS/tailchrome-helper"
+          test -x "$expanded/Payload/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext"
+
+  windows-signature-verifier:
+    needs: changes
+    if: needs.changes.outputs.packaging == 'true'
+    runs-on: windows-2025
+    timeout-minutes: 10
+    env:
+      WINDOWS_SIGNTOOL_PATH: C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "8.0.x"
+      - name: Install WiX
+        shell: pwsh
+        run: dotnet tool install --global wix --version 6.0.2
+      - name: Verify fixed Windows SDK
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath $env:WINDOWS_SIGNTOOL_PATH -PathType Leaf)) {
+            throw "Expected SignTool was not found at $env:WINDOWS_SIGNTOOL_PATH"
+          }
+      - name: Parse Defender initialization script
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path .\scripts\initialize-windows-defender.ps1),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -ne 0) {
+            $messages = @($errors | ForEach-Object { $_.Message })
+            throw "Defender initialization script parse failed: $($messages -join '; ')"
+          }
+      - name: Run Windows signature verifier tests
+        shell: pwsh
+        run: pwsh -NoProfile -File .\scripts\verify-windows-signatures.test.ps1
+
+  workflow-static-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: host/go.mod
+          cache-dependency-path: host/go.sum
+      - name: Run actionlint
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/*.yml
+      - name: Run ShellCheck
+        run: |
+          docker run --rm \
+            --volume "$PWD:/workspace:ro" \
+            --workdir /workspace \
+            koalaman/shellcheck:v0.11.0 \
+            scripts/install.sh \
+            scripts/install.test.sh \
+            packaging/linux/build-packages.sh \
+            packaging/macos/build-pkg.sh \
+            packaging/macos/scripts/postinstall

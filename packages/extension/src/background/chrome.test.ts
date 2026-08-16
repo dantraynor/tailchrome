@@ -27,6 +27,7 @@ describe("startChromeBackground", () => {
   let suspendListener: (() => void) | null;
   let proxyManagerInstance: { clear: ReturnType<typeof vi.fn> };
   let timerServiceInstance: Record<string, never>;
+  let rehydrateHelperRetries: ReturnType<typeof vi.fn>;
 
   const runtime = (
     globalThis.chrome as unknown as { runtime: Record<string, unknown> }
@@ -47,10 +48,12 @@ describe("startChromeBackground", () => {
       return proxyManagerInstance;
     });
     mocks.initBackground.mockReset();
+    rehydrateHelperRetries = vi.fn().mockResolvedValue(undefined);
     mocks.initBackground.mockImplementation((proxyManager: unknown) => ({
       proxyManager,
       reconnect: vi.fn(),
       sendKeepalive: vi.fn(),
+      rehydrateHelperRetries,
     }));
     timerServiceInstance = {};
     mocks.ChromeAlarmTimerService.mockReset();
@@ -88,5 +91,11 @@ describe("startChromeBackground", () => {
     expect(onSuspendAddListener).toHaveBeenCalledTimes(1);
     suspendListener?.();
     expect(proxyManagerInstance.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it("rehydrates a pending helper retry during MV3 startup", () => {
+    startChromeBackground();
+
+    expect(rehydrateHelperRetries).toHaveBeenCalledTimes(1);
   });
 });

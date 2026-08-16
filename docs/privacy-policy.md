@@ -1,6 +1,6 @@
 # Tailchrome Privacy Policy
 
-Last updated: 2026-07-20
+Last updated: 2026-07-26
 
 ## Summary
 
@@ -17,6 +17,8 @@ Tailchrome stores the following data locally in browser storage:
 - `autoConnectOnStart`: the user's auto-connect preference.
 - `uiSurface`: whether the toolbar opens Tailchrome as a popup or in the browser's side panel/sidebar.
 - `autoConnectHandled` in session storage: a per-session flag used to avoid reconnecting automatically after an explicit manual disconnect.
+- helper discovery retry progress in session storage: the retry source, next retry index, and absolute retry deadline used to resume an interrupted package or repair check.
+- the current-session registration repair recommendation, which is cleared after the helper initializes successfully.
 - `proxyConfig` in Firefox session storage: the active proxy port, MagicDNS suffix, exit-node state, and subnet ranges needed to restore routing after the Firefox background context is suspended.
 
 This data stays on the local device unless the user exports or syncs their browser profile separately.
@@ -42,6 +44,38 @@ Tailchrome sends this data only to:
 
 Tailchrome does not send product analytics, crash telemetry, advertising identifiers, or marketing data to the developer.
 
+## Helper Diagnostic Reports
+
+Tailchrome creates a helper diagnostic report only after the user clicks
+**Copy diagnostic report** or **Export diagnostic report**. The report is
+generated from current in-memory extension state and browser platform
+information. It is not generated in the background, assigned a persistent
+report identifier, uploaded automatically, or retained by Tailchrome after the
+popup closes.
+
+The report is limited to:
+
+- report schema, extension, companion release, and reported helper versions;
+- operating system, CPU architecture, and Chromium/Firefox build family;
+- helper connection, initialization, and reconnect status;
+- a categorized helper failure and bounded, sanitized diagnostic detail;
+- helper capability flags; and
+- whether current-user registration repair is available.
+
+The formatter uses an allowlist and removes URL-like strings, control
+characters, and user-profile or home-directory prefixes. It caps individual
+messages and the complete report. Clipboard and exported-file actions use the
+same formatted data.
+
+The report excludes visited pages, current tabs, history, cookies, referrers,
+proxy destinations, login/control URLs, authentication data, tailnet names,
+MagicDNS suffixes, Tailscale IP addresses, peers, profiles, user or node
+identifiers, Taildrop details, traffic counters, payloads, credentials,
+filesystem user names, and registry values containing user data.
+
+The report remains on the local device until the user copies, saves, or
+chooses to share it.
+
 ## User Controls
 
 Users can:
@@ -51,6 +85,7 @@ Users can:
 - clear split-tunneling domains,
 - clear custom peer URLs from the popup,
 - remove exit-node selection,
+- copy or export a local helper diagnostic report,
 - log out of Tailscale, and
 - uninstall the extension and native helper.
 
