@@ -4,6 +4,9 @@ This repository ships the Firefox source ZIP so AMO reviewers can rebuild the ex
 
 ## Reviewer Bootstrap
 
+Use Node.js 22. The root `package.json` pins the pnpm version used for the
+release build, and the source archive includes every referenced pnpm patch.
+
 1. Extract `firefox-sources.zip`.
 2. Run `corepack enable`.
 3. Run `pnpm install --frozen-lockfile`.

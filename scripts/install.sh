@@ -96,26 +96,28 @@ if [[ "$uninstall" == true ]]; then
 fi
 
 if [[ "$uninstall" == false ]]; then
+  umask 077
   temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/tailchrome-install.XXXXXX")" ||
     die "could not create a temporary directory"
 
-  # ShellCheck cannot see the indirect invocation through the EXIT trap.
-  # shellcheck disable=SC2329
+  # ShellCheck cannot see the indirect invocations through these traps.
+  # shellcheck disable=SC2317,SC2329
   cleanup() {
-    rm -rf -- "$temp_dir"
+    local cleanup_status=$?
+    trap - EXIT HUP INT TERM
+    if [[ -n "${temp_dir:-}" ]]; then
+      rm -rf -- "$temp_dir" || :
+    fi
+    exit "$cleanup_status"
   }
   trap cleanup EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   artifact_path="$temp_dir/$asset"
-  if ! curl --fail --silent --show-error --location \
-    --proto '=https' --proto-redir '=https' --tlsv1.2 \
-    --output "$artifact_path" \
-    "$release_base_url/$asset"; then
-    die "artifact download failed for $platform/$architecture"
-  fi
-
   checksum_path="$temp_dir/SHA256SUMS.txt"
-  if ! curl --fail --silent --show-error --location \
+  if ! curl --disable --fail --silent --show-error --location \
     --proto '=https' --proto-redir '=https' --tlsv1.2 \
     --output "$checksum_path" \
     "$release_base_url/SHA256SUMS.txt"; then
@@ -140,6 +142,13 @@ if [[ "$uninstall" == false ]]; then
     die "expected exactly one checksum entry for $asset"
   fi
 
+  if ! curl --disable --fail --silent --show-error --location \
+    --proto '=https' --proto-redir '=https' --tlsv1.2 \
+    --output "$artifact_path" \
+    "$release_base_url/$asset"; then
+    die "artifact download failed for $platform/$architecture"
+  fi
+
   if [[ "$checksum_tool" == "sha256sum" ]]; then
     checksum_output="$(sha256sum "$artifact_path")" ||
       die "checksum verification failed"
@@ -152,14 +161,17 @@ if [[ "$uninstall" == false ]]; then
     die "checksum verification failed"
   fi
 
-  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  if command -v gh >/dev/null 2>&1 &&
+    gh attestation verify --help >/dev/null 2>&1 &&
+    gh auth status --hostname github.com >/dev/null 2>&1; then
     if ! gh attestation verify "$artifact_path" \
+      --hostname github.com \
       --repo dantraynor/tailchrome >/dev/null; then
       die "attestation verification failed"
     fi
   else
     printf '%s\n' \
-      "Warning: gh is unavailable or not authenticated; the checksum and artifact share the GitHub Release trust boundary." >&2
+      "Warning: GitHub CLI attestation verification is unavailable; the checksum and artifact share the GitHub Release trust boundary." >&2
   fi
 
   chmod 755 "$artifact_path" || die "could not make the verified artifact executable"

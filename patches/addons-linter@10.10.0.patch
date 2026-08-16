@@ -1,0 +1,29 @@
+diff --git a/dist/addons-linter.js b/dist/addons-linter.js
+index 1d08d742cc947939861dadd4573e048c700637a8..ecddab4bc28b29b5782645470c022a7b8b678e7c 100644
+--- a/dist/addons-linter.js
++++ b/dist/addons-linter.js
+@@ -3081,12 +3081,19 @@ async function getStreamImageSize(stream) {
+   for await (const chunk of stream) {
+     chunks.push(chunk);
+     try {
+-      return (0, _imageSize.default)(Buffer.concat(chunks));
++      const dimensions = (0, _imageSize.default)(Buffer.concat(chunks));
++      if (dimensions) {
++        return dimensions;
++      }
+     } catch {
+       /* The size information isn't available yet */
+     }
+   }
+-  return (0, _imageSize.default)(Buffer.concat(chunks));
++  const dimensions = (0, _imageSize.default)(Buffer.concat(chunks));
++  if (!dimensions) {
++    throw new Error('Unsupported or invalid image format');
++  }
++  return dimensions;
+ }
+ async function getImageMetadata(io, iconPath) {
+   // Get a non-utf8 input stream by setting encoding to null.
+@@ -4164 +4171 @@ module.exports = require("@fregante/relaxed-json");
+-module.exports = require("image-size");
++module.exports = require("probe-image-size/sync");

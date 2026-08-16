@@ -2,7 +2,7 @@
 
 > Comparison of the Tailchrome browser extension against the native Tailscale desktop/mobile clients (macOS, Windows, Linux, iOS, Android).
 
-Last updated: 2026-07-26
+Last updated: 2026-08-16
 
 ---
 

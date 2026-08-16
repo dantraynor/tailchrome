@@ -9,6 +9,16 @@ import (
 	"tailscale.com/ipn"
 )
 
+func TestStartupPrefsAcceptSubnetRoutes(t *testing.T) {
+	mp := startupPrefs()
+	if !mp.RouteAllSet {
+		t.Fatal("startup prefs must explicitly set RouteAll")
+	}
+	if !mp.Prefs.RouteAll {
+		t.Fatal("startup prefs must accept subnet routes")
+	}
+}
+
 func TestMaskedPrefsForUpdatePreservesExitNodeAdvertising(t *testing.T) {
 	current := &ipn.Prefs{
 		AdvertiseRoutes: []netip.Prefix{netip.MustParsePrefix("10.10.0.0/16")},

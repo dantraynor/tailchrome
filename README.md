@@ -46,7 +46,7 @@ The same UI renders in either surface.
 ## Install
 
 1. Get the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) (also installs in Brave, Edge, Vivaldi, Opera, and — on macOS — Arc) or [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/)
-2. Install the native helper from the [latest release](https://github.com/dantraynor/tailchrome/releases/latest) — **`tailchrome-helper-macos.pkg`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the **`.deb`/`.rpm`** package on Linux amd64/x86_64. Linux arm64/aarch64 uses the verified raw helper because ARM packages are not published yet.
+2. Install the native helper from the [latest release](https://github.com/dantraynor/tailchrome/releases/latest) — **`tailchrome-helper-macos.pkg`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the **`.deb`/`.rpm`** package on Linux amd64. Linux ARM64 and per-user repair flows use the release's checksum-verifying **`tailchrome-install.sh`**.
 3. Log in to your Tailscale account
 
 The platform release package is the primary installation path. The macOS

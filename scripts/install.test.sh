@@ -46,6 +46,16 @@ link_command() {
   ln -s "$command_path" "$bin_dir/$command_name"
 }
 
+link_checksum_command() {
+  local bin_dir="$1"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    link_command "$bin_dir" sha256sum
+  else
+    link_command "$bin_dir" shasum
+  fi
+}
+
 write_fixture_curl_stub() {
   local bin_dir="$1"
 
@@ -197,20 +207,23 @@ test_uses_tag_pinned_url() {
   local machine_name="$2"
   local expected_asset="$3"
   local label="$4"
-  local case_dir output expected_url
+  local case_dir output expected_log release_url
   case_dir="$(mktemp -d "${TMPDIR:-/tmp}/tailchrome-install-test.XXXXXX")"
   make_platform_bin "$case_dir/bin" "$system_name" "$machine_name"
   link_command "$case_dir/bin" mktemp
   link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
-  write_stub "$case_dir/bin/curl" <<'STUB'
-printf "%s\n" "$@" >>"$TEST_CURL_LOG"
-exit 22
-STUB
-  expected_url="https://github.com/dantraynor/tailchrome/releases/download/v1.2.3/$expected_asset"
+  link_checksum_command "$case_dir/bin"
+  write_fixture_curl_stub "$case_dir/bin"
+  printf '%064d  %s\n' 0 "$expected_asset" >"$case_dir/SHA256SUMS.txt"
+  release_url="https://github.com/dantraynor/tailchrome/releases/download/v1.2.3"
+  expected_log="${release_url}/SHA256SUMS.txt
+${release_url}/${expected_asset}"
 
   if output="$(
-    TEST_CURL_LOG="$case_dir/curl.log" \
+    TEST_ARTIFACT_DOWNLOAD_FAIL=1 \
+      TEST_ARTIFACT_FIXTURE="$case_dir/unused-artifact" \
+      TEST_CHECKSUM_FIXTURE="$case_dir/SHA256SUMS.txt" \
+      TEST_CURL_LOG="$case_dir/curl.log" \
       TMPDIR="$case_dir" \
       PATH="$case_dir/bin" \
       "$INSTALLER" --version v1.2.3 2>&1
@@ -219,8 +232,8 @@ STUB
   elif [[ "$output" != *"artifact download failed"* ]]; then
     fail_test "$label" "unexpected error: $output"
   elif [[ ! -f "$case_dir/curl.log" ]] ||
-    [[ "$(command cat "$case_dir/curl.log")" != *"$expected_url"* ]]; then
-    fail_test "$label" "request did not contain $expected_url"
+    [[ "$(command cat "$case_dir/curl.log")" != "$expected_log" ]]; then
+    fail_test "$label" "unexpected request order: $(command cat "$case_dir/curl.log" 2>/dev/null)"
   else
     pass_test "$label"
   fi
@@ -234,7 +247,7 @@ test_reports_checksum_download_failure() {
   make_platform_bin "$case_dir/bin" "Darwin" "arm64"
   link_command "$case_dir/bin" mktemp
   link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
+  link_checksum_command "$case_dir/bin"
   write_stub "$case_dir/bin/curl" <<'STUB'
 output=""
 url=""
@@ -267,21 +280,23 @@ STUB
 }
 
 test_rejects_missing_checksum_entry() {
-  local case_dir output
+  local case_dir output expected_url
   case_dir="$(mktemp -d "${TMPDIR:-/tmp}/tailchrome-install-test.XXXXXX")"
   make_platform_bin "$case_dir/bin" "Linux" "aarch64"
   link_command "$case_dir/bin" mktemp
   link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
+  link_checksum_command "$case_dir/bin"
   write_fixture_curl_stub "$case_dir/bin"
   write_stub "$case_dir/artifact" <<'STUB'
 exit 0
 STUB
   printf '%064d  unrelated-file\n' 0 >"$case_dir/SHA256SUMS.txt"
+  expected_url="https://github.com/dantraynor/tailchrome/releases/download/v1.2.3/SHA256SUMS.txt"
 
   if output="$(
     TEST_ARTIFACT_FIXTURE="$case_dir/artifact" \
       TEST_CHECKSUM_FIXTURE="$case_dir/SHA256SUMS.txt" \
+      TEST_CURL_LOG="$case_dir/curl.log" \
       TMPDIR="$case_dir" \
       PATH="$case_dir/bin" \
       "$INSTALLER" --version v1.2.3 2>&1
@@ -289,6 +304,8 @@ STUB
     fail_test "rejects a missing checksum entry" "installer unexpectedly succeeded"
   elif [[ "$output" != *"exactly one checksum entry"* ]]; then
     fail_test "rejects a missing checksum entry" "unexpected error: $output"
+  elif [[ "$(command cat "$case_dir/curl.log")" != "$expected_url" ]]; then
+    fail_test "rejects a missing checksum entry" "artifact was requested before the manifest was validated"
   else
     pass_test "rejects a missing checksum entry"
   fi
@@ -303,7 +320,7 @@ test_rejects_duplicate_checksum_entry() {
   make_platform_bin "$case_dir/bin" "Linux" "arm64"
   link_command "$case_dir/bin" mktemp
   link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
+  link_checksum_command "$case_dir/bin"
   write_fixture_curl_stub "$case_dir/bin"
   write_stub "$case_dir/artifact" <<'STUB'
 exit 0
@@ -336,7 +353,7 @@ test_rejects_unsafe_checksum_entry() {
   make_platform_bin "$case_dir/bin" "Darwin" "x86_64"
   link_command "$case_dir/bin" mktemp
   link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
+  link_checksum_command "$case_dir/bin"
   write_fixture_curl_stub "$case_dir/bin"
   write_stub "$case_dir/artifact" <<'STUB'
 exit 0
@@ -368,7 +385,7 @@ test_rejects_checksum_mismatch() {
   make_platform_bin "$case_dir/bin" "Darwin" "arm64"
   link_command "$case_dir/bin" mktemp
   link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
+  link_checksum_command "$case_dir/bin"
   write_fixture_curl_stub "$case_dir/bin"
   write_stub "$case_dir/artifact" <<'STUB'
 exit 0
@@ -399,14 +416,17 @@ test_stops_when_attestation_verification_fails() {
   make_platform_bin "$case_dir/bin" "Linux" "amd64"
   link_command "$case_dir/bin" mktemp
   link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
+  link_checksum_command "$case_dir/bin"
   write_fixture_curl_stub "$case_dir/bin"
   write_stub "$case_dir/bin/gh" <<'STUB'
-printf "%s\n" "$@" >>"$TEST_GH_LOG"
-if [ "$1" = "auth" ]; then
-  exit 0
-fi
-exit 1
+case "$*" in
+  "attestation verify --help" | "auth status --hostname github.com") exit 0 ;;
+  attestation\ verify\ *)
+    printf "%s\n" "$@" >"$TEST_GH_LOG"
+    exit 1
+    ;;
+  *) exit 2 ;;
+esac
 STUB
   write_stub "$case_dir/artifact" <<'STUB'
 exit 0
@@ -427,6 +447,8 @@ STUB
     fail_test "stops when attestation verification fails" "unexpected error: $output"
   elif [[ "$(command cat "$case_dir/gh.log")" != *"dantraynor/tailchrome"* ]]; then
     fail_test "stops when attestation verification fails" "repository was not pinned"
+  elif [[ "$(command cat "$case_dir/gh.log")" != *"github.com"* ]]; then
+    fail_test "stops when attestation verification fails" "GitHub host was not pinned"
   else
     pass_test "stops when attestation verification fails"
   fi
@@ -444,7 +466,7 @@ test_installs_after_attestation_verification() {
   link_command "$case_dir/bin" mktemp
   link_command "$case_dir/bin" mkdir
   link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
+  link_checksum_command "$case_dir/bin"
   write_fixture_curl_stub "$case_dir/bin"
   write_stub "$case_dir/bin/gh" <<'STUB'
 printf "%s\n" "$@" >"$TEST_GH_LOG"
@@ -487,56 +509,6 @@ STUB
   rm -rf "$case_dir"
 }
 
-test_warns_and_installs_when_gh_unauthenticated() {
-  local case_dir output asset digest installed_path
-  case_dir="$(mktemp -d "${TMPDIR:-/tmp}/tailchrome-install-test.XXXXXX")"
-  asset="tailscale-browser-ext-linux-amd64"
-  installed_path="$case_dir/home/.local/share/tailscale/browser-ext/tailscale-browser-ext"
-  make_platform_bin "$case_dir/bin" "Linux" "amd64"
-  link_command "$case_dir/bin" chmod
-  link_command "$case_dir/bin" mktemp
-  link_command "$case_dir/bin" mkdir
-  link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
-  write_fixture_curl_stub "$case_dir/bin"
-  write_stub "$case_dir/bin/gh" <<'STUB'
-printf "%s\n" "$@" >>"$TEST_GH_LOG"
-exit 1
-STUB
-  write_stub "$case_dir/artifact" <<'STUB'
-mkdir -p "${TEST_INSTALLED_PATH%/*}"
-cp "$0" "$TEST_INSTALLED_PATH"
-chmod 755 "$TEST_INSTALLED_PATH"
-printf "%s\n" "$@" >"$TEST_EXEC_LOG"
-STUB
-  digest="$(sha256_of "$case_dir/artifact")"
-  printf '%s  %s\n' "$digest" "$asset" >"$case_dir/SHA256SUMS.txt"
-
-  if ! output="$(
-    HOME="$case_dir/home" \
-      TEST_ARTIFACT_FIXTURE="$case_dir/artifact" \
-      TEST_CHECKSUM_FIXTURE="$case_dir/SHA256SUMS.txt" \
-      TEST_EXEC_LOG="$case_dir/exec.log" \
-      TEST_GH_LOG="$case_dir/gh.log" \
-      TEST_INSTALLED_PATH="$installed_path" \
-      TMPDIR="$case_dir" \
-      PATH="$case_dir/bin" \
-      "$INSTALLER" --version v1.2.3 2>&1
-  )"; then
-    fail_test "warns and installs when gh is unauthenticated" "unexpected error: $output"
-  elif [[ "$output" != *"checksum and artifact share the GitHub Release trust boundary"* ]]; then
-    fail_test "warns and installs when gh is unauthenticated" "missing trust-boundary warning: $output"
-  elif [[ "$(command cat "$case_dir/gh.log")" == *"attestation"* ]]; then
-    fail_test "warns and installs when gh is unauthenticated" "attestation verify ran without credentials"
-  elif [[ "$(command cat "$case_dir/exec.log")" != "-install-now" ]]; then
-    fail_test "warns and installs when gh is unauthenticated" "helper did not receive -install-now"
-  else
-    pass_test "warns and installs when gh is unauthenticated"
-  fi
-
-  rm -rf "$case_dir"
-}
-
 test_warns_and_installs_without_gh() {
   local case_dir output asset digest installed_path
   case_dir="$(mktemp -d "${TMPDIR:-/tmp}/tailchrome-install-test.XXXXXX")"
@@ -547,7 +519,7 @@ test_warns_and_installs_without_gh() {
   link_command "$case_dir/bin" mktemp
   link_command "$case_dir/bin" mkdir
   link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
+  link_checksum_command "$case_dir/bin"
   write_fixture_curl_stub "$case_dir/bin"
   write_stub "$case_dir/artifact" <<'STUB'
 mkdir -p "${TEST_INSTALLED_PATH%/*}"
@@ -580,6 +552,78 @@ STUB
   rm -rf "$case_dir"
 }
 
+test_warns_and_installs_with_unusable_gh() {
+  local gh_mode="$1"
+  local label="$2"
+  local case_dir output asset digest installed_path expected_gh_log
+  case_dir="$(mktemp -d "${TMPDIR:-/tmp}/tailchrome-install-test.XXXXXX")"
+  asset="tailscale-browser-ext-linux-amd64"
+  installed_path="$case_dir/home/.local/share/tailscale/browser-ext/tailscale-browser-ext"
+  make_platform_bin "$case_dir/bin" "Linux" "x86_64"
+  link_command "$case_dir/bin" chmod
+  link_command "$case_dir/bin" mktemp
+  link_command "$case_dir/bin" mkdir
+  link_command "$case_dir/bin" rm
+  link_checksum_command "$case_dir/bin"
+  write_fixture_curl_stub "$case_dir/bin"
+  write_stub "$case_dir/bin/gh" <<'STUB'
+printf '%s\n' "$*" >>"$TEST_GH_LOG"
+case "${TEST_GH_MODE:?}" in
+  old) exit 1 ;;
+  unauthenticated)
+    case "$*" in
+      "attestation verify --help") exit 0 ;;
+      "auth status --hostname github.com") exit 4 ;;
+      *) exit 2 ;;
+    esac
+    ;;
+  *) exit 2 ;;
+esac
+STUB
+  write_stub "$case_dir/artifact" <<'STUB'
+mkdir -p "${TEST_INSTALLED_PATH%/*}"
+cp "$0" "$TEST_INSTALLED_PATH"
+chmod 755 "$TEST_INSTALLED_PATH"
+printf "%s\n" "$@" >"$TEST_EXEC_LOG"
+STUB
+  digest="$(sha256_of "$case_dir/artifact")"
+  printf '%s  %s\n' "$digest" "$asset" >"$case_dir/SHA256SUMS.txt"
+
+  if ! output="$(
+    HOME="$case_dir/home" \
+      TEST_ARTIFACT_FIXTURE="$case_dir/artifact" \
+      TEST_CHECKSUM_FIXTURE="$case_dir/SHA256SUMS.txt" \
+      TEST_EXEC_LOG="$case_dir/exec.log" \
+      TEST_GH_LOG="$case_dir/gh.log" \
+      TEST_GH_MODE="$gh_mode" \
+      TEST_INSTALLED_PATH="$installed_path" \
+      TMPDIR="$case_dir" \
+      PATH="$case_dir/bin" \
+      "$INSTALLER" --version v1.2.3 2>&1
+  )"; then
+    fail_test "$label" "unexpected error: $output"
+  elif [[ "$output" != *"checksum and artifact share the GitHub Release trust boundary"* ]]; then
+    fail_test "$label" "missing trust-boundary warning: $output"
+  elif [[ "$(command cat "$case_dir/exec.log")" != "-install-now" ]]; then
+    fail_test "$label" "helper did not receive -install-now"
+  else
+    case "$gh_mode" in
+      old) expected_gh_log="attestation verify --help" ;;
+      unauthenticated)
+        expected_gh_log="attestation verify --help
+auth status --hostname github.com"
+        ;;
+    esac
+    if [[ "$(command cat "$case_dir/gh.log")" != "$expected_gh_log" ]]; then
+      fail_test "$label" "unexpected GitHub CLI calls: $(command cat "$case_dir/gh.log")"
+    else
+      pass_test "$label"
+    fi
+  fi
+
+  rm -rf "$case_dir"
+}
+
 test_reports_install_now_failure() {
   local case_dir output asset digest
   case_dir="$(mktemp -d "${TMPDIR:-/tmp}/tailchrome-install-test.XXXXXX")"
@@ -588,7 +632,7 @@ test_reports_install_now_failure() {
   link_command "$case_dir/bin" chmod
   link_command "$case_dir/bin" mktemp
   link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
+  link_checksum_command "$case_dir/bin"
   write_fixture_curl_stub "$case_dir/bin"
   write_stub "$case_dir/artifact" <<'STUB'
 exit 9
@@ -622,7 +666,7 @@ test_rejects_success_without_installed_helper() {
   link_command "$case_dir/bin" chmod
   link_command "$case_dir/bin" mktemp
   link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
+  link_checksum_command "$case_dir/bin"
   write_fixture_curl_stub "$case_dir/bin"
   write_stub "$case_dir/artifact" <<'STUB'
 exit 0
@@ -654,7 +698,7 @@ test_cleans_temporary_files_after_failure() {
   make_platform_bin "$case_dir/bin" "Linux" "x86_64"
   link_command "$case_dir/bin" mktemp
   link_command "$case_dir/bin" rm
-  link_command "$case_dir/bin" shasum
+  link_checksum_command "$case_dir/bin"
   write_stub "$case_dir/bin/curl" <<'STUB'
 exit 22
 STUB
@@ -669,6 +713,44 @@ STUB
     fail_test "cleans temporary files after failure" "temporary directory remains: $leftovers"
   else
     pass_test "cleans temporary files after failure"
+  fi
+
+  rm -rf "$case_dir"
+}
+
+test_signal_cleans_temporary_files() {
+  local signal_name="$1"
+  local expected_status="$2"
+  local label="$3"
+  local case_dir output status leftovers
+  case_dir="$(mktemp -d "${TMPDIR:-/tmp}/tailchrome-install-test.XXXXXX")"
+  make_platform_bin "$case_dir/bin" "Linux" "x86_64"
+  link_command "$case_dir/bin" mktemp
+  link_command "$case_dir/bin" rm
+  link_checksum_command "$case_dir/bin"
+  write_stub "$case_dir/bin/curl" <<'STUB'
+kill "-$TEST_SIGNAL" "$PPID"
+exit 22
+STUB
+
+  if output="$(
+    TEST_SIGNAL="$signal_name" \
+      TMPDIR="$case_dir" \
+      PATH="$case_dir/bin" \
+      "$INSTALLER" --version v1.2.3 2>&1
+  )"; then
+    status=0
+  else
+    status=$?
+  fi
+  leftovers="$(find "$case_dir" -maxdepth 1 -type d -name 'tailchrome-install.*' -print)"
+
+  if ((status != expected_status)); then
+    fail_test "$label" "expected status $expected_status, got $status: $output"
+  elif [[ -n "$leftovers" ]]; then
+    fail_test "$label" "temporary directory remains: $leftovers"
+  else
+    pass_test "$label"
   fi
 
   rm -rf "$case_dir"
@@ -753,11 +835,17 @@ test_rejects_unsafe_checksum_entry
 test_rejects_checksum_mismatch
 test_stops_when_attestation_verification_fails
 test_installs_after_attestation_verification
-test_warns_and_installs_when_gh_unauthenticated
 test_warns_and_installs_without_gh
+test_warns_and_installs_with_unusable_gh \
+  old "warns and installs when gh lacks attestation support"
+test_warns_and_installs_with_unusable_gh \
+  unauthenticated "warns and installs when gh is unauthenticated"
 test_reports_install_now_failure
 test_rejects_success_without_installed_helper
 test_cleans_temporary_files_after_failure
+test_signal_cleans_temporary_files HUP 129 "cleans temporary files after HUP"
+test_signal_cleans_temporary_files INT 130 "cleans temporary files after INT"
+test_signal_cleans_temporary_files TERM 143 "cleans temporary files after TERM"
 test_uninstalls_from_linux_installed_path
 test_uninstalls_from_macos_installed_path
 
