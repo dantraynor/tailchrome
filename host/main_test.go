@@ -7,8 +7,9 @@ import (
 )
 
 func TestSanitizeNativeHostEnvironment(t *testing.T) {
-	t.Run("clears relative SSL key log path", func(t *testing.T) {
-		t.Setenv("SSLKEYLOGFILE", "virtual_file.log")
+	t.Run("clears unusable SSL key log path", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "missing", "virtual_file.log")
+		t.Setenv("SSLKEYLOGFILE", path)
 
 		sanitizeNativeHostEnvironment()
 
@@ -17,7 +18,7 @@ func TestSanitizeNativeHostEnvironment(t *testing.T) {
 		}
 	})
 
-	t.Run("preserves absolute SSL key log path", func(t *testing.T) {
+	t.Run("preserves usable SSL key log path", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "keys.log")
 		t.Setenv("SSLKEYLOGFILE", path)
 

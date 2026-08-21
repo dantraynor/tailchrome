@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
 	"golang.org/x/term"
 	"tailscale.com/hostinfo"
@@ -124,18 +123,23 @@ func main() {
 }
 
 // sanitizeNativeHostEnvironment removes browser-injected environment values
-// that are unsafe for a native messaging host. Some security products set
-// SSLKEYLOGFILE to a relative virtual filename in Firefox child processes.
-// A native host has no stable or necessarily writable working directory, and
-// Tailscale's TLS dialer treats failure to open that file as fatal. Preserve an
-// absolute value so an intentionally configured TLS key log still works.
+// that are unusable by a native messaging host. Some security products set
+// SSLKEYLOGFILE to a protected virtual path in Firefox child processes, and
+// Tailscale's TLS dialer treats failure to open that file as fatal. Probe the
+// path with the same access Tailscale requires and preserve it when usable so
+// an intentionally configured TLS key log still works.
 func sanitizeNativeHostEnvironment() {
 	const sslKeyLogFile = "SSLKEYLOGFILE"
 	path := os.Getenv(sslKeyLogFile)
-	if path == "" || filepath.IsAbs(path) {
+	if path == "" {
 		return
 	}
-	_ = os.Unsetenv(sslKeyLogFile)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		_ = os.Unsetenv(sslKeyLogFile)
+		return
+	}
+	_ = f.Close()
 }
 
 func errString(err error) string {
