@@ -136,6 +136,9 @@ func sanitizeNativeHostEnvironment() {
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
+		// Stderr reaches the browser's captured helper output, so leave a
+		// trace explaining why an expected TLS key log never appears.
+		log.Printf("clearing unusable %s %q: %v", sslKeyLogFile, path, err)
 		_ = os.Unsetenv(sslKeyLogFile)
 		return
 	}
