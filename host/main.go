@@ -83,6 +83,7 @@ func main() {
 	}
 
 	// Default: run as native messaging host (launched by browser).
+	sanitizeNativeHostEnvironment()
 	hostinfo.SetApp("tailscale-browser-ext")
 
 	h := newHost(os.Stdin, os.Stdout)
@@ -119,6 +120,29 @@ func main() {
 
 	h.readMessages()
 	h.shutdownSession()
+}
+
+// sanitizeNativeHostEnvironment removes browser-injected environment values
+// that are unusable by a native messaging host. Some security products set
+// SSLKEYLOGFILE to a protected virtual path in Firefox child processes, and
+// Tailscale's TLS dialer treats failure to open that file as fatal. Probe the
+// path with the same access Tailscale requires and preserve it when usable so
+// an intentionally configured TLS key log still works.
+func sanitizeNativeHostEnvironment() {
+	const sslKeyLogFile = "SSLKEYLOGFILE"
+	path := os.Getenv(sslKeyLogFile)
+	if path == "" {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		// Stderr reaches the browser's captured helper output, so leave a
+		// trace explaining why an expected TLS key log never appears.
+		log.Printf("clearing unusable %s %q: %v", sslKeyLogFile, path, err)
+		_ = os.Unsetenv(sslKeyLogFile)
+		return
+	}
+	_ = f.Close()
 }
 
 func errString(err error) string {
