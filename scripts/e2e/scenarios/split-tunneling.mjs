@@ -1,7 +1,8 @@
 import {
   clickText,
-  clickToggleForLabel,
+  expandDisclosureRow,
   expectText,
+  expectTextIn,
   setInputValue,
   waitForPopup,
 } from "../assertions.mjs";
@@ -66,8 +67,9 @@ export async function run({ openPopup }) {
   try {
     await waitForPopup(page);
     await expectText(page, "example.ts.net");
+    await expectTextIn(page, ".split-tunneling-header", "Off");
 
-    await clickToggleForLabel(page, "Split tunneling");
+    await expandDisclosureRow(page, ".split-tunneling-header");
     await setInputValue(
       page,
       ".split-tunneling-input",
@@ -84,6 +86,24 @@ export async function run({ openPopup }) {
     }
     if (!pac.includes("SOCKS5 127.0.0.1:1055")) {
       throw new Error("Proxy still expected for unlisted hosts");
+    }
+
+    await expectTextIn(page, ".split-tunneling-header", "Bypass · 2 domains");
+
+    // Regression (#116): a freshly opened popup starts with the editor
+    // collapsed, so the row itself has to report the saved rules. It used to
+    // render an off-looking switch, which read as "split tunneling disabled"
+    // while the rules were in force.
+    const reopened = await openPopup();
+    try {
+      await waitForPopup(reopened);
+      await expectTextIn(
+        reopened,
+        ".split-tunneling-header",
+        "Bypass · 2 domains",
+      );
+    } finally {
+      await reopened.close();
     }
 
     // Regression: typing new domains and clicking a mode button (without

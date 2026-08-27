@@ -75,6 +75,48 @@ export async function setInputValue(page, selector, value) {
   await page.keyboard.type(value);
 }
 
+export async function expectTextIn(page, selector, expected) {
+  try {
+    await page.waitForFunction(
+      ({ selector, expected }) =>
+        (document.querySelector(selector)?.textContent ?? "").includes(expected),
+      { timeout: 5_000 },
+      { selector, expected },
+    );
+  } catch (err) {
+    const actual = await page
+      .evaluate(
+        (selector) => document.querySelector(selector)?.textContent ?? "<missing>",
+        selector,
+      )
+      .catch(() => "<unavailable>");
+    throw new Error(
+      `Expected ${selector} to contain: ${expected}\nActual: ${actual}`,
+      { cause: err },
+    );
+  }
+}
+
+/**
+ * Opens a disclosure row (a `.setting-row` button carrying aria-expanded) that
+ * expands an editor in place. No-op when the row is already open.
+ */
+export async function expandDisclosureRow(page, selector) {
+  await page.waitForSelector(selector);
+  const expanded = await page.evaluate((selector) => {
+    const row = document.querySelector(selector);
+    if (!row) return null;
+    if (row.getAttribute("aria-expanded") !== "true") row.click();
+    return row.getAttribute("aria-expanded");
+  }, selector);
+  if (expanded !== "true") {
+    const text = await visibleText(page).catch(() => "");
+    throw new Error(
+      `Could not expand disclosure row: ${selector}\nVisible text:\n${text}`,
+    );
+  }
+}
+
 export async function clickToggleForLabel(page, label) {
   const clicked = await page.evaluate((label) => {
     const rows = [...document.querySelectorAll(".setting-row, .header")];

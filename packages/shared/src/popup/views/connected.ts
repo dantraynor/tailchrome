@@ -28,6 +28,9 @@ let advertiseRoutesEditorOpen = false;
 /** UI-only: whether the split-tunneling editor is visible. */
 let splitTunnelingEditorOpen = false;
 
+/** Ties the Split tunneling disclosure row to the editor it expands. */
+const SPLIT_TUNNELING_EDITOR_ID = "split-tunneling-editor";
+
 /** UI-only: whether the coordination-server URL editor is visible. */
 let coordinationServerEditorOpen = false;
 
@@ -542,25 +545,81 @@ function applyConfig(
   if (warning) warning.textContent = "";
 }
 
+/**
+ * Summary text for the collapsed Split tunneling row.
+ *
+ * The row only opens and closes the editor, so it has to report the saved rule
+ * state itself — otherwise a collapsed row is indistinguishable from a disabled
+ * feature. "Only" with an empty list is deliberately not reported as "Off": in
+ * that combination the PAC catch-all sends *nothing* through the exit node.
+ */
+function splitTunnelingSummary(config: DomainSplitConfig): string {
+  const count = config.domains.length;
+  if (count === 0) {
+    return config.mode === "only" ? "Only · no domains" : "Off";
+  }
+  const modeLabel = config.mode === "only" ? "Only" : "Bypass";
+  return `${modeLabel} · ${count} ${count === 1 ? "domain" : "domains"}`;
+}
+
+/** Patches the collapsed-row summary in place, preserving the chevron span. */
+function setSplitTunnelingSummary(
+  scope: ParentNode,
+  config: DomainSplitConfig,
+): void {
+  const valueEl = scope.querySelector<HTMLElement>(
+    ".setting-value-split-tunneling",
+  );
+  const textNode = valueEl?.firstChild;
+  if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return;
+  const next = splitTunnelingSummary(config);
+  if (textNode.textContent !== next) textNode.textContent = next;
+}
+
 function renderSplitTunnelingSection(
   parent: HTMLElement,
   state: TailscaleState,
 ): void {
-  const headerRow = document.createElement("div");
-  headerRow.className = "setting-row";
+  const headerRow = document.createElement("button");
+  headerRow.type = "button";
+  headerRow.className =
+    "setting-row setting-row--clickable split-tunneling-header";
+  headerRow.setAttribute("aria-expanded", String(splitTunnelingEditorOpen));
+  headerRow.setAttribute("aria-controls", SPLIT_TUNNELING_EDITOR_ID);
+
   const label = document.createElement("span");
   label.className = "setting-label";
   label.textContent = "Split tunneling";
   headerRow.appendChild(label);
 
-  const expandToggle = createToggle(splitTunnelingEditorOpen, (checked) => {
-    splitTunnelingEditorOpen = checked;
-    editorSection.classList.toggle("hidden", !checked);
-  }, "Show split tunneling settings");
-  headerRow.appendChild(expandToggle);
+  const value = document.createElement("span");
+  value.className = "setting-value setting-value-split-tunneling";
+  value.textContent = splitTunnelingSummary(state.domainSplit);
+
+  const chevron = document.createElement("span");
+  chevron.className =
+    "setting-value-chevron split-tunneling-chevron" +
+    (splitTunnelingEditorOpen ? " split-tunneling-chevron--expanded" : "");
+  const chevronIcon = document.createElement("span");
+  chevronIcon.className = "icon";
+  chevronIcon.appendChild(iconChevronRight());
+  chevron.appendChild(chevronIcon);
+  value.appendChild(chevron);
+
+  headerRow.appendChild(value);
+  headerRow.addEventListener("click", () => {
+    splitTunnelingEditorOpen = !splitTunnelingEditorOpen;
+    editorSection.classList.toggle("hidden", !splitTunnelingEditorOpen);
+    headerRow.setAttribute("aria-expanded", String(splitTunnelingEditorOpen));
+    chevron.classList.toggle(
+      "split-tunneling-chevron--expanded",
+      splitTunnelingEditorOpen,
+    );
+  });
   parent.appendChild(headerRow);
 
   const editorSection = document.createElement("div");
+  editorSection.id = SPLIT_TUNNELING_EDITOR_ID;
   editorSection.className =
     "setting-row setting-row--stacked split-tunneling-editor";
   if (!splitTunnelingEditorOpen) editorSection.classList.add("hidden");
@@ -611,7 +670,11 @@ function renderSplitTunnelingSection(
   const commit = (): void => {
     const parsed = parseDomainsInput(ta.value);
     const mode = activeModeFromSection(editorSection);
-    applyConfig(editorSection, { mode, domains: parsed.domains });
+    const config: DomainSplitConfig = { mode, domains: parsed.domains };
+    applyConfig(editorSection, config);
+    // Reflect the save immediately; the round-trip through the background
+    // arrives later and updateConnected only patches what has changed.
+    setSplitTunnelingSummary(headerRow, config);
     ta.dataset.dirty = "false";
     warning.textContent =
       parsed.invalid.length > 0
@@ -841,6 +904,7 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
       }
       setActiveMode(splitSection, state.domainSplit.mode);
     }
+    setSplitTunnelingSummary(quickSettings, state.domainSplit);
   }
 
   const peerContainer = view.querySelector<HTMLElement>(".peer-container");
