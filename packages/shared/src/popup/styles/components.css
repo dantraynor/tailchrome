@@ -600,6 +600,15 @@ button.setting-row {
   color: var(--text-tertiary);
 }
 
+/* Disclosure rows expand in place, so their chevron points down when open. */
+.split-tunneling-chevron {
+  transition: transform var(--transition-fast);
+}
+
+.split-tunneling-chevron--expanded {
+  transform: rotate(90deg);
+}
+
 .quick-settings .setting-row--stacked {
   flex-direction: column;
   align-items: stretch;
