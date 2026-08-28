@@ -3,6 +3,7 @@ import {
   expandDisclosureRow,
   expectText,
   expectTextIn,
+  pacHasExactHostRule,
   setInputValue,
   waitForPopup,
 } from "../assertions.mjs";
@@ -42,24 +43,28 @@ async function getPacScript(page) {
   );
 }
 
-async function waitForPacContains(page, fragment) {
+async function waitForPacDomain(page, expectedHost) {
   const start = Date.now();
   while (Date.now() - start < 5_000) {
     const data = await getPacScript(page);
-    if (data.includes(fragment)) return data;
+    if (pacHasExactHostRule(data, expectedHost)) return data;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`PAC script never contained: ${fragment}`);
+  throw new Error(
+    `PAC script never contained exact host rule: ${expectedHost}`,
+  );
 }
 
-async function waitForPacWithout(page, fragment) {
+async function waitForPacWithoutDomain(page, unexpectedHost) {
   const start = Date.now();
   while (Date.now() - start < 5_000) {
     const data = await getPacScript(page);
-    if (!data.includes(fragment)) return data;
+    if (!pacHasExactHostRule(data, unexpectedHost)) return data;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`PAC script still contained: ${fragment}`);
+  throw new Error(
+    `PAC script still contained exact host rule: ${unexpectedHost}`,
+  );
 }
 
 export async function run({ openPopup }) {
@@ -77,8 +82,8 @@ export async function run({ openPopup }) {
     );
     await clickText(page, "Save rules", "button");
 
-    const pac = await waitForPacContains(page, "teams.microsoft.com");
-    if (!pac.includes("outlook.office.com")) {
+    const pac = await waitForPacDomain(page, "teams.microsoft.com");
+    if (!pacHasExactHostRule(pac, "outlook.office.com")) {
       throw new Error("PAC missing outlook.office.com");
     }
     if (!pac.includes('return "DIRECT"')) {
@@ -117,14 +122,14 @@ export async function run({ openPopup }) {
       "work.example.com",
     );
     await page.click('.split-tunneling-mode-btn[data-mode="only"]');
-    await waitForPacWithout(page, "teams.microsoft.com");
+    await waitForPacWithoutDomain(page, "teams.microsoft.com");
     const pacAfterMode = await getPacScript(page);
-    if (!pacAfterMode.includes("work.example.com")) {
+    if (!pacHasExactHostRule(pacAfterMode, "work.example.com")) {
       throw new Error(
         "Mode click dropped the unsaved textarea entry (regression)",
       );
     }
-    if (pacAfterMode.includes("outlook.office.com")) {
+    if (pacHasExactHostRule(pacAfterMode, "outlook.office.com")) {
       throw new Error(
         "Mode click kept stale saved domains instead of textarea contents",
       );
@@ -139,7 +144,7 @@ export async function run({ openPopup }) {
       },
     );
     await clickText(page, "Save rules", "button");
-    await waitForPacWithout(page, "work.example.com");
+    await waitForPacWithoutDomain(page, "work.example.com");
     const pacEmptyOnly = await getPacScript(page);
     const catchAllSection = pacEmptyOnly
       .split("// No subnet routes")

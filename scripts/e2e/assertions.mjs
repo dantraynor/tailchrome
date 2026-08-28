@@ -40,6 +40,21 @@ export async function expectNoText(page, unexpected) {
   }
 }
 
+/**
+ * Return whether a generated PAC script contains an exact host comparison.
+ * Extracting the quoted operands first prevents lookalike domains from
+ * satisfying an assertion through a substring match.
+ */
+export function pacHasExactHostRule(pacScript, expectedHost) {
+  const exactHostRules = pacScript.matchAll(
+    /\bhost\s*===\s*"([a-z0-9.-]+)"/g,
+  );
+  for (const [, host] of exactHostRules) {
+    if (host === expectedHost) return true;
+  }
+  return false;
+}
+
 export async function clickText(page, text, selector = "button, a, [role='button'], [role='radio'], .setting-row--clickable, .setting-row, .peer-item") {
   const clicked = await page.evaluate(
     ({ text, selector }) => {
