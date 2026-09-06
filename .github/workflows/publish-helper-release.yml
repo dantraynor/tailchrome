@@ -592,3 +592,14 @@ jobs:
             echo "- Candidate run ID: \`$CANDIDATE_RUN_ID\`"
             echo "- SHA256SUMS.txt digest: \`$EXPECTED_MANIFEST_DIGEST\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  update-homebrew:
+    needs: publish
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/update-homebrew.yml
+    with:
+      release_tag: ${{ inputs.release_tag }}
+      sha256sums_digest: ${{ inputs.sha256sums_digest }}

@@ -43,6 +43,7 @@ pnpm lint:firefox        # AMO-style validation
 pnpm review:firefox      # Full Firefox validation pipeline
 pnpm test                # All tests
 pnpm test:installer      # Verified installer shell tests
+pnpm test:homebrew       # Homebrew release updater tests
 pnpm typecheck           # TypeScript validation
 pnpm e2e:chrome          # Puppeteer smoke suite (Chrome)
 pnpm e2e:firefox         # Puppeteer smoke suite (Firefox)
@@ -64,6 +65,7 @@ seam you touched, then finish with:
 pnpm typecheck
 pnpm test
 pnpm test:installer
+pnpm test:homebrew
 (cd host && go test -race ./... && go vet ./...)
 git diff --check
 ```
@@ -97,3 +99,7 @@ Include your browser, OS, extension version, and steps to reproduce.
   accepted provider and exact signer subject. Signing cannot silently skip or
   switch publisher identities.
 - Store publication uses GitHub Actions with manual environment approvals for Chrome Web Store and Firefox AMO submission
+- Successful helper publication calls the Homebrew update workflow, which
+  proposes the published version and final package checksums in a pull request.
+  See [Homebrew maintenance](../packaging/homebrew/README.md#maintaining-the-tap)
+  for setup, retries, and manual updates.

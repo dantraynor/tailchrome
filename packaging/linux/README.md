@@ -1,5 +1,10 @@
 # Linux helper installation
 
+Homebrew users on x86_64 or ARM64 can use the
+[Tailchrome formula](../homebrew/README.md#linux). It installs a checksummed
+release helper; browser registration is a separate per-user command that
+must also be run after upgrades.
+
 `build-packages.sh` produces:
 
 - `dist/tailchrome-helper-linux-amd64.deb`
@@ -19,9 +24,9 @@ Package ownership stops at those system files. The packages have no
 post-install registration script and write nothing below a user's home
 directory, so removing the package removes everything it owns.
 
-ARM64 `.deb` and `.rpm` packages are not published. Linux ARM64 users use the
-verified `tailscale-browser-ext-linux-arm64` raw helper through the repair
-script described below.
+ARM64 `.deb` and `.rpm` packages are not published. Linux ARM64 users can use
+Homebrew or the verified `tailscale-browser-ext-linux-arm64` raw helper through
+the repair script described below.
 
 ## Per-user registration repair
 
