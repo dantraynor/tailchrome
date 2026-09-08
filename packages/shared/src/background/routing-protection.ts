@@ -292,6 +292,13 @@ export class RoutingProtection {
         mode: live ? "active" : "blocked",
         proxyPort: live ? state.proxyPort : null,
       };
+    } else if (
+      state.backendState === "Running" &&
+      (!state.selfNode?.id || !state.prefs)
+    ) {
+      // The first IPN update can precede the account's preferences. Its exit
+      // choice is unknown until both arrive, including after an upgrade.
+      policy = { ...emptyPolicy(), mode: "blocked", blockAll: true };
     } else if (!shouldProxyState(state)) {
       policy = emptyPolicy();
     }

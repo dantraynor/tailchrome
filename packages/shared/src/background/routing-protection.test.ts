@@ -73,6 +73,19 @@ describe("routing protection", () => {
       routingPolicy: { mode: "blocked" },
     });
   });
+  it.each(["prefs", "selfNode"] as const)("blocks an initial Running status without %s", async (field) => {
+    const routing = new RoutingProtection();
+    await routing.restore();
+    const incomplete = connected({ [field]: null, exitNode: null });
+    routing.confirmStatus(status(incomplete), incomplete);
+    expect(routing.decorate(incomplete).routingPolicy).toMatchObject({
+      mode: "blocked", blockAll: true,
+    });
+    routing.confirmStatus(status(connected()), connected());
+    expect(routing.decorate(connected()).routingPolicy).toMatchObject({
+      mode: "active", selectedExitNodeID: "exit1",
+    });
+  });
   it("restores protection across worker and browser restarts without a stale port", async () => {
     const routing = new RoutingProtection();
     await routing.restore();
