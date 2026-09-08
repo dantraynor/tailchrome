@@ -87,7 +87,8 @@ export class FirefoxProxyManager {
 
   apply(state: TailscaleState): void {
     const requestedPolicy = policyFromState(state);
-    const policy = requestedPolicy.mode === "active" && !this.session.credentialsFor(requestedPolicy.proxyPort ?? 0)
+    const authenticationMissing = !this.session.credentialsFor(requestedPolicy.proxyPort ?? 0);
+    const policy = requestedPolicy.mode === "active" && authenticationMissing
       ? { ...requestedPolicy, mode: "blocked" as const, proxyPort: null }
       : requestedPolicy;
     const nextKey = JSON.stringify(policy);
@@ -114,7 +115,9 @@ export class FirefoxProxyManager {
         this.mode === "blocked"
           ? {
               status: "blocked",
-              message: this.exitNodeActive
+              message: authenticationMissing && requestedPolicy.mode === "active"
+                ? "Helper authentication unavailable — protected browsing is blocked."
+                : this.exitNodeActive
                 ? "Exit node unavailable — protected browsing is blocked."
                 : "Connection unavailable — tailnet browsing is blocked.",
             }
@@ -143,13 +146,14 @@ export class FirefoxProxyManager {
 
     if (this.mode === "direct") return direct;
 
+    const credentials = this.mode === "active" ? this.session.credentialsFor(this.proxyPort) : undefined;
     const proxy: [FirefoxProxyInfo, null] = [
       {
         type: "socks",
         host: "127.0.0.1",
-        port: this.mode === "blocked" || !this.session.credentialsFor(this.proxyPort) ? BLOCKED_PROXY_PORT : this.proxyPort,
+        port: credentials ? this.proxyPort : BLOCKED_PROXY_PORT,
         proxyDNS: true,
-        ...(this.mode === "active" ? this.session.credentialsFor(this.proxyPort) : undefined),
+        ...credentials,
       },
       null,
     ];

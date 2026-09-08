@@ -94,7 +94,7 @@ export async function createRoutingNetwork() {
         if (stage === "hello") {
           if (buffer.length < 2 || buffer.length < buffer[1] + 2) return;
           const methods = buffer.subarray(2, buffer[1] + 2);
-          const method = methods.includes(2) ? 2 : methods.includes(0) ? 0 : 255;
+          const method = methods.includes(2) ? 2 : 255;
           buffer = buffer.subarray(buffer[1] + 2);
           client.write(Buffer.from([5, method]));
           if (method === 255) { client.end(); return; }

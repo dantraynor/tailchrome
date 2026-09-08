@@ -76,3 +76,29 @@ func TestProxyMagicDNSUsesAuthoritativeAddresses(t *testing.T) {
 		t.Fatal("suffix spoof accepted")
 	}
 }
+
+func TestProxyExtraDNSRecordsUseExactNamesAndValidatedDestinations(t *testing.T) {
+	nm := proxyPolicyMap()
+	nm.DNS.ExtraRecords = []tailcfg.DNSRecord{
+		{Name: "Wiki.Internal.Example.", Value: "100.64.0.3"},
+		{Name: "wiki.internal.example", Type: "A", Value: "10.20.1.1"},
+		{Name: "wiki.internal.example", Type: "AAAA", Value: "fd7a:115c:a1e0::3"},
+		{Name: "wiki.internal.example", Type: "TXT", Value: "100.64.0.9"},
+		{Name: "wiki.internal.example", Type: "A", Value: "not-an-address"},
+		{Name: "local.internal.example", Value: "::ffff:127.0.0.1"},
+	}
+	got := proxyMagicDNSAddresses(nm, "WIKI.INTERNAL.EXAMPLE.")
+	if len(got) != 3 {
+		t.Fatalf("addresses %v", got)
+	}
+	if len(proxyMagicDNSAddresses(nm, "wiki")) != 0 || len(proxyMagicDNSAddresses(nm, "wiki.internal.example.attacker")) != 0 {
+		t.Fatal("inexact extra record matched")
+	}
+	local := proxyMagicDNSAddresses(nm, "local.internal.example")
+	if len(local) != 1 {
+		t.Fatal("missing local record")
+	}
+	if allowed, _ := proxyIPAllowed(nm, &ipn.Prefs{WantRunning: true, RouteAll: true}, local[0], nil); allowed {
+		t.Fatal("unsafe extra record bypassed destination validation")
+	}
+}

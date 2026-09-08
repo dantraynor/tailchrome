@@ -342,7 +342,7 @@ function mockSource(baseUrl, initialControl) {
       }
       onMessage.dispatch({
         procRunning: {
-          ...(control.legacyProxy ? {} : { proxyAuth: { version: 1, username: "fixture", password: "fixture-credential-".repeat(3) } }),
+          ...(control.legacyProxy ? {} : { proxyAuth: control.proxyAuth ?? { version: 1, username: "fixture", password: "fixture-credential-".repeat(3) } }),
           port: control.proxyPort ?? 1055,
           pid: 1,
           version: control.hostVersion ?? ${JSON.stringify(expectedHostVersion)},

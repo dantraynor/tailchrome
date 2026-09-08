@@ -37,6 +37,22 @@ describe("ChromeProxyManager", () => {
   });
 
   describe("apply", () => {
+    it("blocks the protected policy without a matching authenticated session", () => {
+      pm.setProxySession(null);
+      const report = vi.fn();
+      pm.setRoutingHealthListener(report);
+      const set = vi.spyOn(chrome.proxy.settings, "set");
+      pm.apply(baseState());
+      const pac = (set.mock.calls.at(-1)![0].value as chrome.proxy.ProxyConfig).pacScript!.data!;
+      expect(pac).toContain("PROXY 127.0.0.1:1");
+      expect(pac).not.toContain("PROXY 127.0.0.1:1055");
+      expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: "blocked" }));
+      pm.setProxySession({ port: 1055, username: "fixture", password: "fixture-credential-".repeat(3) });
+      pm.apply(baseState());
+      expect((set.mock.calls.at(-1)![0].value as chrome.proxy.ProxyConfig).pacScript!.data).toContain("PROXY 127.0.0.1:1055");
+      expect(report).toHaveBeenLastCalledWith({ status: "active", message: "" });
+    });
+
     it("sets proxy when state is running and proxy enabled", () => {
       const spy = vi.spyOn(chrome.proxy.settings, "set");
       pm.apply(baseState());
@@ -412,6 +428,7 @@ describe("ChromeProxyManager", () => {
       },
     );
     const manager = new ChromeProxyManager();
+    manager.setProxySession({ port: 1055, username: "fixture", password: "fixture-credential-".repeat(3) });
     const reports: string[] = [];
     manager.setRoutingHealthListener((health) => {
       reports.push(health.status);
@@ -432,6 +449,7 @@ describe("ChromeProxyManager", () => {
       },
     );
     const manager = new ChromeProxyManager();
+    manager.setProxySession({ port: 1055, username: "fixture", password: "fixture-credential-".repeat(3) });
     const report = vi.fn();
     manager.setRoutingHealthListener(report);
     manager.apply(baseState());

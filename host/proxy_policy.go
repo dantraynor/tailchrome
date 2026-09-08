@@ -159,6 +159,15 @@ func proxyMagicDNSAddresses(nm *netmap.NetworkMap, hostname string) []netip.Addr
 	for _, peer := range nm.Peers {
 		add(peer)
 	}
+	for _, record := range nm.DNS.ExtraRecords {
+		name, valid := dnsName(record.Name)
+		if !valid || name != hostname || (record.Type != "" && record.Type != "A" && record.Type != "AAAA") {
+			continue
+		}
+		if ip, err := netip.ParseAddr(record.Value); err == nil {
+			ips = append(ips, ip.Unmap())
+		}
+	}
 	return ips
 }
 
@@ -197,10 +206,14 @@ func (h *Host) dialAllowedProxyDestination(ctx context.Context, ts *tsnet.Server
 	} else if ips = proxyMagicDNSAddresses(nm, hostname); len(ips) == 0 {
 		var matched bool
 		if prefs.CorpDNS {
-			ips, matched, err = resolveRestrictedDNS(ctx, network, hostname, nm, func(ctx context.Context, network, address string) (net.Conn, error) {
+			ips, matched, err = resolveRestrictedDNS(ctx, network, hostname, nm, string(prefs.ExitNodeID), func(ctx context.Context, network, address string) (net.Conn, error) {
 				h.sessionMu.RLock()
 				defer h.sessionMu.RUnlock()
 				if h.lc != lc || h.sessionGeneration != generation {
+					return nil, errProxyDestinationDenied
+				}
+				currentPrefs, err := lc.GetPrefs(ctx)
+				if err != nil || !sameProxyPrefs(prefs, currentPrefs) {
 					return nil, errProxyDestinationDenied
 				}
 				return dialProxyDNS(ctx, ts, nm, prefs, network, address)
@@ -213,7 +226,20 @@ func (h *Host) dialAllowedProxyDestination(ctx context.Context, ts *tsnet.Server
 			if prefs.ExitNodeID == "" {
 				return nil, errProxyDestinationDenied
 			}
-			ips, err = queryProxyDNS(ctx, lc, hostname)
+			if prefs.CorpDNS {
+				ips, err = queryProxyDNS(ctx, lc, hostname)
+			} else {
+				// Exit DNS is independent of accepting the tailnet DNS settings.
+				// QueryDNS has no upstream routes when CorpDNS is disabled.
+				ips, err = queryExitProxyDNS(ctx, nm, string(prefs.ExitNodeID), network, hostname, func(ctx context.Context, network, address string) (net.Conn, error) {
+					h.sessionMu.RLock()
+					defer h.sessionMu.RUnlock()
+					if h.lc != lc || h.sessionGeneration != generation {
+						return nil, errProxyDestinationDenied
+					}
+					return dialProxyDNSNetstack(ctx, ts, network, address)
+				})
+			}
 			if err != nil {
 				return nil, errProxyDestinationDenied
 			}
@@ -261,6 +287,11 @@ func (h *Host) dialAllowedProxyDestination(ctx context.Context, ts *tsnet.Server
 			return nil, errProxyDestinationDenied
 		}
 		if localAddresses[target.Addr()] {
+			// A staggered attempt may run after LAN access was disabled.
+			currentPrefs, err := lc.GetPrefs(ctx)
+			if err != nil || !sameProxyPrefs(prefs, currentPrefs) {
+				return nil, errProxyDestinationDenied
+			}
 			var localDialer net.Dialer
 			return localDialer.DialContext(ctx, network, target.String())
 		}

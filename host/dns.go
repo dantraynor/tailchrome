@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"tailscale.com/tailcfg"
+	"tailscale.com/types/dnstype"
 	"tailscale.com/types/netmap"
 )
 
@@ -34,13 +36,55 @@ func dnsName(raw string) (string, bool) {
 	return name, true
 }
 
-func dnsRouteDomains(nm *netmap.NetworkMap) []string {
-	domains := []string{}
+// restrictedDNSRoutes mirrors Tailscale's exit-node DNS selection: when the
+// selected peer can proxy DNS, only opted-in resolvers override that peer.
+// Empty routes still belong to the built-in DNS records.
+func restrictedDNSRoutes(nm *netmap.NetworkMap, exitNodeID string) map[string][]*dnstype.Resolver {
 	if nm == nil {
-		return domains
+		return nil
 	}
+	useExitDNS := false
+	for _, peer := range nm.Peers {
+		if !peer.Valid() || exitNodeID == "" || string(peer.StableID()) != exitNodeID {
+			continue
+		}
+		useExitDNS = peer.Cap() >= 26
+		if !useExitDNS && peer.Hostinfo().Valid() {
+			for _, service := range peer.Hostinfo().Services().All() {
+				if service.Proto == tailcfg.PeerAPIDNS && service.Port >= 1 {
+					useExitDNS = true
+					break
+				}
+			}
+		}
+		break
+	}
+	if !useExitDNS {
+		return nm.DNS.Routes
+	}
+	routes := make(map[string][]*dnstype.Resolver)
+	for domain, resolvers := range nm.DNS.Routes {
+		if len(resolvers) == 0 {
+			routes[domain] = nil
+			continue
+		}
+		for _, resolver := range resolvers {
+			if resolver != nil && resolver.UseWithExitNode {
+				routes[domain] = append(routes[domain], resolver)
+			}
+		}
+	}
+	return routes
+}
+
+func dnsRouteDomains(nm *netmap.NetworkMap, exitNodeID string) []string {
+	return dnsDomains(restrictedDNSRoutes(nm, exitNodeID))
+}
+
+func dnsDomains(routes map[string][]*dnstype.Resolver) []string {
+	domains := []string{}
 	seen := map[string]bool{}
-	for raw := range nm.DNS.Routes {
+	for raw := range routes {
 		if domain, ok := dnsName(raw); ok && !seen[domain] {
 			seen[domain] = true
 			domains = append(domains, domain)
@@ -54,13 +98,14 @@ func dnsRouteDomains(nm *netmap.NetworkMap) []string {
 // Dial is bound to the same tsnet session as nm. Callers must validate the returned
 // addresses against their destination policy and dial a literal address, so a
 // later DNS answer cannot change the destination after that check.
-func resolveRestrictedDNS(ctx context.Context, network, hostname string, nm *netmap.NetworkMap, dial func(context.Context, string, string) (net.Conn, error)) ([]netip.Addr, bool, error) {
+func resolveRestrictedDNS(ctx context.Context, network, hostname string, nm *netmap.NetworkMap, exitNodeID string, dial func(context.Context, string, string) (net.Conn, error)) ([]netip.Addr, bool, error) {
 	host, ok := dnsName(hostname)
 	if !ok || nm == nil {
 		return nil, false, nil
 	}
+	routes := restrictedDNSRoutes(nm, exitNodeID)
 	matched := ""
-	for _, domain := range dnsRouteDomains(nm) {
+	for _, domain := range dnsDomains(routes) {
 		if (host == domain || strings.HasSuffix(host, "."+domain)) && len(domain) > len(matched) {
 			matched = domain
 		}
@@ -69,8 +114,8 @@ func resolveRestrictedDNS(ctx context.Context, network, hostname string, nm *net
 		return nil, false, nil
 	}
 	// Keep lookup order deterministic even if a map contains duplicate normalized keys.
-	keys := make([]string, 0, len(nm.DNS.Routes))
-	for key := range nm.DNS.Routes {
+	keys := make([]string, 0, len(routes))
+	for key := range routes {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
@@ -79,7 +124,7 @@ func resolveRestrictedDNS(ctx context.Context, network, hostname string, nm *net
 		if domain, valid := dnsName(key); !valid || domain != matched {
 			continue
 		}
-		resolvers := nm.DNS.Routes[key]
+		resolvers := routes[key]
 		if len(resolvers) == 0 {
 			// Empty routes belong to Tailscale's in-memory DNS records.
 			return nil, false, nil
