@@ -13,8 +13,7 @@ import {
   parseCIDR,
   sanitizeMagicDNSSuffix,
   sanitizeDomain,
-  collectSubnetCIDRs,
-  shouldProxyState,
+  sanitizeDNSRoutes,
 } from "@tailchrome/shared/background/proxy-utils";
 
 import {
@@ -109,6 +108,8 @@ export class ChromeProxyManager {
           policy.subnetCIDRs,
           policy.domainSplit.mode,
           sanitizeSplitDomains(policy.domainSplit),
+          policy.shortNames,
+          policy.dnsRoutes,
         ),
       },
     };
@@ -218,6 +219,8 @@ export class ChromeProxyManager {
     subnets: string[],
     splitMode: "bypass" | "only",
     splitDomains: string[],
+    shortNames: string[],
+    dnsRoutes: string[],
   ): string {
     const proxy = `PROXY 127.0.0.1:${port}`;
 
@@ -230,7 +233,13 @@ export class ChromeProxyManager {
       .filter((line): line is string => line !== null)
       .join("\n");
 
-    const safeDNSSuffix = sanitizeMagicDNSSuffix(magicDNSSuffix);
+    const safeDNSSuffix = sanitizeMagicDNSSuffix(magicDNSSuffix).toLowerCase();
+    const dnsChecks = [
+      ...sanitizeDNSRoutes(shortNames).filter((name) => !name.includes("."))
+        .map((name) => `host === "${name}"`),
+      ...sanitizeDNSRoutes(dnsRoutes)
+        .map((domain) => `(host === "${domain}" || dnsDomainIs(host, ".${domain}"))`),
+    ].join(" || ");
 
     const domainChecks =
       splitDomains
@@ -250,11 +259,13 @@ export class ChromeProxyManager {
     }
 
     return `function FindProxyForURL(url, host) {
+  host = host.toLowerCase().replace(/\\.$/, "");
   var proxy = "${proxy}";
   var isIPv4 = /^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(host);
 
   if (host === "${TAILSCALE_SERVICE_IP}") return proxy;
 ${safeDNSSuffix ? `  if (dnsDomainIs(host, ".${safeDNSSuffix}") || host === "${safeDNSSuffix}") return proxy;` : "  // No MagicDNS suffix configured"}
+${dnsChecks ? `  if (${dnsChecks}) return proxy;` : "  // No additional DNS routes"}
   if (host.toLowerCase().indexOf("${TAILSCALE_IPV6_PREFIX}") === 0) return proxy;
   if (isIPv4 && isInNet(host, "100.64.0.0", "255.192.0.0")) return proxy;
 

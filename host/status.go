@@ -218,6 +218,16 @@ func (h *Host) buildStatusUpdate(st *ipnstate.Status) *StatusUpdate {
 	browseToURL := h.lastBrowseToURL
 	prefs := h.lastPrefs
 	health := h.lastHealth
+	var dnsRoutes *[]string
+	// An unavailable map cannot clear routes saved by the browser. A known empty
+	// map or disabled DNS setting can, so preserve that distinction on the wire.
+	if prefs != nil && (!prefs.CorpDNS || h.lastNetMap != nil) {
+		domains := []string{}
+		if prefs.CorpDNS {
+			domains = dnsRouteDomains(h.lastNetMap, prefs.ExitNodeID)
+		}
+		dnsRoutes = &domains
+	}
 	h.stateMu.Unlock()
 
 	// Use the backend state from the status if we don't have one cached.
@@ -237,6 +247,7 @@ func (h *Host) buildStatusUpdate(st *ipnstate.Status) *StatusUpdate {
 		AuthURL:      authURL,
 		Prefs:        prefs,
 		Health:       health,
+		DNSRoutes:    dnsRoutes,
 		Peers:        []PeerInfo{},
 	}
 
