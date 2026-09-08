@@ -3,14 +3,12 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/netip"
 	"strconv"
 	"strings"
 	"time"
 
-	"golang.org/x/net/dns/dnsmessage"
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
 	"tailscale.com/net/netx"
@@ -227,7 +225,7 @@ func (h *Host) dialAllowedProxyDestination(ctx context.Context, ts *tsnet.Server
 				return nil, errProxyDestinationDenied
 			}
 			if prefs.CorpDNS {
-				ips, err = queryProxyDNS(ctx, lc, hostname)
+				ips, err = queryProxyDNS(ctx, lc, network, hostname)
 			} else {
 				// Exit DNS is independent of accepting the tailnet DNS settings.
 				// QueryDNS has no upstream routes when CorpDNS is disabled.
@@ -304,45 +302,11 @@ func (h *Host) dialAllowedProxyDestination(ctx context.Context, ts *tsnet.Server
 	}, 300*time.Millisecond)
 }
 
-func queryProxyDNS(ctx context.Context, lc *local.Client, hostname string) ([]netip.Addr, error) {
-	type result struct {
-		ips []netip.Addr
-		err error
-	}
-	results := make(chan result, 2)
-	for _, queryType := range []string{"A", "AAAA"} {
-		go func() {
-			wire, _, err := lc.QueryDNS(ctx, hostname, queryType)
-			if err != nil {
-				results <- result{err: err}
-				return
-			}
-			var message dnsmessage.Message
-			if err := message.Unpack(wire); err != nil || message.Header.RCode != dnsmessage.RCodeSuccess {
-				results <- result{err: fmt.Errorf("DNS query failed")}
-				return
-			}
-			var ips []netip.Addr
-			for _, answer := range message.Answers {
-				switch body := answer.Body.(type) {
-				case *dnsmessage.AResource:
-					ips = append(ips, netip.AddrFrom4(body.A))
-				case *dnsmessage.AAAAResource:
-					ips = append(ips, netip.AddrFrom16(body.AAAA))
-				}
-			}
-			results <- result{ips: ips}
-		}()
-	}
-	var ips []netip.Addr
-	for range 2 {
-		r := <-results
-		ips = append(ips, r.ips...)
-	}
-	if len(ips) == 0 {
-		return nil, fmt.Errorf("DNS returned no addresses")
-	}
-	return ips, nil
+func queryProxyDNS(ctx context.Context, lc *local.Client, network, hostname string) ([]netip.Addr, error) {
+	return lookupSplitDNS(ctx, network, hostname, func(ctx context.Context, name, queryType string) ([]byte, error) {
+		wire, _, err := lc.QueryDNS(ctx, name, queryType)
+		return wire, err
+	})
 }
 
 // Called only for literal nameservers from the authoritative DNS configuration.

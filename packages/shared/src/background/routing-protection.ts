@@ -7,6 +7,7 @@ import {
   sanitizeDNSName,
   sanitizeDNSRoutes,
   sanitizeMagicDNSSuffix,
+  sanitizeSplitDNSDomains,
   shouldProxyState,
 } from "./proxy-utils";
 
@@ -120,7 +121,9 @@ export function policyFromState(state: TailscaleState): RoutingPolicy {
       (s) => parseCIDR(s) !== null,
     ),
     shortNames: collectShortNames(state),
-    dnsRoutes: sanitizeDNSRoutes(state.dnsRoutes),
+    dnsRoutes: sanitizeDNSRoutes(
+      state.dnsRoutes ?? sanitizeSplitDNSDomains(state.splitDNSDomains),
+    ),
     domainSplit: normalizeDomainSplit(state.domainSplit),
   };
 }
@@ -281,9 +284,13 @@ export class RoutingProtection {
         sanitizeDNSName(status.magicDNSSuffix)
           ? policy.shortNames
           : [...new Set([...(prior?.shortNames ?? []), ...policy.shortNames])],
+      // Legacy empty lists can precede the netmap; only dnsRoutes can
+      // authoritatively remove protected domains.
       dnsRoutes: status.dnsRoutes !== undefined
-        ? policy.dnsRoutes
-        : prior?.dnsRoutes ?? [],
+        ? sanitizeDNSRoutes(status.dnsRoutes)
+        : status.splitDNSDomains?.length
+          ? sanitizeDNSRoutes(status.splitDNSDomains)
+          : prior?.dnsRoutes ?? [],
       domainSplit: policy.domainSplit,
     };
     this.save();

@@ -64,7 +64,7 @@ export function parseCIDR(
  */
 export function sanitizeMagicDNSSuffix(suffix: string | null | undefined): string {
   if (!suffix) return "";
-  const stripped = suffix.replace(/\.$/, "");
+  const stripped = suffix.toLowerCase().replace(/\.$/, "");
   return /^[a-zA-Z0-9.\-]+$/.test(stripped) ? stripped : "";
 }
 
@@ -100,6 +100,28 @@ export function collectShortNames(
     if (!shortName.includes(".") && sanitizeDNSName(shortName)) names.push(shortName);
   }
   return [...new Set(names)].sort();
+}
+
+/**
+ * Validate control-plane DNS suffixes without interpreting them as URLs or
+ * user input. Reject the root route and malformed labels so they cannot
+ * broaden proxy routing or inject code into a PAC script.
+ */
+export function sanitizeSplitDNSDomains(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const domains = new Set<string>();
+  for (const raw of input) {
+    if (typeof raw !== "string") continue;
+    const domain = raw.toLowerCase().replace(/\.$/, "");
+    if (!domain || domain.length > 253) continue;
+    if (
+      !domain.split(".").every((label) =>
+        /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label),
+      )
+    ) continue;
+    domains.add(domain);
+  }
+  return [...domains].sort();
 }
 
 /**

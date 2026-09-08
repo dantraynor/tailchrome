@@ -246,6 +246,29 @@ describe("routing protection", () => {
     routing.confirmStatus({ ...status(state), dnsRoutes: [] }, state);
     expect(routing.decorate(state).routingPolicy?.dnsRoutes).toEqual([]);
   });
+  it("preserves legacy split DNS through restart until authoritative routes arrive", async () => {
+    const routing = new RoutingProtection();
+    await routing.restore();
+    const state = connected({
+      splitDNSDomains: ["Internal.Example."],
+      dnsRoutes: undefined,
+    });
+    routing.confirmStatus(status(state), state);
+    await flush();
+
+    const restored = new RoutingProtection();
+    await restored.restore();
+    expect(restored.decorate(offline()).routingPolicy).toMatchObject({
+      mode: "blocked", proxyPort: null, dnsRoutes: ["internal.example"],
+    });
+    restored.confirmStatus({ ...status(state), splitDNSDomains: [] }, state);
+    expect(restored.decorate(state).routingPolicy?.dnsRoutes).toEqual(["internal.example"]);
+
+    restored.confirmStatus({ ...status(state), dnsRoutes: ["new.example"] }, state);
+    expect(restored.decorate(state).routingPolicy?.dnsRoutes).toEqual(["new.example"]);
+    restored.confirmStatus({ ...status(state), dnsRoutes: [] }, state);
+    expect(restored.decorate(state).routingPolicy?.dnsRoutes).toEqual([]);
+  });
   it("preserves missing DNS routes across disconnect and restore without crossing accounts", async () => {
     const routing = new RoutingProtection();
     await routing.restore();

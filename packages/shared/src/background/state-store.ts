@@ -16,6 +16,7 @@ const DEFAULT_STATE: TailscaleState = {
   peers: [],
   exitNode: null,
   magicDNSSuffix: null,
+  splitDNSDomains: [],
   dnsRoutes: [],
   browseToURL: null,
   prefs: null,
@@ -97,8 +98,11 @@ export class StateStore {
       })),
       exitNode: status.exitNode ?? null,
       magicDNSSuffix: status.magicDNSSuffix,
+      splitDNSDomains: status.splitDNSDomains ?? [],
       dnsRoutes: status.dnsRoutes === undefined
-        ? this.state.dnsRoutes
+        ? status.splitDNSDomains?.length
+          ? sanitizeDNSRoutes(status.splitDNSDomains)
+          : this.state.dnsRoutes
         : sanitizeDNSRoutes(status.dnsRoutes),
       browseToURL: status.browseToURL || status.authURL || null,
       prefs: status.prefs,

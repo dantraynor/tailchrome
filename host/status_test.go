@@ -1,12 +1,25 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"slices"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"tailscale.com/client/local"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
+	"tailscale.com/types/dnstype"
+	"tailscale.com/types/netmap"
 )
 
 func TestBuildStatusUpdateUsesAuthURLFallback(t *testing.T) {
@@ -50,6 +63,7 @@ func TestClearCachedStatusResetsVolatileFieldsAndKeepsPrefs(t *testing.T) {
 	h.lastBrowseToURL = "https://login.tailscale.com/a/old"
 	h.lastHealth = []string{"old warning"}
 	h.lastPrefs = &PrefsView{ControlURL: "https://old.example.com"}
+	h.lastSplitDNSDomains = []string{"old.example.com"}
 
 	prefs := &ipn.Prefs{
 		ControlURL:  "https://hs.example.com",
@@ -67,6 +81,9 @@ func TestClearCachedStatusResetsVolatileFieldsAndKeepsPrefs(t *testing.T) {
 	if h.lastHealth != nil {
 		t.Fatalf("lastHealth = %#v, want nil", h.lastHealth)
 	}
+	if h.lastSplitDNSDomains != nil {
+		t.Fatal("DNS routes from the previous session were retained")
+	}
 	if h.lastPrefs == nil {
 		t.Fatal("lastPrefs = nil, want prefs view")
 	}
@@ -75,6 +92,170 @@ func TestClearCachedStatusResetsVolatileFieldsAndKeepsPrefs(t *testing.T) {
 	}
 	if !h.lastPrefs.WantRunning {
 		t.Fatal("WantRunning = false, want true")
+	}
+}
+
+func TestConfiguredSplitDNSDomains(t *testing.T) {
+	config := &tailcfg.DNSConfig{Routes: map[string][]*dnstype.Resolver{
+		"INTERNAL.Example.com.":                  {{Addr: "192.168.1.53"}},
+		"internal.example.com":                   {{Addr: "192.168.1.54"}},
+		"records.example.com":                    nil,
+		"home":                                   {},
+		".":                                      {{Addr: "1.1.1.1"}},
+		"":                                       nil,
+		".example.com":                           nil,
+		"example.com..":                          nil,
+		"bad..example.com":                       nil,
+		"https://example.com":                    nil,
+		"bad\".example.com":                      nil,
+		"-bad.example.com":                       nil,
+		strings.Repeat("a", 64) + ".example.com": nil,
+	}}
+	want := []string{"home", "internal.example.com", "records.example.com"}
+	if got := configuredSplitDNSDomains(config); !slices.Equal(got, want) {
+		t.Fatalf("domains = %q, want %q", got, want)
+	}
+}
+
+// Exercise the actual notification-to-native-message path, including updates
+// that contain no state/peer changes and preferences that disable DNS routing.
+func TestWatchIPNBusPublishesSplitDNSChanges(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	notifications := make(chan ipn.Notify)
+	var dnsConfig atomic.Pointer[tailcfg.DNSConfig]
+	var dnsUnavailable atomic.Bool
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/localapi/v0/watch-ipn-bus":
+			mask, err := strconv.ParseUint(r.URL.Query().Get("mask"), 10, 64)
+			if err == nil && ipn.NotifyWatchOpt(mask) == ipn.NotifyInitialNetMap {
+				if dnsUnavailable.Load() {
+					http.Error(w, "network map unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				var nm *netmap.NetworkMap
+				if config := dnsConfig.Load(); config != nil {
+					nm = &netmap.NetworkMap{DNS: *config}
+				}
+				json.NewEncoder(w).Encode(ipn.Notify{NetMap: nm})
+				return
+			}
+			if err != nil || ipn.NotifyWatchOpt(mask)&ipn.NotifyPeerChanges == 0 {
+				t.Error("watcher must subscribe to peer changes")
+			}
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			for {
+				select {
+				case <-r.Context().Done():
+					return
+				case n := <-notifications:
+					if err := json.NewEncoder(w).Encode(n); err != nil {
+						return
+					}
+					w.(http.Flusher).Flush()
+				}
+			}
+		case "/localapi/v0/status":
+			json.NewEncoder(w).Encode(&ipnstate.Status{BackendState: "Running"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+	lc := &local.Client{OmitAuth: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, api.Listener.Addr().String())
+	}}
+	writer, reader := net.Pipe()
+	defer writer.Close()
+	defer reader.Close()
+	h := newHost(nil, writer)
+	h.lc = lc
+	done := make(chan error, 1)
+	go func() {
+		defer close(done)
+		done <- h.watchIPNBusSession(ctx, lc, 0)
+	}()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("IPN watcher did not stop")
+		}
+	}()
+	update := func(n ipn.Notify, want []string) {
+		t.Helper()
+		select {
+		case notifications <- n:
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		}
+		reader.SetReadDeadline(time.Now().Add(2 * time.Second))
+		reply := decodeReply(t, reader)
+		if reply.Status == nil || !slices.Equal(reply.Status.SplitDNSDomains, want) {
+			t.Fatalf("status = %+v, want split DNS domains %q", reply.Status, want)
+		}
+		if reply.Status.SplitDNSDomains == nil {
+			t.Fatal("empty routes must be sent explicitly as [], not null or omitted")
+		}
+	}
+	prefs := (&ipn.Prefs{CorpDNS: true}).View()
+	// Login can complete after an initial snapshot with no netmap.
+	update(ipn.Notify{SessionID: "initial", Prefs: &prefs, State: new(ipn.NeedsLogin)}, nil)
+	dnsConfig.Store(&tailcfg.DNSConfig{
+		Routes: map[string][]*dnstype.Resolver{"login.example.com": nil},
+	})
+	update(ipn.Notify{SelfChange: &tailcfg.Node{}}, []string{"login.example.com"})
+	// Initial snapshots and Windows still supply a complete netmap.
+	update(ipn.Notify{Prefs: &prefs, NetMap: &netmap.NetworkMap{DNS: tailcfg.DNSConfig{
+		Routes: map[string][]*dnstype.Resolver{"internal.example.com": {{Addr: "192.168.1.53"}}},
+	}}}, []string{"internal.example.com"})
+	update(ipn.Notify{NetMap: &netmap.NetworkMap{DNS: tailcfg.DNSConfig{
+		Routes: map[string][]*dnstype.Resolver{"new.example.com": nil},
+	}}}, []string{"new.example.com"})
+	// macOS/Linux announce DNS-only updates with SelfChange.
+	dnsConfig.Store(&tailcfg.DNSConfig{
+		Routes: map[string][]*dnstype.Resolver{"replacement.example.com": nil},
+	})
+	update(ipn.Notify{SelfChange: &tailcfg.Node{}}, []string{"replacement.example.com"})
+	update(ipn.Notify{PeersChanged: []*tailcfg.Node{{ID: 1}}}, []string{"replacement.example.com"})
+	update(ipn.Notify{PeersRemoved: []tailcfg.NodeID{1}}, []string{"replacement.example.com"})
+	disabled := (&ipn.Prefs{CorpDNS: false}).View()
+	update(ipn.Notify{Prefs: &disabled}, nil)
+	update(ipn.Notify{Prefs: &prefs}, []string{"replacement.example.com"})
+	dnsConfig.Store(&tailcfg.DNSConfig{})
+	update(ipn.Notify{SelfChange: &tailcfg.Node{}}, nil)
+	update(ipn.Notify{NetMap: &netmap.NetworkMap{}}, nil)
+	for _, state := range []ipn.State{ipn.NoState, ipn.NeedsLogin} {
+		update(ipn.Notify{NetMap: &netmap.NetworkMap{DNS: tailcfg.DNSConfig{
+			Routes: map[string][]*dnstype.Resolver{"old-profile.example.com": nil},
+		}}}, []string{"old-profile.example.com"})
+		update(ipn.Notify{State: &state}, nil)
+	}
+	update(ipn.Notify{NetMap: &netmap.NetworkMap{DNS: tailcfg.DNSConfig{
+		Routes: map[string][]*dnstype.Resolver{"old-profile.example.com": nil},
+	}}}, []string{"old-profile.example.com"})
+	// A reconnect during a profile transition can start with no netmap even
+	// when the state is Starting rather than NeedsLogin.
+	update(ipn.Notify{SessionID: "reconnected", State: new(ipn.Starting)}, nil)
+	// A failed fetch must restart the watcher so its next initial snapshot
+	// recovers the configuration without waiting for another DNS change.
+	dnsUnavailable.Store(true)
+	select {
+	case notifications <- ipn.Notify{SelfChange: &tailcfg.Node{}}:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "failed to refresh network map") {
+			t.Fatalf("watcher error = %v, want DNS refresh failure", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("watcher did not restart after a failed DNS fetch")
 	}
 }
 

@@ -165,6 +165,69 @@ describe("FirefoxProxyManager", () => {
     });
   });
 
+  describe("restricted DNS routing", () => {
+    it("uses authoritative DNS routes to replace legacy domains", () => {
+      pm.apply(baseState({
+        splitDNSDomains: ["old.example.com"],
+        dnsRoutes: ["new.example.com"],
+      }));
+      expect(first(pm, "https://old.example.com/")).toEqual({ type: "direct" });
+      expect(first(pm, "https://new.example.com/")).toMatchObject({ type: "socks", port: 1055 });
+    });
+
+    it("proxies the domain and descendants with remote DNS and no exit node", () => {
+      pm.apply(baseState({ splitDNSDomains: ["Internal.Example.COM."] }));
+      for (const host of ["internal.example.com", "srv.internal.example.com", "SRV.Internal.Example.COM."]) {
+        expect(first(pm, `https://${host}/`)).toMatchObject({
+          type: "socks", port: 1055, proxyDNS: true,
+        });
+      }
+      for (const host of ["notinternal.example.com", "internal.example.com.evil.test", "example.com"]) {
+        expect(first(pm, `https://${host}/`)).toEqual({ type: "direct" });
+      }
+    });
+
+    it.each(["bypass", "only"] as const)(
+      "restricted DNS takes priority over exit-node %s rules", (mode) => {
+        pm.apply(baseState({
+          splitDNSDomains: ["internal.example.com"],
+          exitNode: {
+            id: "exit1", hostname: "exit", dnsName: "exit.example.ts.net.",
+            location: null, online: true,
+          },
+          domainSplit: { mode, domains: mode === "bypass" ? ["internal.example.com"] : [] },
+        }));
+        expect(first(pm, "https://srv.internal.example.com/"))
+          .toMatchObject({ type: "socks", proxyDNS: true });
+      },
+    );
+
+    it("rejects malformed suffixes without broadening proxy routing", () => {
+      pm.apply(baseState({
+        splitDNSDomains: [
+          ".", "https://example.com", "example.com/path", "example.com:53",
+          ".example.com", "example..com", "-bad.example.com", 'evil\"); return \"DIRECT\"; //',
+        ],
+      }));
+      expect(first(pm, "https://example.com/")).toEqual({ type: "direct" });
+      expect(first(pm, "https://www.example.com/")).toEqual({ type: "direct" });
+    });
+
+    it("replaces restricted domains on each update and clears them when disabled", () => {
+      pm.apply(baseState({ splitDNSDomains: ["old.example.com"] }));
+      pm.apply(baseState({ splitDNSDomains: ["new.example.com"] }));
+      expect(first(pm, "https://old.example.com/")).toEqual({ type: "direct" });
+      expect(first(pm, "https://new.example.com/")).toMatchObject({ type: "socks" });
+
+      pm.apply(baseState());
+      expect(first(pm, "https://new.example.com/")).toEqual({ type: "direct" });
+
+      pm.apply(baseState({ splitDNSDomains: ["new.example.com"] }));
+      pm.clear();
+      expect(first(pm, "https://new.example.com/")).toEqual({ type: "direct" });
+    });
+  });
+
   describe("split tunneling rules", () => {
     const withExit = (overrides: Record<string, unknown> = {}) =>
       baseState({

@@ -271,6 +271,74 @@ describe("ChromeProxyManager", () => {
     });
   });
 
+  describe("restricted DNS routing", () => {
+    it("uses authoritative DNS routes to replace legacy domains", () => {
+      const route = evalPAC(pm, baseState({
+        splitDNSDomains: ["old.example.com"],
+        dnsRoutes: ["new.example.com"],
+      }));
+      expect(route("https://old.example.com/", "old.example.com")).toBe("DIRECT");
+      expect(route("https://new.example.com/", "new.example.com")).toBe("PROXY 127.0.0.1:1055");
+    });
+
+    it("proxies the domain and descendants without an exit node, using DNS label boundaries", () => {
+      const route = evalPAC(pm, baseState({
+        splitDNSDomains: ["Internal.Example.COM."],
+      }));
+      for (const host of ["internal.example.com", "srv.internal.example.com", "SRV.Internal.Example.COM."]) {
+        expect(route(`https://${host}/`, host)).toBe("PROXY 127.0.0.1:1055");
+      }
+      for (const host of ["notinternal.example.com", "internal.example.com.evil.test", "example.com"]) {
+        expect(route(`https://${host}/`, host)).toBe("DIRECT");
+      }
+    });
+
+    it.each(["bypass", "only"] as const)(
+      "restricted DNS takes priority over exit-node %s rules", (mode) => {
+        const route = evalPAC(pm, baseState({
+          splitDNSDomains: ["internal.example.com"],
+          exitNode: {
+            id: "exit1", hostname: "exit", dnsName: "exit.example.ts.net.",
+            location: null, online: true,
+          },
+          domainSplit: { mode, domains: mode === "bypass" ? ["internal.example.com"] : [] },
+        }));
+        expect(route("https://srv.internal.example.com/", "srv.internal.example.com"))
+          .toBe("PROXY 127.0.0.1:1055");
+      },
+    );
+
+    it("rejects root routes, URL coercion, malformed labels, and injected PAC code", () => {
+      const route = evalPAC(pm, baseState({
+        splitDNSDomains: [
+          ".", "https://example.com", "example.com/path", "example.com:53",
+          ".example.com", "example..com", "-bad.example.com", 'evil\"); return \"DIRECT\"; //',
+        ],
+      }));
+      expect(route("https://example.com/", "example.com")).toBe("DIRECT");
+      expect(route("https://www.example.com/", "www.example.com")).toBe("DIRECT");
+    });
+
+    it("updates PAC routing when restricted domains change or are removed", () => {
+      const oldRoute = evalPAC(pm, baseState({ splitDNSDomains: ["old.example.com"] }));
+      expect(oldRoute("https://old.example.com/", "old.example.com")).toBe("PROXY 127.0.0.1:1055");
+
+      const newRoute = evalPAC(pm, baseState({ splitDNSDomains: ["new.example.com"] }));
+      expect(newRoute("https://old.example.com/", "old.example.com")).toBe("DIRECT");
+      expect(newRoute("https://new.example.com/", "new.example.com")).toBe("PROXY 127.0.0.1:1055");
+
+      const clearedRoute = evalPAC(pm, baseState());
+      expect(clearedRoute("https://new.example.com/", "new.example.com")).toBe("DIRECT");
+    });
+
+    it("keeps PAC when the normalized restricted-domain set is unchanged", () => {
+      const spy = vi.spyOn(chrome.proxy.settings, "set");
+      pm.apply(baseState({ splitDNSDomains: ["b.example.com", "a.example.com"] }));
+      pm.apply(baseState({ splitDNSDomains: ["A.Example.Com.", "b.example.com", "a.example.com"] }));
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("split tunneling rules", () => {
     const withExit = (overrides: Partial<TailscaleState> = {}) =>
       baseState({

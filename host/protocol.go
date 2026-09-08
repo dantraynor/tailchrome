@@ -76,22 +76,23 @@ type PongReply struct{}
 
 // StatusUpdate contains the full state of the Tailscale node.
 type StatusUpdate struct {
-	BackendState   string     `json:"backendState"`
-	Running        bool       `json:"running"`
-	Tailnet        string     `json:"tailnet"`
-	MagicDNSSuffix string     `json:"magicDNSSuffix"`
-	DNSRoutes      *[]string  `json:"dnsRoutes,omitempty"`
-	SelfNode       *PeerInfo  `json:"selfNode,omitempty"`
-	NeedsLogin     bool       `json:"needsLogin"`
-	BrowseToURL    string     `json:"browseToURL,omitempty"`
-	AuthURL        string     `json:"authURL,omitempty"`
-	ExitNode       *PeerInfo  `json:"exitNode,omitempty"`
-	Peers          []PeerInfo `json:"peers"`
-	PeersTruncated bool       `json:"peersTruncated,omitempty"`
-	TotalPeers     int        `json:"totalPeers,omitempty"`
-	Prefs          *PrefsView `json:"prefs,omitempty"`
-	Health         []string   `json:"health"`
-	Error          string     `json:"error,omitempty"`
+	BackendState    string     `json:"backendState"`
+	Running         bool       `json:"running"`
+	Tailnet         string     `json:"tailnet"`
+	MagicDNSSuffix  string     `json:"magicDNSSuffix"`
+	DNSRoutes       *[]string  `json:"dnsRoutes,omitempty"`
+	SplitDNSDomains []string   `json:"splitDNSDomains"`
+	SelfNode        *PeerInfo  `json:"selfNode,omitempty"`
+	NeedsLogin      bool       `json:"needsLogin"`
+	BrowseToURL     string     `json:"browseToURL,omitempty"`
+	AuthURL         string     `json:"authURL,omitempty"`
+	ExitNode        *PeerInfo  `json:"exitNode,omitempty"`
+	Peers           []PeerInfo `json:"peers"`
+	PeersTruncated  bool       `json:"peersTruncated,omitempty"`
+	TotalPeers      int        `json:"totalPeers,omitempty"`
+	Prefs           *PrefsView `json:"prefs,omitempty"`
+	Health          []string   `json:"health"`
+	Error           string     `json:"error,omitempty"`
 }
 
 // PrefsView is a simplified view of the Tailscale preferences for the extension.

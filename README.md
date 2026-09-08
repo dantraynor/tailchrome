@@ -18,6 +18,7 @@ Tailchrome runs a full Tailscale node per browser profile, without touching syst
 - **Exit nodes** — route all browser traffic through any exit node on your tailnet, with a "Best available" recommendation that picks a nearby Mullvad location when one is available
 - **Split-tunneling** — pick domains that bypass your exit node (handy for sites that flag VPN traffic), or restrict the exit node to only the domains you list
 - **MagicDNS** — access devices by name, not IP
+- **Split DNS** — resolve internal domains using restricted nameservers configured in Tailscale or Headscale ([setup and testing](docs/split-dns.md))
 - **Subnet routing** — reach resources behind subnet routers
 - **Profiles** — create and switch between multiple Tailscale identities
 - **Custom coordination servers** — connect a browser profile to a self-hosted control server such as Headscale

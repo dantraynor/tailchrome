@@ -71,6 +71,8 @@ export interface StatusUpdate {
   running: boolean;
   tailnet: string | null;
   magicDNSSuffix: string;
+  /** Legacy restricted domains; prefer dnsRoutes when supplied. */
+  splitDNSDomains?: string[];
   /** Restricted DNS suffixes; omitted until available or by older helpers. */
   dnsRoutes?: string[];
   selfNode: SelfNode | null;
@@ -238,6 +240,7 @@ export interface TailscaleState {
   peers: PeerInfo[];
   exitNode: ExitNodeInfo | null;
   magicDNSSuffix: string | null;
+  splitDNSDomains: string[];
   dnsRoutes?: string[];
   browseToURL: string | null;
   prefs: TailscalePrefs | null;

@@ -13,6 +13,7 @@ describe("StateStore", () => {
       expect(state.proxyPort).toBeNull();
       expect(state.peers).toEqual([]);
       expect(state.health).toEqual([]);
+      expect(state.splitDNSDomains).toEqual([]);
       expect(state.helperFailure).toBeNull();
       expect(state.helperVersionNotice).toBeNull();
       expect(state.repairRegistrationAvailable).toBe(false);
@@ -128,6 +129,7 @@ describe("StateStore", () => {
         running: true,
         tailnet: "my-tailnet",
         magicDNSSuffix: "my-tailnet.ts.net",
+        splitDNSDomains: ["internal.example.com"],
         dnsRoutes: ["Internal.Example.", "*.invalid", "internal.example"],
         selfNode: {
           id: "self1",
@@ -152,10 +154,26 @@ describe("StateStore", () => {
       expect(state.backendState).toBe("Running");
       expect(state.tailnet).toBe("my-tailnet");
       expect(state.magicDNSSuffix).toBe("my-tailnet.ts.net");
-      expect(state.dnsRoutes).toEqual(["internal.example"]);
+      expect(state.splitDNSDomains).toEqual(["internal.example.com"]);
       expect(state.selfNode?.hostname).toBe("my-machine");
-      store.applyStatusUpdate({ ...status, dnsRoutes: undefined });
+
+      store.applyStatusUpdate({ ...status, splitDNSDomains: ["office.example.com"] });
+      expect(store.getState().splitDNSDomains).toEqual(["office.example.com"]);
+
+      store.applyStatusUpdate({ ...status, splitDNSDomains: [] });
+      expect(store.getState().splitDNSDomains).toEqual([]);
+
+      store.applyStatusUpdate(status);
+      const { splitDNSDomains: _, ...olderHostStatus } = status;
+      store.applyStatusUpdate(olderHostStatus);
+      expect(store.getState().splitDNSDomains).toEqual([]);
+      expect(state.dnsRoutes).toEqual(["internal.example"]);
+      store.applyStatusUpdate({ ...status, dnsRoutes: undefined, splitDNSDomains: undefined });
       expect(store.getState().dnsRoutes).toEqual(["internal.example"]);
+      store.applyStatusUpdate({ ...status, dnsRoutes: undefined });
+      expect(store.getState().dnsRoutes).toEqual(["internal.example.com"]);
+      store.applyStatusUpdate({ ...status, dnsRoutes: undefined, splitDNSDomains: [] });
+      expect(store.getState().dnsRoutes).toEqual(["internal.example.com"]);
       store.applyStatusUpdate({ ...status, dnsRoutes: [] });
       expect(store.getState().dnsRoutes).toEqual([]);
     });

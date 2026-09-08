@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,9 @@ import (
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/tailcfg"
+	"tailscale.com/types/netmap"
+	"tailscale.com/util/dnsname"
 )
 
 // watchIPNBus watches the IPN notification bus for state changes and sends
@@ -40,7 +44,7 @@ func (h *Host) watchIPNBus(ctx context.Context, lc *local.Client, generation uin
 }
 
 func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generation uint64) error {
-	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialPrefs|ipn.NotifyInitialNetMap)
+	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialPrefs|ipn.NotifyInitialNetMap|ipn.NotifyPeerChanges)
 	if err != nil {
 		return err
 	}
@@ -107,7 +111,22 @@ func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generat
 		prefsChanged := n.Prefs != nil && n.Prefs.Valid()
 		browseURLChanged := n.BrowseToURL != nil
 		healthChanged := n.Health != nil
-		changed := stateChanged || prefsChanged || browseURLChanged || n.NetMap != nil || healthChanged
+		netMapChanged := n.NetMap != nil || n.SelfChange != nil
+		peersChanged := n.PeersChanged != nil || n.PeersRemoved != nil
+		changed := stateChanged || prefsChanged || browseURLChanged || netMapChanged || peersChanged || healthChanged
+		currentMap := n.NetMap
+		if currentMap == nil && (n.SelfChange != nil || peersChanged) {
+			// Runtime netmaps are only sent on Windows. Refresh a full snapshot
+			// for both DNS routing and the proxy's authoritative route policy.
+			mapCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			currentMap, err = currentNetworkMap(mapCtx, lc)
+			cancel()
+			if err != nil {
+				// Reconnect the watcher to recover a complete initial snapshot
+				// rather than leave this configuration change unprocessed.
+				return fmt.Errorf("failed to refresh network map: %w", err)
+			}
+		}
 		var prefs *PrefsView
 		if prefsChanged {
 			prefs = prefsViewFromIPN(*n.Prefs)
@@ -132,9 +151,6 @@ func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generat
 				return context.Canceled
 			}
 			h.stateMu.Lock()
-			if n.NetMap != nil {
-				h.lastNetMap = n.NetMap
-			}
 			if stateChanged {
 				h.lastState = n.State.String()
 			}
@@ -147,11 +163,41 @@ func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generat
 			if healthChanged {
 				h.lastHealth = health
 			}
+			if netMapChanged || peersChanged {
+				// Replace the domain list so removed routes disappear too.
+				h.lastNetMap = currentMap
+				h.lastSplitDNSDomains = nil
+				if currentMap != nil {
+					h.lastSplitDNSDomains = configuredSplitDNSDomains(&currentMap.DNS)
+				}
+			} else if n.SessionID != "" || (stateChanged && (*n.State == ipn.NoState || *n.State == ipn.NeedsLogin)) {
+				// An initial snapshot without a netmap replaces any old routes.
+				// Profile changes and logout also clear the backend's netmap,
+				// but a nil NetMap is omitted from the notification stream.
+				h.lastSplitDNSDomains = nil
+				h.lastNetMap = nil
+			}
 			h.stateMu.Unlock()
 			h.sessionMu.RUnlock()
 			sendDebounced()
 		}
 	}
+}
+
+// currentNetworkMap reads the authoritative snapshot that Tailscale provides
+// when a watcher subscribes. Unlike runtime NetMap notifications, this snapshot
+// is available on every platform and includes the full peer routing policy.
+func currentNetworkMap(ctx context.Context, lc *local.Client) (*netmap.NetworkMap, error) {
+	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialNetMap)
+	if err != nil {
+		return nil, err
+	}
+	defer watcher.Close()
+	n, err := watcher.Next()
+	if err != nil {
+		return nil, err
+	}
+	return n.NetMap, nil
 }
 
 func prefsViewFromIPN(p ipn.PrefsView) *PrefsView {
@@ -218,6 +264,7 @@ func (h *Host) buildStatusUpdate(st *ipnstate.Status) *StatusUpdate {
 	browseToURL := h.lastBrowseToURL
 	prefs := h.lastPrefs
 	health := h.lastHealth
+	dnsDomains := h.lastSplitDNSDomains
 	var dnsRoutes *[]string
 	// An unavailable map cannot clear routes saved by the browser. A known empty
 	// map or disabled DNS setting can, so preserve that distinction on the wire.
@@ -240,15 +287,19 @@ func (h *Host) buildStatusUpdate(st *ipnstate.Status) *StatusUpdate {
 	}
 
 	update := &StatusUpdate{
-		BackendState: state,
-		Running:      state == "Running",
-		NeedsLogin:   state == "NeedsLogin" || state == "NeedsMachineAuth",
-		BrowseToURL:  browseToURL,
-		AuthURL:      authURL,
-		Prefs:        prefs,
-		Health:       health,
-		DNSRoutes:    dnsRoutes,
-		Peers:        []PeerInfo{},
+		BackendState:    state,
+		Running:         state == "Running",
+		NeedsLogin:      state == "NeedsLogin" || state == "NeedsMachineAuth",
+		BrowseToURL:     browseToURL,
+		AuthURL:         authURL,
+		Prefs:           prefs,
+		Health:          health,
+		Peers:           []PeerInfo{},
+		SplitDNSDomains: []string{},
+		DNSRoutes:       dnsRoutes,
+	}
+	if prefs != nil && prefs.CorpDNS && len(dnsDomains) > 0 {
+		update.SplitDNSDomains = dnsDomains
 	}
 
 	if st.CurrentTailnet != nil {
@@ -276,4 +327,24 @@ func (h *Host) buildStatusUpdate(st *ipnstate.Status) *StatusUpdate {
 	}
 
 	return update
+}
+
+// configuredSplitDNSDomains returns the suffixes the browser must send to the
+// helper for resolution. Empty resolver lists are local-authoritative routes
+// (for example ExtraRecords), so they still need to reach the internal resolver.
+// The root route is a global DNS override, not a restricted domain.
+func configuredSplitDNSDomains(config *tailcfg.DNSConfig) []string {
+	domains := []string{}
+	if config == nil {
+		return domains
+	}
+	for suffix := range config.Routes {
+		domain := strings.ToLower(strings.TrimSuffix(suffix, "."))
+		if domain == "" || len(domain) > 253 || strings.HasPrefix(domain, ".") || strings.HasSuffix(domain, ".") || dnsname.ValidHostname(domain) != nil {
+			continue
+		}
+		domains = append(domains, domain)
+	}
+	slices.Sort(domains)
+	return slices.Compact(domains)
 }
