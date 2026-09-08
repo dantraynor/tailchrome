@@ -854,6 +854,7 @@ button.setting-row {
   max-width: 280px;
 }
 
+.routing-notice,
 .helper-version-notice {
   position: relative;
   padding: var(--space-md) calc(var(--space-xl) + var(--space-lg))

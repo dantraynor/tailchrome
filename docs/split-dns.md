@@ -2,7 +2,7 @@
 
 Tailchrome uses the restricted nameserver configuration supplied by Tailscale or Headscale to resolve internal domains. Both the browser extension and native helper must include split DNS support. No per-domain settings are needed in the extension.
 
-For example, if your control server configures `internal.example.com` to use `192.168.1.53`, requests for `internal.example.com` and `app.internal.example.com` go through the helper. The helper queries Tailscale's embedded DNS resolver, then connects to the returned IP through tsnet. Other domains keep their existing routing and resolution behavior.
+For example, if your control server configures `internal.example.com` to use `192.168.1.53`, requests for `internal.example.com` and `app.internal.example.com` go through the helper. The helper queries the configured IP nameserver through the current authorized route, checks the returned IP against the active routing policy, and connects through the tailnet. Other domains keep their existing routing and resolution behavior.
 
 ## Setup
 
@@ -11,13 +11,13 @@ For example, if your control server configures `internal.example.com` to use `19
 3. Keep **MagicDNS** enabled in Tailchrome's quick settings. This toggle controls acceptance of the control plane's DNS configuration (`corpDNS`), including restricted nameservers.
 4. Open the internal service by its full hostname, such as `https://app.internal.example.com`.
 
-An exit node is not required. Restricted domains take precedence over Tailchrome's exit-node **Bypass** and **Only** domain rules. When an exit node is selected, Tailscale's embedded resolver applies the control plane's DNS policy for that exit node, including whether a restricted nameserver is allowed to remain in use.
+An exit node is not required. Restricted domains take precedence over Tailchrome's exit-node **Bypass** and **Only** domain rules. When an exit node is selected, the helper applies the control plane's DNS policy for that exit node, including whether a restricted nameserver is allowed to remain in use.
 
 ## Scope and troubleshooting
 
 - Support applies to browser traffic routed through the helper. Tailchrome does not change system DNS or resolve names for other applications.
-- Nameserver addresses and domain restrictions are managed on the control server. This feature does not add a global nameserver override or a DNS configuration editor to the extension.
-- The helper pins tsnet `v1.103.0-pre.0.20260819151608-90ed0bcf4bc2`, which includes Tailscale's [UDP forwarding fix](https://github.com/tailscale/tailscale/pull/20786) and the security fixes from v1.102.3. Both UDP and TCP DNS queries follow tsnet's routes, preventing a resolver on an overlapping local LAN from answering queries intended for a subnet resolver. Allow **UDP and TCP port 53** on the nameserver and under your tailnet policy; UDP-only nameservers work for responses that do not require TCP after truncation.
+- Nameserver addresses and domain restrictions are managed on the control server. This feature does not add a global nameserver override or a DNS configuration editor to the extension. Restricted nameservers must use IPv4 or IPv6 addresses; encrypted resolver URLs are not supported.
+- The helper pins tsnet `v1.103.0-pre.0.20260819151608-90ed0bcf4bc2`, which includes Tailscale's [UDP forwarding fix](https://github.com/tailscale/tailscale/pull/20786) and the security fixes from v1.102.3. Restricted queries use nameserver addresses from the current control-plane configuration and validate their routing before connecting. Queries to approved subnet resolvers stay within tsnet for both UDP and TCP, preventing a resolver on an overlapping local LAN from answering them. Allow **UDP and TCP port 53** on the nameserver and under your tailnet policy; TCP-only nameservers work; UDP-only nameservers work for responses that do not require TCP after truncation.
 - A failed restricted-domain lookup returns an error; the helper does not retry that hostname using system/public DNS.
 - Domain changes and removals update browser routing automatically. Turning off the MagicDNS setting disables restricted-domain routing.
 

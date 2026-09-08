@@ -5,6 +5,9 @@ import {
   sanitizeMagicDNSSuffix,
   sanitizeSplitDNSDomains,
   collectSubnetCIDRs,
+  collectShortNames,
+  sanitizeDNSName,
+  sanitizeDNSRoutes,
   shouldProxyState,
   CGNAT_NETWORK,
   CGNAT_MASK,
@@ -258,5 +261,26 @@ describe("CGNAT constants", () => {
     // Outside range
     expect(check("100.128.0.0")).toBe(false);
     expect(check("10.0.0.1")).toBe(false);
+  });
+});
+
+
+describe("DNS names and routes", () => {
+  it("keeps only complete, valid DNS names", () => {
+    expect(sanitizeDNSRoutes(["Internal.Example.", "internal.example", "other.example"])).toEqual(["internal.example", "other.example"]);
+    for (const name of ["", ".", "*.example", "https://internal.example", "bad..example", "bad.example:53", "127.0.0.1", "-bad.example", "bad-.example", "bad\n.example", "a".repeat(64) + ".example"]) {
+      expect(sanitizeDNSName(name)).toBeNull();
+    }
+    expect(sanitizeDNSRoutes([12, null, {}, "good.example"])).toEqual(["good.example"]);
+  });
+
+  it("derives exact short names from peer DNS records, not device hostnames", () => {
+    expect(collectShortNames(baseState({ peers: [
+      makePeer({ hostname: "wrong", dnsName: "Wiki.Example.Ts.Net." }),
+      makePeer({ hostname: "router", dnsName: "router.other.ts.net." }),
+      makePeer({ dnsName: "nested.wiki.example.ts.net." }),
+      makePeer({ dnsName: "wiki.example.ts.net." }),
+    ] }))).toEqual(["wiki"]);
+    expect(collectShortNames(baseState({ magicDNSSuffix: null, peers: [makePeer()] }))).toEqual([]);
   });
 });

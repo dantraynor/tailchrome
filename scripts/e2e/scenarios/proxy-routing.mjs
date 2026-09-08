@@ -18,7 +18,7 @@ export async function run({ openPopup }) {
     }
     const data = proxyConfig.pacScript?.data ?? "";
     for (const expected of [
-      "SOCKS5 127.0.0.1:1055",
+      "PROXY 127.0.0.1:1055",
       "100.100.100.100",
       "100.64.0.0",
       "fd7a:115c:a1e0:",

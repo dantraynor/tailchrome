@@ -161,7 +161,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
       "countryCode",
     );
   } else {
-    exitValue.textContent = "None";
+    exitValue.textContent = state.selectedExitNodeID ? "Unavailable" : "None";
   }
 
   const chevron = document.createElement("span");
@@ -703,7 +703,7 @@ function exitNodeDisplayText(state: TailscaleState): string {
       "countryCode",
     );
   }
-  return "None";
+  return state.selectedExitNodeID ? "Unavailable" : "None";
 }
 
 /**

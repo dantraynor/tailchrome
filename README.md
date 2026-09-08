@@ -47,12 +47,42 @@ The same UI renders in either surface.
 ## Install
 
 1. Get the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) (also installs in Brave, Edge, Vivaldi, Opera, and — on macOS — Arc) or [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/)
-2. Install the native helper from the [latest release](https://github.com/dantraynor/tailchrome/releases/latest) — **`tailchrome-helper-macos.pkg`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the **`.deb`/`.rpm`** package on Linux amd64. Linux ARM64 and per-user repair flows use the release's checksum-verifying **`tailchrome-install.sh`**.
+2. Install the native helper with [Homebrew](#homebrew-macos-and-linux) on macOS/Linux, or from the [latest release](https://github.com/dantraynor/tailchrome/releases/latest) — **`tailchrome-helper-macos-user.zip`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the verified **`tailchrome-install.sh`** on Linux. These install for your account without administrator access. System packages are also available on macOS and Linux amd64.
 3. Log in to your Tailscale account
 
-The platform release package is the primary installation path. The macOS
-installer is platform-signed. A Windows installer is release-quality only when
-the raw helper, embedded helper, and outer MSI pass the
+### Homebrew (macOS and Linux)
+
+Add this repository as a tap once:
+
+```bash
+brew tap dantraynor/tailchrome https://github.com/dantraynor/tailchrome
+```
+
+On macOS, install the signed helper package with
+`brew install --cask dantraynor/tailchrome/tailchrome`.
+
+To build the helper from source on Linux or macOS, run:
+
+```bash
+brew install --formula dantraynor/tailchrome/tailchrome
+tailscale-browser-ext -install-now
+```
+
+The formula installs Go as a build dependency. Formula users must close their
+browsers and repeat `tailscale-browser-ext -install-now` after each `brew upgrade`
+to refresh the per-user runtime copy. See the
+[Homebrew instructions](packaging/homebrew/README.md) for upgrades, repair,
+and removal. The browser extension is installed separately.
+
+### Platform installers
+
+On macOS, open the downloaded ZIP and launch **Tailchrome Helper**. The app
+contains the helper and registers it for your account. The app and system
+package are signed and notarized. Organization browser policies can still
+block extensions or native messaging.
+
+A Windows installer is release-quality only when the raw helper, embedded
+helper, and outer MSI pass the
 [Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md); older
 releases may predate that gate. Linux packages are covered by the release
 checksum and build-provenance attestation. If Tailchrome still cannot discover
@@ -76,6 +106,20 @@ Release artifacts are assembled and checksummed only after platform signing
 and packaging. Windows publication is additionally gated by the
 [Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md) and the
 [release security checklist](docs/RELEASE_CHECKLIST.md).
+
+## Code signing policy
+
+Tailchrome is applying to SignPath Foundation for Windows Authenticode signing.
+Until the application is accepted and the release workflow produces a verified
+test signature, Windows release notes continue to identify those artifacts as
+unsigned. The public [Windows code-signing
+policy](docs/WINDOWS_CODE_SIGNING_POLICY.md) defines who may submit and approve
+signing requests, which builds are eligible, how signatures are verified, and
+how a compromised or replaced publisher identity is handled.
+
+For releases signed through the SignPath Foundation program:
+
+> Free code signing provided by SignPath.io, certificate by SignPath Foundation
 
 ## Development
 

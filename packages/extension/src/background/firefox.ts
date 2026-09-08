@@ -52,11 +52,7 @@ export function startFirefoxBackground(): void {
     }
   });
 
-  // Begin restoration before the shared background can emit state, but
-  // register every runtime listener synchronously during initial evaluation.
-  // Startup/installed events dispatch after this tick, so the shared
-  // background's own synchronously registered listeners observe them all.
-  const restorePromise = proxyManager.restoreFromStorage();
+  // The listener blocks until the shared background restores routing intent.
   backgroundHandle = initBackground(proxyManager, FIREFOX_NATIVE_HOST_ID, {
     skipKeepalive: true,
     browserKind: "firefox",
@@ -67,7 +63,7 @@ export function startFirefoxBackground(): void {
     periodInMinutes: KEEPALIVE_PERIOD_MINUTES,
   });
 
-  void Promise.all([restorePromise, retryRestorePromise])
+  void Promise.all([retryRestorePromise])
     .catch((err) => {
       console.error(
         "[Firefox] Background start failed:",

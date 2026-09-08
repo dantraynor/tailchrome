@@ -196,7 +196,7 @@ Communication uses the Chrome native messaging wire format: a **4-byte little-en
 
 | Reply Field          | When Sent                           | Payload                                         |
 | -------------------- | ----------------------------------- | ----------------------------------------------- |
-| `procRunning`        | Immediately on host startup         | `{ port, pid, version, supportsNetcheck?, supportsPingPeer?, supportsLogin?, supportsCustomControlURL?, error? }` |
+| `procRunning`        | Immediately on host startup         | `{ port, pid, version, proxyAuth, supportsNetcheck?, supportsPingPeer?, supportsLogin?, supportsCustomControlURL?, error? }` |
 | `init`               | After `init` command                | `{ error? }`                                    |
 | `pong`               | After `ping`                        | `{}`                                            |
 | `status`             | After state changes or `get-status` | Full `StatusUpdate` object                      |
@@ -217,6 +217,7 @@ interface StatusUpdate {
   tailnet: string | null;
   magicDNSSuffix: string;
   splitDNSDomains?: string[];       // Restricted suffixes; absent on older helpers
+  dnsRoutes?: string[];             // Authoritative restricted routes; absent when unknown
   selfNode: SelfNode | null;
   needsLogin: boolean;
   browseToURL: string;              // Login URL from control plane
@@ -389,14 +390,14 @@ The native host is a Go binary at `host/` using `tailscale.com/tsnet` pinned to 
 
 The proxy uses Tailscale's `proxymux.SplitSOCKSAndHTTP()` to multiplex a single listener:
 
-- **SOCKS5 traffic** is handled by `tailscale.com/net/socks5`, dialing through `tsnet.Server.Dial()`.
-- **HTTP traffic** is handled by an `httputil.ReverseProxy` that also dials through tsnet.
+- **SOCKS5 traffic** is handled by `tailscale.com/net/socks5`, with authentication and the helper's destination policy applied before dialing.
+- **HTTP traffic** is handled by an `httputil.ReverseProxy` with the same authentication and destination checks.
 - **Requests to `100.100.100.100`** are routed to the Tailscale web client (`web.Server` in `ManageServerMode`), with a `Sec-Tailscale: browser-ext` header for CSRF protection.
 - **HTTPS CONNECT** requests are hijacked for bidirectional tunneling through tsnet.
 
-All three proxy paths resolve configured restricted DNS domains through the embedded Tailscale resolver before dialing their IPs with tsnet. The IPN watcher sends these domains to the extension as `splitDNSDomains`; disabling `corpDNS` or removing a route clears the corresponding browser routing. See [Split DNS](split-dns.md) for setup and nameserver routing requirements.
+All three proxy paths resolve restricted DNS domains through configured IP nameservers, validating both the nameserver route and returned IPs against the current session's routing policy before dialing. The IPN watcher sends authoritative restricted domains as `dnsRoutes`, retaining `splitDNSDomains` for compatibility; disabling `corpDNS` or removing a route clears the corresponding browser routing. An omitted `dnsRoutes` field indicates that configuration is not yet known and preserves existing protection. See [Split DNS](split-dns.md) for setup and nameserver routing requirements.
 
-The loopback proxy has no application-layer authentication because browser PAC/proxy APIs cannot attach credentials to these SOCKS connections. See [SECURITY.md](SECURITY.md#local-proxy-trust-boundary) for the shared-machine trust boundary.
+The loopback proxy requires a fresh random credential on every helper launch. Chrome uses authenticated HTTP proxying; Firefox uses authenticated SOCKS5. Credentials stay in the background proxy manager and are excluded from popup state, storage, and diagnostics. The helper also validates destinations against its current network map and preferences before dialing. See [SECURITY.md](SECURITY.md#local-proxy-trust-boundary).
 
 ### Auto-Installation
 
@@ -406,29 +407,42 @@ When the raw host binary is run in a terminal (detected via `term.IsTerminal`), 
 
 ## Proxy System
 
+### DNS
+
+Known peer short names, full MagicDNS names, and restricted DNS domains use the
+helper. Split DNS follows the most specific domain route from Tailscale or
+Headscale and supports IPv4/IPv6 nameserver addresses over authorized routes, including TCP-only and UDP-only nameservers. Encrypted resolver URLs
+are not supported. Routes without a supported IP nameserver fail instead of
+falling back to system DNS.
+
+Ordinary browsing keeps the browser/system resolver. Proxied exit-node traffic
+uses the exit node's DNS unless a restricted resolver is configured to stay in
+use with that exit node. Excluded domains keep their normal resolver. Restricted
+DNS routes require the MagicDNS setting to be enabled.
+
 ### Chrome: PAC Script
 
 Chrome uses a dynamically generated PAC (Proxy Auto-Config) script set via `chrome.proxy.settings.set()`. The PAC script routes traffic based on:
 
-1. **Tailnet destinations** -> proxy: the service IP (`100.100.100.100`), MagicDNS and restricted DNS domains, CGNAT addresses (`100.64.0.0/10`), Tailscale IPv6 addresses (`fd7a:115c:a1e0::/48`), and advertised subnet IPv4 addresses. Domain rules match both the domain and its subdomains. `isInNet()` is used only for IPv4 literals, avoiding local DNS resolution of hostnames.
-2. **Other traffic with an active exit node** -> proxy subject to the user's **Bypass** or **Only** domain rules.
+1. **Tailnet destinations** -> proxy: the service IP (`100.100.100.100`), full MagicDNS names, exact known peer short names, restricted DNS domains, CGNAT addresses (`100.64.0.0/10`), Tailscale IPv6 addresses (`fd7a:115c:a1e0::/48`), and advertised subnet IPv4 addresses. Domain rules match both the domain and its subdomains. `isInNet()` is used only for IPv4 literals, avoiding local DNS resolution of hostnames.
+2. **Other traffic with a selected exit node** -> proxy subject to the user's **Bypass** or **Only** domain rules; protected requests are blocked while the exit node or helper is unavailable.
 3. **Otherwise** -> `DIRECT`.
 
-The proxy target is `SOCKS5 127.0.0.1:<port>`.
+The Chrome PAC target is `PROXY 127.0.0.1:<port>`, with HTTP proxy authentication supplied by the background handler.
 
-PAC script regeneration is skipped if proxy-relevant fields have not changed. A fresh service worker also clears browser proxy state once before trusting its in-memory enabled flag, preventing a PAC left behind by an unclean shutdown.
-
-On service worker suspension, `chrome.proxy.settings.set({ mode: "direct" })` is called to prevent stale routing.
+Successful PAC settings are reused until routing changes. Worker suspension preserves the browser settings; reconnecting replaces the helper endpoint after confirmation.
 
 ### Firefox: proxy.onRequest
 
 Firefox uses the `browser.proxy.onRequest` API with an event listener that evaluates each request URL:
 
-1. Same routing logic as Chrome (service IP, CGNAT, Tailscale IPv6, MagicDNS, subnets, restricted DNS domains, exit node)
-2. Returns `{ type: "socks", host: "127.0.0.1", port, proxyDNS: true }` or `{ type: "direct" }`
+1. Same routing logic as Chrome (service IP, CGNAT, Tailscale IPv6, MagicDNS, peer short names, subnets, restricted DNS domains, exit node)
+2. Protected requests use an authenticated SOCKS proxy with `proxyDNS: true` in a chain ending in `null`, preventing browser proxy fallback. Other requests use the normal browser connection.
 3. IP matching uses numeric comparison (`ipToNum()`) instead of PAC's `isInNet()`
 
-**Session storage persistence:** Firefox suspends background event pages aggressively. The proxy config (port, suffix, restricted DNS domains, exit node state, subnet ranges, and split-domain rules) is persisted to `browser.storage.session` under the key `"proxyConfig"`. On wake, the listener returns a `Promise` that waits for both storage restoration and an authoritative reconnect state; transient `NoState`/`Starting` updates do not release requests to the direct network.
+**Routing protection:** Both browsers retain a sanitized routing snapshot across restarts, including restricted DNS domains but excluding helper ports and credentials. Exit-node choices are scoped to the account and coordination server. Helper loss or an unavailable exit node blocks protected requests while preserving split-tunnel exceptions. Chrome uses mandatory PAC settings and checks effective proxy ownership.
+
+The popup reports routing failures separately from the Tailscale connection. Choose **Disconnect and browse normally** to release protection when the helper cannot respond.
 
 ---
 
@@ -452,6 +466,7 @@ interface TailscaleState {
   exitNode: ExitNodeInfo | null;
   magicDNSSuffix: string | null;
   splitDNSDomains: string[];
+  dnsRoutes: string[];
   browseToURL: string | null;
   prefs: TailscalePrefs | null;
   health: string[];
@@ -616,26 +631,26 @@ does not participate in routing.
 **Chrome:**
 
 1. Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
-2. Install the native helper from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest): **`tailchrome-helper-macos.pkg`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the **`.deb`/`.rpm`** package on Linux amd64. Linux ARM64 uses the version-pinned verified repair installer.
+2. Install the native helper from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest): **`tailchrome-helper-macos-user.zip`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the verified **`tailchrome-install.sh`** on Linux. These install for your account without administrator access.
 3. Log in to your Tailscale account
 
 **Firefox:**
 
 1. Install from [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/) or the matching [GitHub Release](https://github.com/dantraynor/tailchrome/releases/latest)
-2. Install the same native helper used for Chrome: **`.pkg`** on macOS, **`.msi`** on Windows, **`.deb`/`.rpm`** on Linux amd64, or the verified raw-helper installer on Linux ARM64.
+2. Install the same native helper used for Chrome: the helper app on macOS, **`.msi`** on Windows, or the verified per-user installer on Linux.
 3. Log in to your Tailscale account
 
 ### Native Host Installation
 
-The installer packages are the primary path:
+The popup offers installation for your account. macOS and Linux amd64 also have system packages:
 
-- **macOS:** `tailchrome-helper-macos.pkg` installs a universal binary and runs `tailscale-browser-ext -install-now` for the logged-in user during package postinstall. `Tailchrome Helper.app` remains in `/Applications` as a repair/re-run fallback.
+- **macOS:** open `tailchrome-helper-macos-user.zip`, then open the included **Tailchrome Helper** app to install for your account. The signed app includes a universal helper. For a system installation, `tailchrome-helper-macos.pkg` installs a universal binary and runs `tailscale-browser-ext -install-now` for the logged-in user during package postinstall. `Tailchrome Helper.app` remains in `/Applications` as a repair/re-run fallback.
 - **Windows:** the Authenticode-signed `tailchrome-helper-windows-x64.msi` embeds the identically signed raw EXE, installs a staged helper under `%LOCALAPPDATA%\Tailscale\BrowserExt\installer\`, and runs it with `-install-now`, which writes HKCU native messaging registrations. Windows ARM64 uses this package through x64 emulation. After downloading the MSI, repair from either Command Prompt or PowerShell with `powershell.exe -NoProfile -Command "msiexec.exe /fa (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\tailchrome-helper-windows-x64.msi')"`; uninstall through **Installed apps**.
 - **Linux amd64:** `.deb` and `.rpm` packages install `/usr/lib/tailchrome/tailscale-browser-ext` plus system-wide manifests for Chrome, Chromium, Edge, and Firefox. They do not write per-user state in package hooks.
-- **Linux ARM64:** download `tailchrome-install.sh` from the exact versioned release, inspect it, download `SHA256SUMS.txt`, and run `bash ~/Downloads/tailchrome-install.sh --version "vX.Y.Z"`. The script selects and verifies `tailscale-browser-ext-linux-arm64`, optionally verifies its GitHub attestation when `gh` is available and authenticated, invokes `-install-now`, and confirms the installed executable. Never pipe a remote script directly into a shell.
+- **Linux per-user (amd64/ARM64):** download `tailchrome-install.sh` from the exact versioned release, inspect it, download `SHA256SUMS.txt`, and run `bash ~/Downloads/tailchrome-install.sh --version "vX.Y.Z"`. The script selects and verifies the matching raw helper, optionally verifies its GitHub attestation when `gh` is available and authenticated, invokes `-install-now`, and confirms the installed executable. Never pipe a remote script directly into a shell.
 
-On macOS and Linux, the same version-pinned script is the advanced
-current-user repair path after package discovery fails. It selects the exact
+On macOS and Linux, the same version-pinned script also repairs current-user
+registration after package discovery fails. It selects the exact
 amd64/arm64 artifact for the machine. The raw native host binary remains
 available for advanced/manual installs. When run interactively in a terminal,
 or non-interactively via **`tailscale-browser-ext -install-now`**, it:
@@ -1201,5 +1216,5 @@ Key dependencies in `host/go.mod`:
 | Dependency          | Version  | Purpose                                                |
 | ------------------- | -------- | ------------------------------------------------------ |
 | `tailscale.com`     | v1.103.0-pre.0.20260819151608-90ed0bcf4bc2 | tsnet, local client, IPN, socks5, proxymux, web client |
-| `golang.org/x/term` | v0.43.0  | Terminal detection for auto-install                    |
-| `golang.org/x/sys`  | v0.45.0  | System calls                                           |
+| `golang.org/x/term` | v0.45.0  | Terminal detection for auto-install                    |
+| `golang.org/x/sys`  | v0.47.0  | System calls                                           |

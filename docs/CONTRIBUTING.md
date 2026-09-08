@@ -43,6 +43,7 @@ pnpm lint:firefox        # AMO-style validation
 pnpm review:firefox      # Full Firefox validation pipeline
 pnpm test                # All tests
 pnpm test:installer      # Verified installer shell tests
+pnpm test:homebrew       # Homebrew release updater tests
 pnpm typecheck           # TypeScript validation
 pnpm e2e:chrome          # Puppeteer smoke suite (Chrome)
 pnpm e2e:firefox         # Puppeteer smoke suite (Firefox)
@@ -64,6 +65,7 @@ seam you touched, then finish with:
 pnpm typecheck
 pnpm test
 pnpm test:installer
+pnpm test:homebrew
 (cd host && go test -race ./... && go vet ./...)
 git diff --check
 ```
@@ -81,12 +83,12 @@ Include your browser, OS, extension version, and steps to reproduce.
 
 - PRs run extension tests, Chrome checks, the full Firefox review gate, Go
   tests on Linux and Windows, fallback-installer tests, a macOS package smoke
-  build, Windows signature-verifier fixtures, and Linux package metadata
-  checks.
+  build with per-user launcher tests, Windows signature-verifier fixtures, and
+  Linux package metadata checks.
 - A helper release first produces one immutable candidate artifact containing
   the extension archives, signed macOS/Windows helpers and installers, existing
   verified amd64/x86_64 Linux packages, Linux amd64/arm64 raw helpers, the fallback
-  installer, final checksums, and signature summaries.
+  installer, per-user macOS app, final checksums, and signature summaries.
 - Publication is a separate protected workflow. It accepts the original
   candidate run ID, release tag, and checksum-manifest digest; downloads those
   exact bytes; repeats structural and signature checks; and waits for
@@ -97,3 +99,9 @@ Include your browser, OS, extension version, and steps to reproduce.
   accepted provider and exact signer subject. Signing cannot silently skip or
   switch publisher identities.
 - Store publication uses GitHub Actions with manual environment approvals for Chrome Web Store and Firefox AMO submission
+- Successful helper publication calls the Homebrew update workflow, which
+  proposes the published version, final macOS package checksum, and release
+  source archive checksum in a pull request. CI builds the formula from source
+  and tests registration and removal on macOS and Linux.
+  See [Homebrew maintenance](../packaging/homebrew/README.md#maintaining-the-tap)
+  for setup, retries, and manual updates.

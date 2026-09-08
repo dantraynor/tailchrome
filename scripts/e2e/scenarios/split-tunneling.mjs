@@ -81,7 +81,7 @@ export async function run({ openPopup }) {
     if (!pac.includes('return "DIRECT"')) {
       throw new Error("Bypass branch missing from PAC");
     }
-    if (!pac.includes("SOCKS5 127.0.0.1:1055")) {
+    if (!pac.includes("PROXY 127.0.0.1:1055")) {
       throw new Error("Proxy still expected for unlisted hosts");
     }
 

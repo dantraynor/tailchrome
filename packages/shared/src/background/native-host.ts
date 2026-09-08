@@ -439,6 +439,7 @@ function isStatus(value: unknown): boolean {
     isNullableString(value["tailnet"]) &&
     isString(value["magicDNSSuffix"]) &&
     optionalField(value, "splitDNSDomains", isStringArray) &&
+    optionalField(value, "dnsRoutes", (routes) => Array.isArray(routes) && routes.every(isString)) &&
     optionalField(
       value,
       "selfNode",

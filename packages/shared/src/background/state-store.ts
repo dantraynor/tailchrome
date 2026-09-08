@@ -1,4 +1,5 @@
 import type { TailscaleState, StatusUpdate, PeerInfo } from "../types";
+import { sanitizeDNSRoutes } from "./proxy-utils";
 import { sanitizeDiagnosticMessage } from "../helper-diagnostics";
 
 export type StateListener = (state: TailscaleState) => void;
@@ -16,6 +17,7 @@ const DEFAULT_STATE: TailscaleState = {
   exitNode: null,
   magicDNSSuffix: null,
   splitDNSDomains: [],
+  dnsRoutes: [],
   browseToURL: null,
   prefs: null,
   health: [],
@@ -97,6 +99,11 @@ export class StateStore {
       exitNode: status.exitNode ?? null,
       magicDNSSuffix: status.magicDNSSuffix,
       splitDNSDomains: status.splitDNSDomains ?? [],
+      dnsRoutes: status.dnsRoutes === undefined
+        ? status.splitDNSDomains?.length
+          ? sanitizeDNSRoutes(status.splitDNSDomains)
+          : this.state.dnsRoutes
+        : sanitizeDNSRoutes(status.dnsRoutes),
       browseToURL: status.browseToURL || status.authURL || null,
       prefs: status.prefs,
       health,

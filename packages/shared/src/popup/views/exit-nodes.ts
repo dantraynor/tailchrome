@@ -515,7 +515,7 @@ function effectiveSelectedExitNodeID(state: TailscaleState): string | null {
     return state.pendingExitNodeID || null;
   }
 
-  return state.exitNode?.id ?? state.prefs?.exitNodeID ?? null;
+  return state.selectedExitNodeID ?? (state.prefs?.exitNodeID || state.exitNode?.id || null);
 }
 
 function sameExitNodeLocation(

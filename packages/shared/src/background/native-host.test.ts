@@ -850,3 +850,14 @@ describe("isValidNativeReply", () => {
     expect(isValidNativeReply(reply)).toBe(false);
   });
 });
+
+
+describe("native DNS route validation", () => {
+  it("accepts older helpers and string domain routes, rejects malformed arrays", () => {
+    expect(isValidNativeReply({ status: makeValidStatus() })).toBe(true);
+    expect(isValidNativeReply({ status: { ...makeValidStatus(), dnsRoutes: ["internal.example"] } })).toBe(true);
+    for (const dnsRoutes of [null, "internal.example", [1], [{}]]) {
+      expect(isValidNativeReply({ status: { ...makeValidStatus(), dnsRoutes } })).toBe(false);
+    }
+  });
+});

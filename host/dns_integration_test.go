@@ -147,7 +147,19 @@ func TestSplitDNSThroughSubnetRouter(t *testing.T) {
 	if _, err := lc.Ping(ctx, routerStatus.TailscaleIPs[0], tailcfg.PingTSMP); err != nil {
 		t.Fatal(err)
 	}
-	host := &Host{ts: client, lc: lc, lastSplitDNSDomains: configuredSplitDNSDomains(config), lastPrefs: &PrefsView{CorpDNS: true}}
+	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialNetMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notification, err := watcher.Next()
+	watcher.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if notification.NetMap == nil {
+		t.Fatal("missing authoritative network map")
+	}
+	host := &Host{ts: client, lc: lc, lastNetMap: notification.NetMap, lastSplitDNSDomains: configuredSplitDNSDomains(config), lastPrefs: &PrefsView{CorpDNS: true}}
 	conn, err := host.tsnetDialer(ctx, "tcp", "service.internal.example.com:80")
 	if err != nil {
 		t.Fatal(err)

@@ -1,12 +1,17 @@
 # Linux helper installation
 
+Homebrew users on x86_64 or ARM64 can use the
+[Tailchrome formula](../homebrew/README.md#source-formula-macos-and-linux). It builds
+the helper from a checksummed release source archive using Homebrew's Go;
+browser registration is a separate per-user command that
+must also be run after upgrades.
+
 `build-packages.sh` produces:
 
 - `dist/tailchrome-helper-linux-amd64.deb`
 - `dist/tailchrome-helper-linux-x86_64.rpm`
 
-These amd64 packages are the primary installation method on compatible Linux
-systems. They install the helper binary at
+These amd64 packages require administrator access. They install the helper binary at
 `/usr/lib/tailchrome/tailscale-browser-ext` and system-wide native-messaging
 manifests for:
 
@@ -19,15 +24,14 @@ Package ownership stops at those system files. The packages have no
 post-install registration script and write nothing below a user's home
 directory, so removing the package removes everything it owns.
 
-ARM64 `.deb` and `.rpm` packages are not published. Linux ARM64 users use the
-verified `tailscale-browser-ext-linux-arm64` raw helper through the repair
-script described below.
+ARM64 `.deb` and `.rpm` packages are not published. Linux ARM64 users can use
+Homebrew or the verified `tailscale-browser-ext-linux-arm64` raw helper through
+the per-user installer below.
 
-## Per-user registration repair
+## Install for this user — no administrator access required
 
-Use the release's `tailchrome-install.sh` only when a compatible system package
-is unavailable or the browser still cannot discover the package-installed
-helper. The script selects `linux-amd64` or `linux-arm64` from the runtime
+Use the release's `tailchrome-install.sh` to install or repair the helper for
+your account. The script selects `linux-amd64` or `linux-arm64` from the runtime
 architecture, verifies the raw helper, runs it with `-install-now`, and writes
 registration only for the current user.
 

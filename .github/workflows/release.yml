@@ -237,13 +237,13 @@ jobs:
             -k "$keychain_password" \
             "$keychain_path"
           security list-keychains -d user -s "$keychain_path" login.keychain-db
-      - name: Build signed macOS package
+      - name: Build signed macOS installers
         env:
           VERSION: ${{ env.RELEASE_TAG }}
           MACOS_SIGN_APPLICATION_IDENTITY: "Developer ID Application: Daniel David Traynor (UL9B796XFN)"
           MACOS_SIGN_INSTALLER_IDENTITY: "Developer ID Installer: Daniel David Traynor (UL9B796XFN)"
         run: ./packaging/macos/build-pkg.sh
-      - name: Notarize and staple macOS package
+      - name: Notarize and staple macOS installers
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
@@ -258,7 +258,15 @@ jobs:
             --issuer "$APPLE_API_ISSUER_ID" \
             --wait
           xcrun stapler staple dist/tailchrome-helper-macos.pkg
-      - name: Verify final package and embedded repair app
+          xcrun notarytool submit dist/tailchrome-helper-macos-user.zip \
+            --key "$key_path" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait
+          xcrun stapler staple "dist/Tailchrome Helper.app"
+          rm dist/tailchrome-helper-macos-user.zip
+          ditto -c -k --keepParent "dist/Tailchrome Helper.app" dist/tailchrome-helper-macos-user.zip
+      - name: Verify final macOS installers
         run: |
           set -euo pipefail
           pkg="dist/tailchrome-helper-macos.pkg"
@@ -270,12 +278,20 @@ jobs:
           test -x "$app/Contents/MacOS/tailchrome-helper"
           codesign --verify --deep --strict --verbose=2 "$app"
           spctl --assess --type execute --verbose=2 "$app"
-      - name: Upload final macOS package
+          ./packaging/macos/test-user-app.sh dist/tailchrome-helper-macos-user.zip "$RELEASE_TAG"
+          ditto -x -k dist/tailchrome-helper-macos-user.zip "$RUNNER_TEMP/tailchrome-user"
+          user_app="$RUNNER_TEMP/tailchrome-user/Tailchrome Helper.app"
+          codesign --verify --deep --strict --verbose=2 "$user_app"
+          xcrun stapler validate "$user_app"
+          spctl --assess --type execute --verbose=2 "$user_app"
+      - name: Upload final macOS installers
         uses: actions/upload-artifact@v6
         with:
           name: signed-macos-package
           retention-days: 7
-          path: dist/tailchrome-helper-macos.pkg
+          path: |
+            dist/tailchrome-helper-macos.pkg
+            dist/tailchrome-helper-macos-user.zip
 
   package-linux:
     needs: build
@@ -1258,6 +1274,7 @@ jobs:
           cp signed-darwin/tailscale-browser-ext-darwin-amd64 candidate/release/
           cp signed-darwin/tailscale-browser-ext-darwin-arm64 candidate/release/
           cp signed-macos-package/tailchrome-helper-macos.pkg candidate/release/
+          cp signed-macos-package/tailchrome-helper-macos-user.zip candidate/release/
           cp build-output/dist/tailscale-browser-ext-linux-amd64 candidate/release/
           cp build-output/dist/tailscale-browser-ext-linux-arm64 candidate/release/
           cp linux-packages/tailchrome-helper-linux-amd64.deb candidate/release/
@@ -1304,6 +1321,7 @@ jobs:
           firefox.zip
           tailchrome-helper-linux-amd64.deb
           tailchrome-helper-linux-x86_64.rpm
+          tailchrome-helper-macos-user.zip
           tailchrome-helper-macos.pkg
           tailchrome-helper-windows-x64.msi
           tailchrome-install.sh

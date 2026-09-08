@@ -1,0 +1,128 @@
+name: Update Homebrew
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+      sha256sums_digest:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published stable release tag, for example v0.1.13
+        required: true
+        type: string
+      sha256sums_digest:
+        description: SHA-256 of the published SHA256SUMS.txt
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-homebrew
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      EXPECTED_MANIFEST_DIGEST: ${{ inputs.sha256sums_digest }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: main
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: Verify the published release manifest and fetch its source
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$EXPECTED_MANIFEST_DIGEST" =~ ^[0-9a-f]{64}$ ]]
+          gh release view "$RELEASE_TAG" --json tagName,isDraft,isPrerelease > "$RUNNER_TEMP/homebrew-release.json"
+          jq -e --arg tag "$RELEASE_TAG" \
+            '.tagName == $tag and .isDraft == false and .isPrerelease == false' \
+            "$RUNNER_TEMP/homebrew-release.json"
+          gh release download "$RELEASE_TAG" --pattern SHA256SUMS.txt --dir "$RUNNER_TEMP/homebrew-release"
+          manifest="$RUNNER_TEMP/homebrew-release/SHA256SUMS.txt"
+          test "$(sha256sum "$manifest" | cut -d' ' -f1)" = "$EXPECTED_MANIFEST_DIGEST"
+          source_archive="$RUNNER_TEMP/homebrew-release/$RELEASE_TAG.tar.gz"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            "https://github.com/dantraynor/tailchrome/archive/refs/tags/$RELEASE_TAG.tar.gz" \
+            --output "$source_archive"
+          # Check the archive's declared version before proposing its checksum.
+          source_version="${RELEASE_TAG#v}"
+          tar -xzOf "$source_archive" "tailchrome-$source_version/packages/extension/package.json" | \
+            jq -e --arg version "$source_version" '.version == $version'
+          node scripts/update-homebrew.mjs "$RELEASE_TAG" "$manifest" "$source_archive"
+          source_sha256="$(sha256sum "$source_archive" | cut -d' ' -f1)"
+          echo "SOURCE_ARCHIVE_SHA256=$source_sha256" >> "$GITHUB_ENV"
+          node --test scripts/update-homebrew.test.mjs
+          ruby -c Casks/tailchrome.rb
+          ruby -c Formula/tailchrome.rb
+          git diff --check
+      - name: Save the update for manual application
+        run: git diff -- Casks/tailchrome.rb Formula/tailchrome.rb > homebrew-update.patch
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: homebrew-update-${{ inputs.release_tag }}
+          path: homebrew-update.patch
+      - name: Open an update pull request
+        id: pull-request
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Casks/tailchrome.rb Formula/tailchrome.rb; then
+            echo "Homebrew already points to $RELEASE_TAG." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          branch="automation/homebrew-$RELEASE_TAG"
+          existing_pr="$(gh pr list --base main --head "$branch" --state open --json url --jq '.[0].url // empty')"
+          if [ -n "$existing_pr" ]; then
+            echo "Homebrew update already awaiting review: $existing_pr" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git switch -c "$branch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Casks/tailchrome.rb Formula/tailchrome.rb
+          git commit -m "chore(homebrew): update to $RELEASE_TAG"
+          # Retry safely if a previous run pushed the branch but could not open a PR.
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            git fetch origin "$branch"
+            git diff --exit-code FETCH_HEAD -- Casks/tailchrome.rb Formula/tailchrome.rb
+          else
+            git push origin "HEAD:refs/heads/$branch"
+          fi
+          body="$RUNNER_TEMP/homebrew-pr.md"
+          {
+            printf 'Update the macOS cask and source formula to the published %s helper release.\n\n' "$RELEASE_TAG"
+            printf "The cask checksum comes from the final SHA256SUMS.txt, verified against \`%s\`.\n\n" "$EXPECTED_MANIFEST_DIGEST"
+            printf "The source archive for the release tag has SHA-256 \`%s\`.\n\n" "$SOURCE_ARCHIVE_SHA256"
+            printf 'Validation: Homebrew updater tests, Ruby syntax checks, and git diff --check.\n\n'
+            printf 'Approve any pending CI workflow runs on this automated PR before merging. If your GitHub deployment does not create runs for GITHUB_TOKEN PRs, close and reopen the PR as a maintainer to trigger CI.\n'
+          } > "$body"
+          gh pr create --base main --head "$branch" \
+            --title "chore(homebrew): update to $RELEASE_TAG" --body-file "$body" \
+            >> "$GITHUB_STEP_SUMMARY"
+      - name: Report the manual fallback
+        if: steps.pull-request.outcome == 'failure'
+        run: |
+          echo "::warning::Could not open the Homebrew update PR. Apply the saved patch artifact or enable Actions PR creation and rerun Update Homebrew."
+          {
+            echo "Homebrew update PR creation failed; the helper release remains published."
+            echo "Download the homebrew-update-$RELEASE_TAG patch artifact and apply it in a normal pull request, or enable Actions PR creation and rerun this workflow."
+          } >> "$GITHUB_STEP_SUMMARY"

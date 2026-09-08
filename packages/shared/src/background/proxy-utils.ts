@@ -68,6 +68,40 @@ export function sanitizeMagicDNSSuffix(suffix: string | null | undefined): strin
   return /^[a-zA-Z0-9.\-]+$/.test(stripped) ? stripped : "";
 }
 
+/** Validate a DNS name without interpreting URLs, wildcards, or address literals. */
+export function sanitizeDNSName(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const name = input.toLowerCase().replace(/\.$/, "");
+  if (!name || name.length > 253 || /^[0-9.]+$/.test(name)) return null;
+  const valid = name.split(".").every((label) =>
+    label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label),
+  );
+  return valid ? name : null;
+}
+
+export function sanitizeDNSRoutes(routes: unknown): string[] {
+  if (!Array.isArray(routes)) return [];
+  const names = routes.map(sanitizeDNSName)
+    .filter((name): name is string => name !== null);
+  return [...new Set(names)].sort();
+}
+
+/** Only names actually present in MagicDNS may intercept a short local hostname. */
+export function collectShortNames(
+  state: Pick<TailscaleState, "peers" | "selfNode" | "magicDNSSuffix">,
+): string[] {
+  const suffix = sanitizeDNSName(state.magicDNSSuffix);
+  if (!suffix) return [];
+  const names: string[] = [];
+  for (const peer of [...(state.peers ?? []), ...(state.selfNode ? [state.selfNode] : [])]) {
+    const fullName = sanitizeDNSName(peer.dnsName);
+    if (!fullName?.endsWith(`.${suffix}`)) continue;
+    const shortName = fullName.slice(0, -(suffix.length + 1));
+    if (!shortName.includes(".") && sanitizeDNSName(shortName)) names.push(shortName);
+  }
+  return [...new Set(names)].sort();
+}
+
 /**
  * Validate control-plane DNS suffixes without interpreting them as URLs or
  * user input. Reject the root route and malformed labels so they cannot

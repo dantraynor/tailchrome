@@ -13,6 +13,7 @@ import (
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
+	"tailscale.com/types/netmap"
 	"tailscale.com/util/dnsname"
 )
 
@@ -113,21 +114,18 @@ func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generat
 		netMapChanged := n.NetMap != nil || n.SelfChange != nil
 		peersChanged := n.PeersChanged != nil || n.PeersRemoved != nil
 		changed := stateChanged || prefsChanged || browseURLChanged || netMapChanged || peersChanged || healthChanged
-		var dnsDomains []string
-		if n.NetMap != nil {
-			dnsDomains = configuredSplitDNSDomains(&n.NetMap.DNS)
-		} else if n.SelfChange != nil {
-			// Runtime netmaps are only sent on Windows. Other platforms signal
-			// DNS changes via SelfChange, so fetch the current configuration.
-			dnsCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			config, err := lc.DNSConfig(dnsCtx)
+		currentMap := n.NetMap
+		if currentMap == nil && (n.SelfChange != nil || peersChanged) {
+			// Runtime netmaps are only sent on Windows. Refresh a full snapshot
+			// for both DNS routing and the proxy's authoritative route policy.
+			mapCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			currentMap, err = currentNetworkMap(mapCtx, lc)
 			cancel()
 			if err != nil {
 				// Reconnect the watcher to recover a complete initial snapshot
 				// rather than leave this configuration change unprocessed.
-				return fmt.Errorf("failed to refresh DNS configuration: %w", err)
+				return fmt.Errorf("failed to refresh network map: %w", err)
 			}
-			dnsDomains = configuredSplitDNSDomains(config)
 		}
 		var prefs *PrefsView
 		if prefsChanged {
@@ -165,20 +163,41 @@ func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generat
 			if healthChanged {
 				h.lastHealth = health
 			}
-			if netMapChanged {
+			if netMapChanged || peersChanged {
 				// Replace the domain list so removed routes disappear too.
-				h.lastSplitDNSDomains = dnsDomains
+				h.lastNetMap = currentMap
+				h.lastSplitDNSDomains = nil
+				if currentMap != nil {
+					h.lastSplitDNSDomains = configuredSplitDNSDomains(&currentMap.DNS)
+				}
 			} else if n.SessionID != "" || (stateChanged && (*n.State == ipn.NoState || *n.State == ipn.NeedsLogin)) {
 				// An initial snapshot without a netmap replaces any old routes.
 				// Profile changes and logout also clear the backend's netmap,
 				// but a nil NetMap is omitted from the notification stream.
 				h.lastSplitDNSDomains = nil
+				h.lastNetMap = nil
 			}
 			h.stateMu.Unlock()
 			h.sessionMu.RUnlock()
 			sendDebounced()
 		}
 	}
+}
+
+// currentNetworkMap reads the authoritative snapshot that Tailscale provides
+// when a watcher subscribes. Unlike runtime NetMap notifications, this snapshot
+// is available on every platform and includes the full peer routing policy.
+func currentNetworkMap(ctx context.Context, lc *local.Client) (*netmap.NetworkMap, error) {
+	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialNetMap)
+	if err != nil {
+		return nil, err
+	}
+	defer watcher.Close()
+	n, err := watcher.Next()
+	if err != nil {
+		return nil, err
+	}
+	return n.NetMap, nil
 }
 
 func prefsViewFromIPN(p ipn.PrefsView) *PrefsView {
@@ -246,6 +265,16 @@ func (h *Host) buildStatusUpdate(st *ipnstate.Status) *StatusUpdate {
 	prefs := h.lastPrefs
 	health := h.lastHealth
 	dnsDomains := h.lastSplitDNSDomains
+	var dnsRoutes *[]string
+	// An unavailable map cannot clear routes saved by the browser. A known empty
+	// map or disabled DNS setting can, so preserve that distinction on the wire.
+	if prefs != nil && (!prefs.CorpDNS || h.lastNetMap != nil) {
+		domains := []string{}
+		if prefs.CorpDNS {
+			domains = dnsRouteDomains(h.lastNetMap, prefs.ExitNodeID)
+		}
+		dnsRoutes = &domains
+	}
 	h.stateMu.Unlock()
 
 	// Use the backend state from the status if we don't have one cached.
@@ -267,6 +296,7 @@ func (h *Host) buildStatusUpdate(st *ipnstate.Status) *StatusUpdate {
 		Health:          health,
 		Peers:           []PeerInfo{},
 		SplitDNSDomains: []string{},
+		DNSRoutes:       dnsRoutes,
 	}
 	if prefs != nil && prefs.CorpDNS && len(dnsDomains) > 0 {
 		update.SplitDNSDomains = dnsDomains

@@ -6,7 +6,7 @@ Run the full checklist on:
 
 | OS | Architecture | Firefox | Helper installer |
 | --- | --- | --- | --- |
-| macOS 14+ | Intel and Apple Silicon | 140+ stable | `tailchrome-helper-macos.pkg` |
+| macOS 14+ | Intel and Apple Silicon | 140+ stable | `tailchrome-helper-macos.pkg` and `tailchrome-helper-macos-user.zip` |
 | Windows 11 | x64 | 140+ stable | `tailchrome-helper-windows-x64.msi` |
 | Ubuntu 24.04+ | amd64 | 140+ stable | `tailchrome-helper-linux-amd64.deb` |
 | Ubuntu 24.04+ | arm64 | 140+ stable | verified `tailscale-browser-ext-linux-arm64` fallback |

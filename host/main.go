@@ -109,6 +109,7 @@ func main() {
 		Cmd: "procRunning",
 		ProcRunning: &ProcRunningReply{
 			Port:                     port,
+			ProxyAuth:                h.proxyAuth,
 			PID:                      os.Getpid(),
 			Version:                  version,
 			SupportsNetcheck:         false,

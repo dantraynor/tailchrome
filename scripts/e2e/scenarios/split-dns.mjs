@@ -1,73 +1,65 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:net";
+import { createServer } from "node:http";
 import { isDeepStrictEqual } from "node:util";
 import { runInNewContext } from "node:vm";
 import { expectText, getProxyConfig, waitForPopup } from "../assertions.mjs";
 import { makeControl, makeRunningState } from "../fixtures.mjs";
+import { proxyCredentials } from "../network-fixture.mjs";
 
 export const suite = "smoke";
 export const browsers = ["chrome"];
 
 export const control = () =>
   makeControl({
+    allowRuntimeUpdates: true,
+    proxyAuth: proxyCredentials,
     status: makeRunningState({
       exitNode: null,
       splitDNSDomains: ["internal.example.com"],
+      dnsRoutes: ["internal.example.com"],
     }),
   });
 
-// Answer HTTP over SOCKS5 locally, recording the original destination. This
-// verifies Chrome delegates DNS to the proxy without contacting any service.
+// Answer authenticated HTTP proxy requests locally, recording the original
+// destination. Chrome must send the hostname without resolving it locally.
 async function startProxy() {
   const requests = [];
   const sockets = new Set();
-  const server = createServer((socket) => {
+  const basic = `Basic ${Buffer.from(`${proxyCredentials.username}:${proxyCredentials.password}`).toString("base64")}`;
+  const server = createServer((request, response) => {
+    if (request.headers["proxy-authorization"] !== basic) {
+      response.writeHead(407, { "Proxy-Authenticate": 'Basic realm="Tailchrome"' });
+      response.end();
+      return;
+    }
+    let target;
+    try {
+      target = new URL(request.url);
+    } catch {
+      response.writeHead(400).end();
+      return;
+    }
+    if (!["internal.example.com", "service.internal.example.com"].includes(target.hostname)) {
+      response.writeHead(403).end();
+      return;
+    }
+    requests.push({
+      hostname: target.hostname,
+      port: Number(target.port),
+      method: request.method,
+      path: target.pathname,
+    });
+    response.writeHead(200, {
+      "Content-Type": "text/plain",
+      "Cache-Control": "no-store",
+      Connection: "close",
+    });
+    response.end(`split DNS proxy reached: ${target.hostname}`);
+  });
+  server.on("connection", (socket) => {
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
     socket.on("error", () => {});
-    let buffer = Buffer.alloc(0);
-    let stage = "greeting";
-    let hostname;
-    let port;
-
-    socket.on("data", (chunk) => {
-      buffer = Buffer.concat([buffer, chunk]);
-      if (stage === "greeting") {
-        if (buffer.length < 2 || buffer.length < 2 + buffer[1]) return;
-        if (buffer[0] !== 5) return socket.destroy();
-        buffer = buffer.subarray(2 + buffer[1]);
-        socket.write(Buffer.from([5, 0]));
-        stage = "connect";
-      }
-      if (stage === "connect") {
-        if (buffer.length < 5) return;
-        // Domain address type proves Chrome did not resolve the name locally.
-        if (buffer[0] !== 5 || buffer[1] !== 1 || buffer[3] !== 3) {
-          return socket.destroy();
-        }
-        const length = buffer[4];
-        if (buffer.length < 7 + length) return;
-        hostname = buffer.subarray(5, 5 + length).toString("utf8");
-        port = buffer.readUInt16BE(5 + length);
-        buffer = buffer.subarray(7 + length);
-        socket.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 0]));
-        stage = "http";
-      }
-      if (stage === "http" && buffer.includes("\r\n\r\n")) {
-        const request = buffer.toString("utf8");
-        requests.push({ hostname, port, request });
-        const body = `split DNS proxy reached: ${hostname}`;
-        socket.end(
-          "HTTP/1.1 200 OK\r\n" +
-            "Content-Type: text/plain\r\n" +
-            "Cache-Control: no-store\r\n" +
-            `Content-Length: ${Buffer.byteLength(body)}\r\n` +
-            "Connection: close\r\n\r\n" +
-            body,
-        );
-        stage = "done";
-      }
-    });
   });
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -110,13 +102,9 @@ export async function run({ browser, openPopup, control }) {
   try {
     await waitForPopup(page);
     await expectText(page, "example.ts.net");
-    const target = await browser.waitForTarget(
-      (candidate) => candidate.type() === "service_worker",
-    );
-    const worker = await target.worker();
     const sendReply = (reply) =>
-      worker.evaluate(
-        (message) => globalThis.__tailchromeE2ENativeReply(message),
+      page.evaluate(
+        (message) => chrome.runtime.sendMessage({ tailchromeE2ENative: { reply: message } }),
         reply,
       );
     await sendReply({
@@ -124,10 +112,11 @@ export async function run({ browser, openPopup, control }) {
         port: proxy.port,
         pid: 1,
         version: control.hostVersion,
+        proxyAuth: proxyCredentials,
       },
     });
 
-    const viaProxy = `SOCKS5 127.0.0.1:${proxy.port}`;
+    const viaProxy = `PROXY 127.0.0.1:${proxy.port}`;
     await waitForRouting(page, {
       "internal.example.com": viaProxy,
       "service.internal.example.com": viaProxy,
@@ -150,7 +139,8 @@ export async function run({ browser, openPopup, control }) {
           (request) =>
             request.hostname === hostname &&
             request.port === 18080 &&
-            request.request.startsWith("GET /split-dns HTTP/1.1"),
+            request.method === "GET" &&
+            request.path === "/split-dns",
         ),
         `Proxy did not receive the unresolved hostname ${hostname}`,
       );
@@ -160,6 +150,7 @@ export async function run({ browser, openPopup, control }) {
       status: {
         ...control.status,
         splitDNSDomains: ["replacement.example.com"],
+        dnsRoutes: ["replacement.example.com"],
       },
     });
     await waitForRouting(page, {
@@ -169,7 +160,7 @@ export async function run({ browser, openPopup, control }) {
       "service.replacement.example.com": viaProxy,
     });
 
-    await sendReply({ status: { ...control.status, splitDNSDomains: [] } });
+    await sendReply({ status: { ...control.status, splitDNSDomains: [], dnsRoutes: [] } });
     await waitForRouting(page, {
       "internal.example.com": "DIRECT",
       "service.internal.example.com": "DIRECT",

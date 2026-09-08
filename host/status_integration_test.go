@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http/httptest"
+	"net/netip"
 	"slices"
 	"testing"
 	"time"
@@ -41,6 +42,10 @@ func TestWatchIPNBusPublishesControlPlaneDNSChanges(t *testing.T) {
 		MagicDNSDomain: "test.ts.net",
 		Logf:           logger.Discard,
 	}
+	control.AddFakeNode()
+	router := control.AllNodes()[0]
+	subnet := netip.MustParsePrefix("10.44.0.0/24")
+	control.SetSubnetRoutes(router.Key, []netip.Prefix{subnet})
 	control.HTTPTestServer = httptest.NewUnstartedServer(control)
 	control.HTTPTestServer.Start()
 	t.Cleanup(control.HTTPTestServer.Close)
@@ -58,8 +63,12 @@ func TestWatchIPNBusPublishesControlPlaneDNSChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{
-		Prefs: ipn.Prefs{CorpDNS: true}, CorpDNSSet: true,
+		Prefs: ipn.Prefs{CorpDNS: true, RouteAll: true}, CorpDNSSet: true, RouteAllSet: true,
 	}); err != nil {
+		t.Fatal(err)
+	}
+	prefs, err := lc.GetPrefs(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -86,16 +95,60 @@ func TestWatchIPNBusPublishesControlPlaneDNSChanges(t *testing.T) {
 		}
 		for {
 			reply := decodeReply(t, reader)
-			if reply.Status == nil || !slices.Equal(reply.Status.SplitDNSDomains, want) {
+			if reply.Status == nil || reply.Status.DNSRoutes == nil || !slices.Equal(*reply.Status.DNSRoutes, want) {
 				continue
 			}
-			if reply.Status.SplitDNSDomains == nil {
-				t.Fatal("removed DNS domains must be published as [], not null or omitted")
+			if reply.Status.SplitDNSDomains == nil || !slices.Equal(reply.Status.SplitDNSDomains, want) {
+				t.Fatal("legacy DNS domains must match the authoritative routes, including explicit removals")
 			}
 			return
 		}
 	}
 	waitForDomains(t, []string{"internal.example.com"})
+	waitForSubnetPolicy := func(t *testing.T, wantAllowed bool) {
+		t.Helper()
+		if err := reader.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		for {
+			h.stateMu.Lock()
+			nm := h.lastNetMap
+			h.stateMu.Unlock()
+			if nm != nil {
+				for _, peer := range nm.Peers {
+					if peer.Key() != router.Key {
+						continue
+					}
+					allowed, localLAN := proxyIPAllowed(nm, prefs, netip.MustParseAddr("10.44.0.80"), nil)
+					if allowed == wantAllowed && !localLAN &&
+						slices.Contains(peer.PrimaryRoutes().AsSlice(), subnet) == wantAllowed &&
+						slices.Contains(peer.AllowedIPs().AsSlice(), subnet) == wantAllowed {
+						return
+					}
+				}
+			}
+			// Keep draining status messages while waiting for the full cached
+			// map used by proxy authorization, rather than just the UI peer list.
+			decodeReply(t, reader)
+		}
+	}
+	waitForSubnetPolicy(t, true)
+	// Raw DNS responses below disable testcontrol's automatic map updates,
+	// so exercise the real peer route updates first.
+	for _, test := range []struct {
+		name   string
+		routes []netip.Prefix
+	}{
+		{"peer-route-removal", nil},
+		{"peer-route-restoration", []netip.Prefix{subnet}},
+	} {
+		if !t.Run(test.name, func(t *testing.T) {
+			control.SetSubnetRoutes(router.Key, test.routes)
+			waitForSubnetPolicy(t, len(test.routes) != 0)
+		}) {
+			return
+		}
+	}
 	for _, test := range []struct {
 		name   string
 		domain string
@@ -115,4 +168,5 @@ func TestWatchIPNBusPublishesControlPlaneDNSChanges(t *testing.T) {
 			return
 		}
 	}
+
 }

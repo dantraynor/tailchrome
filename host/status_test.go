@@ -130,6 +130,18 @@ func TestWatchIPNBusPublishesSplitDNSChanges(t *testing.T) {
 		switch r.URL.Path {
 		case "/localapi/v0/watch-ipn-bus":
 			mask, err := strconv.ParseUint(r.URL.Query().Get("mask"), 10, 64)
+			if err == nil && ipn.NotifyWatchOpt(mask) == ipn.NotifyInitialNetMap {
+				if dnsUnavailable.Load() {
+					http.Error(w, "network map unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				var nm *netmap.NetworkMap
+				if config := dnsConfig.Load(); config != nil {
+					nm = &netmap.NetworkMap{DNS: *config}
+				}
+				json.NewEncoder(w).Encode(ipn.Notify{NetMap: nm})
+				return
+			}
 			if err != nil || ipn.NotifyWatchOpt(mask)&ipn.NotifyPeerChanges == 0 {
 				t.Error("watcher must subscribe to peer changes")
 			}
@@ -148,12 +160,6 @@ func TestWatchIPNBusPublishesSplitDNSChanges(t *testing.T) {
 			}
 		case "/localapi/v0/status":
 			json.NewEncoder(w).Encode(&ipnstate.Status{BackendState: "Running"})
-		case "/localapi/v0/dns-config":
-			if dnsUnavailable.Load() {
-				http.Error(w, "DNS configuration unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			json.NewEncoder(w).Encode(dnsConfig.Load())
 		default:
 			http.NotFound(w, r)
 		}
@@ -245,7 +251,7 @@ func TestWatchIPNBusPublishesSplitDNSChanges(t *testing.T) {
 	}
 	select {
 	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "failed to refresh DNS configuration") {
+		if err == nil || !strings.Contains(err.Error(), "failed to refresh network map") {
 			t.Fatalf("watcher error = %v, want DNS refresh failure", err)
 		}
 	case <-ctx.Done():
