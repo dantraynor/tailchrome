@@ -1,4 +1,15 @@
-# macOS Helper installer (.pkg)
+# macOS helper installation
+
+## Install for this user — no administrator access required
+
+Download `tailchrome-helper-macos-user.zip` from the matching release, unzip it,
+and open **Tailchrome Helper**. The signed, notarized app includes the universal
+helper and installs it for your account. Keep the app to run setup again later.
+It works on Apple Silicon and Intel Macs.
+
+Your organization’s browser policy may still block extensions or native messaging.
+
+## System package
 
 Homebrew users can install the same signed release package with the
 [Tailchrome cask](../homebrew/README.md#macos). It supports Apple Silicon and
@@ -7,7 +18,8 @@ The [source formula](../homebrew/README.md#source-formula-macos-and-linux) is al
 available for users who prefer to build the helper locally and register it
 without administrator privileges.
 
-The script `build-pkg.sh` produces `dist/tailchrome-helper-macos.pkg`, which installs:
+The script `build-pkg.sh` builds both installers. The system package
+`dist/tailchrome-helper-macos.pkg` requires administrator access and installs:
 
 1. **Universal** `tailscale-browser-ext` at  
    `/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext`
@@ -22,7 +34,7 @@ native-messaging registrations.
 
 ## Unsigned builds
 
-CI and local runs produce an unsigned package. Gatekeeper may require **right-click → Open** the first time, or **System Settings → Privacy & Security**.
+CI and local runs without signing identities produce unsigned installers. Gatekeeper may require **right-click → Open** the first time, or **System Settings → Privacy & Security**.
 
 ## Signing and notarization (release quality)
 
@@ -41,7 +53,7 @@ Requirements: Apple Developer Program, **Developer ID Application** and **Develo
    ./packaging/macos/build-pkg.sh
    ```
 
-3. Notarize the **installer .pkg** (not the app alone):
+3. Notarize both installers and staple their tickets:
 
    ```bash
    xcrun notarytool submit dist/tailchrome-helper-macos.pkg \
@@ -50,6 +62,14 @@ Requirements: Apple Developer Program, **Developer ID Application** and **Develo
      --password "$APPLE_APP_SPECIFIC_PASSWORD" \
      --wait
    xcrun stapler staple dist/tailchrome-helper-macos.pkg
+   xcrun notarytool submit dist/tailchrome-helper-macos-user.zip \
+     --apple-id "$APPLE_ID" \
+     --team-id "$APPLE_TEAM_ID" \
+     --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+     --wait
+   xcrun stapler staple "dist/Tailchrome Helper.app"
+   rm dist/tailchrome-helper-macos-user.zip
+   ditto -c -k --keepParent "dist/Tailchrome Helper.app" dist/tailchrome-helper-macos-user.zip
    ```
 
 Store Apple credentials in GitHub Actions secrets for automated release; do not commit them.
@@ -68,17 +88,15 @@ spctl --assess --type execute --verbose=2 \
 
 ## GitHub Actions
 
-Pull-request CI builds an unsigned package, expands it, and asserts that the
-repair app and executable launcher are present. The release workflow runs
-`build-pkg.sh` on `macos-latest`, signs and notarizes the app and package,
-staples the package, and stages the final `.pkg` with the other immutable
-release candidates. Publication does not rebuild or replace the cleared
-package.
+Pull-request CI builds and inspects both installers and tests the per-user
+launcher. Release CI signs and notarizes both, staples the package and app,
+and includes the final archive in release checksums and provenance attestations.
+Publication rechecks signatures and tickets without rebuilding.
 
 ## Per-user fallback
 
-The package and repair app remain the preferred paths. If they cannot be used,
-the release also contains a version-pinned `tailchrome-install.sh` fallback.
+For terminal setup or repair, the release also contains a version-pinned
+`tailchrome-install.sh` installer.
 Replace `vX.Y.Z` below with the exact extension release, then download, verify,
 inspect, and run the script:
 
@@ -133,13 +151,15 @@ sudo pkgutil --forget org.tesseras.tailchrome.helper
 
 Run the first command once in each macOS user account that used Tailchrome, because native-messaging registrations are per user.
 
-For a per-user fallback install, use the actual installed helper:
+For a per-user app or script install, remove the installed helper and its registrations:
 
 ```bash
 "$HOME/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext" -uninstall
 ```
 
-The fallback script can invoke the same command after validating the requested
+You can then move the downloaded app to the Trash.
+
+The script can invoke the same command after validating the requested
 release version:
 
 ```bash

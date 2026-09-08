@@ -615,26 +615,26 @@ does not participate in routing.
 **Chrome:**
 
 1. Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
-2. Install the native helper from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest): **`tailchrome-helper-macos.pkg`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the **`.deb`/`.rpm`** package on Linux amd64. Linux ARM64 uses the version-pinned verified repair installer.
+2. Install the native helper from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest): **`tailchrome-helper-macos-user.zip`** on macOS, **`tailchrome-helper-windows-x64.msi`** on Windows, or the verified **`tailchrome-install.sh`** on Linux. These install for your account without administrator access.
 3. Log in to your Tailscale account
 
 **Firefox:**
 
 1. Install from [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/) or the matching [GitHub Release](https://github.com/dantraynor/tailchrome/releases/latest)
-2. Install the same native helper used for Chrome: **`.pkg`** on macOS, **`.msi`** on Windows, **`.deb`/`.rpm`** on Linux amd64, or the verified raw-helper installer on Linux ARM64.
+2. Install the same native helper used for Chrome: the helper app on macOS, **`.msi`** on Windows, or the verified per-user installer on Linux.
 3. Log in to your Tailscale account
 
 ### Native Host Installation
 
-The installer packages are the primary path:
+The popup offers installation for your account. macOS and Linux amd64 also have system packages:
 
-- **macOS:** `tailchrome-helper-macos.pkg` installs a universal binary and runs `tailscale-browser-ext -install-now` for the logged-in user during package postinstall. `Tailchrome Helper.app` remains in `/Applications` as a repair/re-run fallback.
+- **macOS:** open `tailchrome-helper-macos-user.zip`, then open the included **Tailchrome Helper** app to install for your account. The signed app includes a universal helper. For a system installation, `tailchrome-helper-macos.pkg` installs a universal binary and runs `tailscale-browser-ext -install-now` for the logged-in user during package postinstall. `Tailchrome Helper.app` remains in `/Applications` as a repair/re-run fallback.
 - **Windows:** the Authenticode-signed `tailchrome-helper-windows-x64.msi` embeds the identically signed raw EXE, installs a staged helper under `%LOCALAPPDATA%\Tailscale\BrowserExt\installer\`, and runs it with `-install-now`, which writes HKCU native messaging registrations. Windows ARM64 uses this package through x64 emulation. After downloading the MSI, repair from either Command Prompt or PowerShell with `powershell.exe -NoProfile -Command "msiexec.exe /fa (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Downloads\tailchrome-helper-windows-x64.msi')"`; uninstall through **Installed apps**.
 - **Linux amd64:** `.deb` and `.rpm` packages install `/usr/lib/tailchrome/tailscale-browser-ext` plus system-wide manifests for Chrome, Chromium, Edge, and Firefox. They do not write per-user state in package hooks.
-- **Linux ARM64:** download `tailchrome-install.sh` from the exact versioned release, inspect it, download `SHA256SUMS.txt`, and run `bash ~/Downloads/tailchrome-install.sh --version "vX.Y.Z"`. The script selects and verifies `tailscale-browser-ext-linux-arm64`, optionally verifies its GitHub attestation when `gh` is available and authenticated, invokes `-install-now`, and confirms the installed executable. Never pipe a remote script directly into a shell.
+- **Linux per-user (amd64/ARM64):** download `tailchrome-install.sh` from the exact versioned release, inspect it, download `SHA256SUMS.txt`, and run `bash ~/Downloads/tailchrome-install.sh --version "vX.Y.Z"`. The script selects and verifies the matching raw helper, optionally verifies its GitHub attestation when `gh` is available and authenticated, invokes `-install-now`, and confirms the installed executable. Never pipe a remote script directly into a shell.
 
-On macOS and Linux, the same version-pinned script is the advanced
-current-user repair path after package discovery fails. It selects the exact
+On macOS and Linux, the same version-pinned script also repairs current-user
+registration after package discovery fails. It selects the exact
 amd64/arm64 artifact for the machine. The raw native host binary remains
 available for advanced/manual installs. When run interactively in a terminal,
 or non-interactively via **`tailscale-browser-ext -install-now`**, it:

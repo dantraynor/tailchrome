@@ -165,6 +165,7 @@ jobs:
           firefox.zip
           tailchrome-helper-linux-amd64.deb
           tailchrome-helper-linux-x86_64.rpm
+          tailchrome-helper-macos-user.zip
           tailchrome-helper-macos.pkg
           tailchrome-helper-windows-x64.msi
           tailchrome-install.sh
@@ -423,6 +424,14 @@ jobs:
           test -x "$app/Contents/MacOS/tailchrome-helper"
           codesign --verify --deep --strict --verbose=2 "$app"
           spctl --assess --type execute --verbose=2 "$app"
+          ditto -x -k candidate/release/tailchrome-helper-macos-user.zip "$RUNNER_TEMP/tailchrome-user"
+          user_app="$RUNNER_TEMP/tailchrome-user/Tailchrome Helper.app"
+          test -x "$user_app/Contents/MacOS/tailscale-browser-ext"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$user_app/Contents/Info.plist")" = \
+            org.tesseras.tailchrome.helper.user
+          codesign --verify --deep --strict --verbose=2 "$user_app"
+          xcrun stapler validate "$user_app"
+          spctl --assess --type execute --verbose=2 "$user_app"
 
   windows-release-clearance:
     needs:
