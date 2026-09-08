@@ -132,6 +132,9 @@ func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generat
 				return context.Canceled
 			}
 			h.stateMu.Lock()
+			if n.NetMap != nil {
+				h.lastNetMap = n.NetMap
+			}
 			if stateChanged {
 				h.lastState = n.State.String()
 			}

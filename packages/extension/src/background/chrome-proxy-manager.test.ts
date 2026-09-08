@@ -29,6 +29,7 @@ describe("ChromeProxyManager", () => {
 
   beforeEach(() => {
     pm = new ChromeProxyManager();
+    pm.setProxySession({ port: 1055, username: "fixture", password: "fixture-credential-".repeat(3) });
   });
 
   afterEach(() => {
@@ -36,6 +37,22 @@ describe("ChromeProxyManager", () => {
   });
 
   describe("apply", () => {
+    it("blocks the protected policy without a matching authenticated session", () => {
+      pm.setProxySession(null);
+      const report = vi.fn();
+      pm.setRoutingHealthListener(report);
+      const set = vi.spyOn(chrome.proxy.settings, "set");
+      pm.apply(baseState());
+      const pac = (set.mock.calls.at(-1)![0].value as chrome.proxy.ProxyConfig).pacScript!.data!;
+      expect(pac).toContain("PROXY 127.0.0.1:1");
+      expect(pac).not.toContain("PROXY 127.0.0.1:1055");
+      expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: "blocked" }));
+      pm.setProxySession({ port: 1055, username: "fixture", password: "fixture-credential-".repeat(3) });
+      pm.apply(baseState());
+      expect((set.mock.calls.at(-1)![0].value as chrome.proxy.ProxyConfig).pacScript!.data).toContain("PROXY 127.0.0.1:1055");
+      expect(report).toHaveBeenLastCalledWith({ status: "active", message: "" });
+    });
+
     it("sets proxy when state is running and proxy enabled", () => {
       const spy = vi.spyOn(chrome.proxy.settings, "set");
       pm.apply(baseState());
@@ -147,13 +164,13 @@ describe("ChromeProxyManager", () => {
       const route = evalPAC(pm, baseState());
       expect(route("http://google.com", "google.com")).toBe("DIRECT");
       expect(route("http://100.64.0.5", "100.64.0.5")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
       expect(route("http://100.100.100.100", "100.100.100.100")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
       expect(route("http://100.127.255.255", "100.127.255.255")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
     });
 
@@ -161,9 +178,9 @@ describe("ChromeProxyManager", () => {
       const route = evalPAC(pm, baseState());
       expect(
         route("http://my-server.example.ts.net", "my-server.example.ts.net"),
-      ).toBe("SOCKS5 127.0.0.1:1055");
+      ).toBe("PROXY 127.0.0.1:1055");
       expect(route("http://example.ts.net", "example.ts.net")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
       expect(route("http://notexample.ts.net", "notexample.ts.net")).toBe(
         "DIRECT",
@@ -174,7 +191,7 @@ describe("ChromeProxyManager", () => {
       const route = evalPAC(pm, baseState());
       expect(
         route("http://[fd7a:115c:a1e0::1234]/", "fd7a:115c:a1e0::1234"),
-      ).toBe("SOCKS5 127.0.0.1:1055");
+      ).toBe("PROXY 127.0.0.1:1055");
     });
 
     it("never calls isInNet for a DNS hostname", () => {
@@ -210,10 +227,10 @@ describe("ChromeProxyManager", () => {
         }),
       );
       expect(route("http://google.com", "google.com")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
       expect(route("http://192.168.1.1", "192.168.1.1")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
     });
 
@@ -225,10 +242,10 @@ describe("ChromeProxyManager", () => {
         }),
       );
       expect(route("http://10.0.0.50", "10.0.0.50")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
       expect(route("http://172.20.5.1", "172.20.5.1")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
       expect(route("http://10.0.1.1", "10.0.1.1")).toBe("DIRECT");
       expect(route("http://172.32.0.1", "172.32.0.1")).toBe("DIRECT");
@@ -262,7 +279,7 @@ describe("ChromeProxyManager", () => {
         route("https://x.teams.microsoft.com/", "x.teams.microsoft.com"),
       ).toBe("DIRECT");
       expect(route("https://example.com/", "example.com")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
     });
 
@@ -274,7 +291,7 @@ describe("ChromeProxyManager", () => {
         }),
       );
       expect(route("https://work.example.com/", "work.example.com")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
       expect(route("https://google.com/", "google.com")).toBe("DIRECT");
     });
@@ -287,10 +304,10 @@ describe("ChromeProxyManager", () => {
         }),
       );
       expect(route("http://100.100.100.100", "100.100.100.100")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
       expect(route("http://srv.example.ts.net", "srv.example.ts.net")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
     });
 
@@ -303,10 +320,10 @@ describe("ChromeProxyManager", () => {
       expect(route("https://google.com/", "google.com")).toBe("DIRECT");
       // Tailscale-mandatory traffic still proxies.
       expect(route("http://100.100.100.100", "100.100.100.100")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
       expect(route("http://srv.example.ts.net", "srv.example.ts.net")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
     });
 
@@ -316,7 +333,7 @@ describe("ChromeProxyManager", () => {
         withExit({ domainSplit: { mode: "bypass", domains: [] } }),
       );
       expect(route("https://example.com/", "example.com")).toBe(
-        "SOCKS5 127.0.0.1:1055",
+        "PROXY 127.0.0.1:1055",
       );
     });
 
@@ -411,6 +428,7 @@ describe("ChromeProxyManager", () => {
       },
     );
     const manager = new ChromeProxyManager();
+    manager.setProxySession({ port: 1055, username: "fixture", password: "fixture-credential-".repeat(3) });
     const reports: string[] = [];
     manager.setRoutingHealthListener((health) => {
       reports.push(health.status);
@@ -431,6 +449,7 @@ describe("ChromeProxyManager", () => {
       },
     );
     const manager = new ChromeProxyManager();
+    manager.setProxySession({ port: 1055, username: "fixture", password: "fixture-credential-".repeat(3) });
     const report = vi.fn();
     manager.setRoutingHealthListener(report);
     manager.apply(baseState());

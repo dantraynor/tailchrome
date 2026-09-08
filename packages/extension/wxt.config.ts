@@ -105,7 +105,7 @@ export default defineConfig({
         "nativeMessaging",
         "contextMenus",
         "alarms",
-        ...(browser === "chrome" ? ["sidePanel" as const] : []),
+        ...(browser === "chrome" ? ["sidePanel" as const, "webRequest" as const, "webRequestAuthProvider" as const] : []),
       ],
       action: {
         default_icon: chromeActionIcons,

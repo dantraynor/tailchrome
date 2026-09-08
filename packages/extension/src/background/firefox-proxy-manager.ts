@@ -1,4 +1,6 @@
+import { ProxySession } from "@tailchrome/shared/background/proxy-session";
 import type {
+  ProxySessionCredentials,
   DomainSplitConfig,
   DomainSplitMode,
   TailscaleState,
@@ -29,6 +31,8 @@ export interface FirefoxProxyInfo {
   host?: string;
   port?: number;
   proxyDNS?: boolean;
+  username?: string;
+  password?: string;
 }
 
 declare const browser: {
@@ -45,6 +49,12 @@ declare const browser: {
 };
 
 export class FirefoxProxyManager {
+  private readonly session = new ProxySession();
+
+  setProxySession(session: ProxySessionCredentials | null): void {
+    this.session.set(session);
+  }
+
   private proxyPort = BLOCKED_PROXY_PORT;
   private magicDNSSuffix = "";
   private exitNodeActive = true;
@@ -76,7 +86,11 @@ export class FirefoxProxyManager {
   }
 
   apply(state: TailscaleState): void {
-    const policy = policyFromState(state);
+    const requestedPolicy = policyFromState(state);
+    const authenticationMissing = !this.session.credentialsFor(requestedPolicy.proxyPort ?? 0);
+    const policy = requestedPolicy.mode === "active" && authenticationMissing
+      ? { ...requestedPolicy, mode: "blocked" as const, proxyPort: null }
+      : requestedPolicy;
     const nextKey = JSON.stringify(policy);
     if (nextKey !== this.policyKey) this.failedKey = "";
     this.policyKey = nextKey;
@@ -101,7 +115,9 @@ export class FirefoxProxyManager {
         this.mode === "blocked"
           ? {
               status: "blocked",
-              message: this.exitNodeActive
+              message: authenticationMissing && requestedPolicy.mode === "active"
+                ? "Helper authentication unavailable — protected browsing is blocked."
+                : this.exitNodeActive
                 ? "Exit node unavailable — protected browsing is blocked."
                 : "Connection unavailable — tailnet browsing is blocked.",
             }
@@ -130,12 +146,14 @@ export class FirefoxProxyManager {
 
     if (this.mode === "direct") return direct;
 
+    const credentials = this.mode === "active" ? this.session.credentialsFor(this.proxyPort) : undefined;
     const proxy: [FirefoxProxyInfo, null] = [
       {
         type: "socks",
         host: "127.0.0.1",
-        port: this.mode === "blocked" ? BLOCKED_PROXY_PORT : this.proxyPort,
+        port: credentials ? this.proxyPort : BLOCKED_PROXY_PORT,
         proxyDNS: true,
+        ...credentials,
       },
       null,
     ];

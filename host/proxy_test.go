@@ -15,6 +15,7 @@ import (
 
 func TestHTTPProxyDoesNotFallThroughForUninitializedWebClient(t *testing.T) {
 	h := newHost(nil, nil)
+	h.proxyAuth = &ProxyAuth{Version: 1, Username: "test", Password: "test-password"}
 	dialed := false
 	h.proxyDial = func(context.Context, string, string) (net.Conn, error) {
 		dialed = true
@@ -23,6 +24,7 @@ func TestHTTPProxyDoesNotFallThroughForUninitializedWebClient(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "http://100.100.100.100/", nil)
 	req.Host = "100.100.100.100"
+	req.Header.Set("Proxy-Authorization", "Basic dGVzdDp0ZXN0LXBhc3N3b3Jk")
 
 	h.httpProxyHandler().ServeHTTP(recorder, req)
 

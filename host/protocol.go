@@ -46,17 +46,24 @@ type Reply struct {
 	Error              *ErrorReply            `json:"error,omitempty"`
 }
 
-// ProcRunningReply is sent immediately after the host starts to inform the
-// extension of the proxy port and process ID.
+// ProxyAuth is delivered only over the private native messaging channel.
+type ProxyAuth struct {
+	Version  int    `json:"version"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// ProcRunningReply announces the proxy endpoint and its process credential.
 type ProcRunningReply struct {
-	Port                     int    `json:"port"`
-	PID                      int    `json:"pid"`
-	Version                  string `json:"version"`
-	Error                    string `json:"error,omitempty"`
-	SupportsNetcheck         bool   `json:"supportsNetcheck,omitempty"`
-	SupportsPingPeer         bool   `json:"supportsPingPeer,omitempty"`
-	SupportsLogin            bool   `json:"supportsLogin,omitempty"`
-	SupportsCustomControlURL bool   `json:"supportsCustomControlURL,omitempty"`
+	ProxyAuth                *ProxyAuth `json:"proxyAuth,omitempty"`
+	Port                     int        `json:"port"`
+	PID                      int        `json:"pid"`
+	Version                  string     `json:"version"`
+	Error                    string     `json:"error,omitempty"`
+	SupportsNetcheck         bool       `json:"supportsNetcheck,omitempty"`
+	SupportsPingPeer         bool       `json:"supportsPingPeer,omitempty"`
+	SupportsLogin            bool       `json:"supportsLogin,omitempty"`
+	SupportsCustomControlURL bool       `json:"supportsCustomControlURL,omitempty"`
 }
 
 // InitReply is the response to an "init" command.

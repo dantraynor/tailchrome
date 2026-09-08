@@ -14,6 +14,7 @@ describe("FirefoxProxyManager", () => {
   beforeEach(() => {
     resetSessionStorage();
     pm = new FirefoxProxyManager();
+    pm.setProxySession({ port: 1055, username: "fixture", password: "fixture-credential-".repeat(3) });
   });
 
   afterEach(() => {
@@ -21,6 +22,32 @@ describe("FirefoxProxyManager", () => {
   });
 
   describe("apply / clear", () => {
+    it("blocks without credentials and after an active session is revoked", () => {
+      pm.setProxySession(null);
+      pm.apply(baseState());
+      expect(pm.listener({ url: "http://100.64.0.2/" })).toEqual([
+        { type: "socks", host: "127.0.0.1", port: 1, proxyDNS: true }, null,
+      ]);
+      pm.setProxySession({ port: 1055, username: "fixture", password: "fixture-credential-".repeat(3) });
+      pm.apply(baseState());
+      expect(first(pm, "http://100.64.0.2/").port).toBe(1055);
+      pm.setProxySession(null);
+      expect(pm.listener({ url: "http://100.64.0.2/" })).toEqual([
+        { type: "socks", host: "127.0.0.1", port: 1, proxyDNS: true }, null,
+      ]);
+    });
+
+    it("uses credentials only for the matching helper port and never persists them", async () => {
+      const password = "private-credential-".repeat(3);
+      pm.setProxySession({ port: 1055, username: "user", password });
+      pm.apply(baseState());
+      expect(first(pm, "http://100.64.0.2/")).toMatchObject({ username: "user", password });
+      const stored = await (globalThis as any).browser.storage.session.get("proxyConfig");
+      expect(JSON.stringify(stored)).not.toContain(password);
+      pm.setProxySession(null);
+      expect(first(pm, "http://100.64.0.2/")).not.toHaveProperty("password");
+    });
+
     it("sets config when state is running and proxy enabled", () => {
       pm.apply(baseState());
       const browserProxy = (
@@ -221,7 +248,7 @@ describe("FirefoxProxyManager", () => {
   it("terminates protected proxy chains without browser fallback", () => {
     pm.apply(baseState());
     expect(pm.listener({ url: "https://100.64.0.5/" })).toEqual([
-      { type: "socks", host: "127.0.0.1", port: 1055, proxyDNS: true },
+      { type: "socks", host: "127.0.0.1", port: 1055, proxyDNS: true, username: "fixture", password: "fixture-credential-".repeat(3) },
       null,
     ]);
   });
