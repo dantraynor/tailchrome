@@ -411,24 +411,24 @@ Chrome uses a dynamically generated PAC (Proxy Auto-Config) script set via `chro
 3. **MagicDNS suffix** (e.g., `*.ts.net`) -> proxy before any `isInNet()` call, avoiding local DNS resolution of ordinary hostnames
 4. **Tailscale IPv6 prefix** (`fd7a:115c:a1e0::/48`) -> proxy
 5. **Subnet routes** (from subnet router peers) -> proxy via `isInNet()` only for IPv4 literals
-6. **Exit node active** -> all traffic through proxy
+6. **Exit node selected** -> protected traffic stays proxied, or blocked while the node is unavailable
 7. **Otherwise** -> `DIRECT`
 
 The proxy target is `SOCKS5 127.0.0.1:<port>`.
 
-PAC script regeneration is skipped if proxy-relevant fields have not changed. A fresh service worker also clears browser proxy state once before trusting its in-memory enabled flag, preventing a PAC left behind by an unclean shutdown.
-
-On service worker suspension, `chrome.proxy.settings.set({ mode: "direct" })` is called to prevent stale routing.
+Successful PAC settings are reused until routing changes. Worker suspension preserves the browser settings; reconnecting replaces the helper endpoint after confirmation.
 
 ### Firefox: proxy.onRequest
 
 Firefox uses the `browser.proxy.onRequest` API with an event listener that evaluates each request URL:
 
 1. Same routing logic as Chrome (service IP, CGNAT, Tailscale IPv6, MagicDNS, subnets, exit node)
-2. Returns `{ type: "socks", host: "127.0.0.1", port, proxyDNS: true }` or `{ type: "direct" }`
+2. Protected requests use a SOCKS proxy chain ending in `null`, preventing browser proxy fallback. Other requests use the normal browser connection.
 3. IP matching uses numeric comparison (`ipToNum()`) instead of PAC's `isInNet()`
 
-**Session storage persistence:** Firefox suspends background event pages aggressively. The proxy config (port, suffix, exit node state, subnet ranges, and split-domain rules) is persisted to `browser.storage.session` under the key `"proxyConfig"`. On wake, the listener returns a `Promise` that waits for both storage restoration and an authoritative reconnect state; transient `NoState`/`Starting` updates do not release requests to the direct network.
+**Routing protection:** Both browsers retain a sanitized routing snapshot across restarts, without helper ports or credentials. Exit-node choices are scoped to the account and coordination server. Helper loss or an unavailable exit node blocks protected requests while preserving split-tunnel exceptions. Chrome uses mandatory PAC settings and checks effective proxy ownership.
+
+The popup reports routing failures separately from the Tailscale connection. Choose **Disconnect and browse normally** to release protection when the helper cannot respond.
 
 ---
 

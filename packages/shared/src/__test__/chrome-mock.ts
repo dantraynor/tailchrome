@@ -6,6 +6,7 @@ const storageChangedListeners: Array<
   (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, area: string) => void
 > = [];
 
+let proxyValue: unknown = { mode: "system" };
 const chromeMock = {
   action: {
     setIcon: (_details: unknown) => Promise.resolve(),
@@ -18,10 +19,15 @@ const chromeMock = {
     },
   },
   proxy: {
+    onProxyError: { addListener: (_fn: (details: unknown) => void) => {} },
     settings: {
-      set: (_details: unknown, cb?: () => void) => {
+      set: (details: { value: unknown }, cb?: () => void) => {
+        proxyValue = details.value;
         cb?.();
       },
+      get: (_details: unknown, cb: (details: unknown) => void) => cb({ value: proxyValue, levelOfControl: "controlled_by_this_extension" }),
+      clear: (_details: unknown, cb?: () => void) => { proxyValue = { mode: "system" }; cb?.(); },
+      onChange: { addListener: (_fn: (details: unknown) => void) => {} },
     },
   },
   runtime: {

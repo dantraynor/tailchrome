@@ -1045,7 +1045,7 @@ describe("initBackground", () => {
       expect(proxyManager.apply).toHaveBeenCalledWith(
         expect.objectContaining({ pendingExitNodeID: "node123" }),
       );
-      expect(chrome.storage.local.set).toHaveBeenCalledWith({ lastExitNodeID: "node123" });
+      expect(chrome.storage.local.set).not.toHaveBeenCalledWith({ lastExitNodeID: "node123" });
     });
 
     it("handles clear-exit-node message", async () => {
@@ -2276,7 +2276,7 @@ describe("initBackground", () => {
   });
 
   describe("exit node restoration", () => {
-    it("restores saved exit node on first Running status without exit node", async () => {
+    it("does not restore an unscoped legacy exit node into an unknown account", async () => {
       (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
         profileId: "test-id",
         lastExitNodeID: "saved-exit-node",
@@ -2305,7 +2305,7 @@ describe("initBackground", () => {
       // Let storage.get promise resolve
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(nativePort.postMessage).toHaveBeenCalledWith({
+      expect(nativePort.postMessage).not.toHaveBeenCalledWith({
         cmd: "set-exit-node",
         nodeID: "saved-exit-node",
       });

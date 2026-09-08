@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { baseState, makePeer } from "@tailchrome/shared/__test__/fixtures";
-import type { HelperFailureKind } from "@tailchrome/shared/types";
 import { resetSessionStorage } from "../__test__/browser-mock";
-import {
-  FirefoxProxyManager,
-  RECONNECT_GATE_TIMEOUT_MS,
-} from "./firefox-proxy-manager";
+import { FirefoxProxyManager } from "./firefox-proxy-manager";
+
+function first(pm: FirefoxProxyManager, url: string) {
+  const result = pm.listener({ url });
+  return Array.isArray(result) ? result[0] : result;
+}
 
 describe("FirefoxProxyManager", () => {
   let pm: FirefoxProxyManager;
@@ -47,7 +48,7 @@ describe("FirefoxProxyManager", () => {
         }),
       );
 
-      expect(pm.listener({ url: "http://100.64.0.5" })).toMatchObject({
+      expect(first(pm, "http://100.64.0.5")).toMatchObject({
         type: "socks",
       });
     });
@@ -55,8 +56,7 @@ describe("FirefoxProxyManager", () => {
     it("clear() resets routing state so everything routes direct", () => {
       pm.apply(baseState());
       pm.clear();
-      const resolve = (url: string) =>
-        (pm as unknown as { resolveProxy(url: string): { type: string } }).resolveProxy(url);
+      const resolve = (url: string) => first(pm, url);
 
       expect(resolve("http://100.64.0.5").type).toBe("direct");
       expect(resolve("http://100.100.100.100").type).toBe("direct");
@@ -85,8 +85,7 @@ describe("FirefoxProxyManager", () => {
   describe("routing decisions", () => {
     it("routes Tailscale IPs through proxy, regular sites direct", () => {
       pm.apply(baseState());
-      const resolve = (url: string) =>
-        (pm as unknown as { resolveProxy(url: string): { type: string; port?: number } }).resolveProxy(url);
+      const resolve = (url: string) => first(pm, url);
 
       expect(resolve("http://google.com").type).toBe("direct");
       expect(resolve("http://100.64.0.5").type).toBe("socks");
@@ -95,8 +94,7 @@ describe("FirefoxProxyManager", () => {
 
     it("routes MagicDNS names through proxy", () => {
       pm.apply(baseState());
-      const resolve = (url: string) =>
-        (pm as unknown as { resolveProxy(url: string): { type: string } }).resolveProxy(url);
+      const resolve = (url: string) => first(pm, url);
 
       expect(resolve("http://my-server.example.ts.net").type).toBe("socks");
       expect(resolve("http://notexample.ts.net").type).toBe("direct");
@@ -104,8 +102,7 @@ describe("FirefoxProxyManager", () => {
 
     it("routes Tailscale IPv6 literals through the proxy", () => {
       pm.apply(baseState());
-      const resolve = (url: string) =>
-        (pm as unknown as { resolveProxy(url: string): { type: string } }).resolveProxy(url);
+      const resolve = (url: string) => first(pm, url);
 
       expect(resolve("http://[fd7a:115c:a1e0::1234]/").type).toBe("socks");
     });
@@ -116,56 +113,10 @@ describe("FirefoxProxyManager", () => {
           peers: [makePeer({ subnets: ["10.0.0.0/24", "172.16.0.0/12"] })],
         }),
       );
-      const resolve = (url: string) =>
-        (pm as unknown as { resolveProxy(url: string): { type: string } }).resolveProxy(url);
+      const resolve = (url: string) => first(pm, url);
 
       expect(resolve("http://10.0.0.50").type).toBe("socks");
       expect(resolve("http://172.32.0.1").type).toBe("direct");
-    });
-  });
-
-  describe("session storage persistence", () => {
-    it("persists proxy config to session storage on apply", async () => {
-      pm.apply(baseState({ proxyPort: 5555 }));
-
-      const restored = new FirefoxProxyManager();
-      expect(await restored.restoreFromStorage()).toBe(true);
-      expect(
-        (
-          restored as unknown as {
-            proxyPort: number;
-            magicDNSSuffix: string;
-            reconnectPromise: Promise<void> | null;
-          }
-        ).proxyPort,
-      ).toBe(0);
-      expect(
-        (
-          restored as unknown as {
-            proxyPort: number;
-            magicDNSSuffix: string;
-            reconnectPromise: Promise<void> | null;
-          }
-        ).magicDNSSuffix,
-      ).toBe("example.ts.net");
-      restored.clear();
-    });
-
-    it("preserves stored config through the disconnect path", async () => {
-      pm.apply(baseState());
-      pm.apply(
-        baseState({
-          hostConnected: false,
-          proxyEnabled: false,
-          proxyPort: null,
-          backendState: "NoState",
-        }),
-      );
-
-      const restored = new FirefoxProxyManager();
-      expect(await restored.restoreFromStorage()).toBe(true);
-      restored.clear();
-      pm.clear();
     });
   });
 
@@ -181,9 +132,8 @@ describe("FirefoxProxyManager", () => {
         },
         ...overrides,
       });
-    const resolveOf = (manager: FirefoxProxyManager) =>
-      (url: string) =>
-        (manager as unknown as { resolveProxy(url: string): { type: string } }).resolveProxy(url);
+    const resolveOf = (manager: FirefoxProxyManager) => (url: string) =>
+      first(manager, url);
 
     it("bypass mode: listed domain goes direct, others go through proxy", () => {
       pm.apply(
@@ -261,185 +211,34 @@ describe("FirefoxProxyManager", () => {
     });
   });
 
-  describe("listener wake flow", () => {
-    it("defers to restore and reconnect promises during wake", async () => {
-      pm.apply(baseState({ proxyPort: 3333 }));
-
-      const woken = new FirefoxProxyManager();
-      const restorePromise = woken.restoreFromStorage();
-      const result = woken.listener({ url: "http://100.64.0.5" });
-
-      expect(result).toBeInstanceOf(Promise);
-
-      await restorePromise;
-      woken.apply(baseState({ proxyPort: 4444 }));
-
-      const resolved = await result;
-      expect(resolved.type).toBe("socks");
-      expect((resolved as { port?: number }).port).toBe(4444);
-    });
-
-    it("keeps requests held through transient NoState updates", async () => {
-      pm.apply(baseState({ proxyPort: 3333 }));
-
-      const woken = new FirefoxProxyManager();
-      await woken.restoreFromStorage();
-      const result = woken.listener({ url: "http://100.64.0.5" });
-      expect(result).toBeInstanceOf(Promise);
-
-      woken.apply(
-        baseState({
-          hostConnected: false,
-          proxyEnabled: false,
-          proxyPort: null,
-          backendState: "NoState",
-        }),
-      );
-      let settled = false;
-      void Promise.resolve(result).then(() => {
-        settled = true;
-      });
-      await Promise.resolve();
-      expect(settled).toBe(false);
-
-      woken.apply(baseState({ proxyPort: 4444 }));
-      await expect(result).resolves.toMatchObject({ type: "socks", port: 4444 });
-    });
-
-    it("releases held requests on an authoritative stopped state", async () => {
-      pm.apply(baseState({ proxyPort: 3333 }));
-
-      const woken = new FirefoxProxyManager();
-      await woken.restoreFromStorage();
-      const result = woken.listener({ url: "http://100.64.0.5" });
-      woken.apply(
-        baseState({
-          hostConnected: true,
-          proxyEnabled: false,
-          proxyPort: null,
-          backendState: "Stopped",
-        }),
-      );
-
-      await expect(result).resolves.toMatchObject({ type: "direct" });
-    });
+  it("blocks requests before routing restoration completes", () => {
+    expect(pm.listener({ url: "https://example.com/" })).toEqual([
+      { type: "socks", host: "127.0.0.1", port: 1, proxyDNS: true },
+      null,
+    ]);
   });
 
-  describe("reconnect gate escape hatches", () => {
-    const transientDisconnect = () =>
+  it("terminates protected proxy chains without browser fallback", () => {
+    pm.apply(baseState());
+    expect(pm.listener({ url: "https://100.64.0.5/" })).toEqual([
+      { type: "socks", host: "127.0.0.1", port: 1055, proxyDNS: true },
+      null,
+    ]);
+  });
+
+  it("keeps protected traffic blocked after ten seconds", () => {
+    vi.useFakeTimers();
+    pm.apply(
       baseState({
-        hostConnected: false,
-        proxyEnabled: false,
-        proxyPort: null,
-        backendState: "NoState" as const,
-      });
-
-    it("fails open when the helper does not return before the gate deadline", async () => {
-      vi.useFakeTimers();
-      pm.apply(baseState({ proxyPort: 3333 }));
-
-      const woken = new FirefoxProxyManager();
-      await woken.restoreFromStorage();
-      const result = woken.listener({ url: "http://100.64.0.5" });
-      expect(result).toBeInstanceOf(Promise);
-
-      vi.advanceTimersByTime(RECONNECT_GATE_TIMEOUT_MS);
-      await expect(result).resolves.toMatchObject({ type: "direct" });
-
-      // The stored config is wiped so a later event-page restart cannot
-      // re-gate on it, and further transient updates do not re-arm the gate.
-      const restored = new FirefoxProxyManager();
-      expect(await restored.restoreFromStorage()).toBe(false);
-      woken.apply(transientDisconnect());
-      expect(
-        (woken as unknown as { reconnectPromise: Promise<void> | null })
-          .reconnectPromise,
-      ).toBeNull();
-      await expect(
-        Promise.resolve(woken.listener({ url: "http://100.64.0.5" })),
-      ).resolves.toMatchObject({ type: "direct" });
-    });
-
-    it("cancels the gate deadline once the proxy config is reapplied", async () => {
-      vi.useFakeTimers();
-      pm.apply(baseState({ proxyPort: 3333 }));
-
-      const woken = new FirefoxProxyManager();
-      await woken.restoreFromStorage();
-      const result = woken.listener({ url: "http://100.64.0.5" });
-
-      woken.apply(baseState({ proxyPort: 4444 }));
-      vi.advanceTimersByTime(RECONNECT_GATE_TIMEOUT_MS);
-
-      await expect(result).resolves.toMatchObject({
-        type: "socks",
-        port: 4444,
-      });
-      // The canceled deadline must not wipe the live or stored config.
-      expect(
-        (woken as unknown as { resolveProxy(url: string): { type: string } })
-          .resolveProxy("http://100.64.0.5").type,
-      ).toBe("socks");
-      const restored = new FirefoxProxyManager();
-      expect(await restored.restoreFromStorage()).toBe(true);
-    });
-
-    it.each([
-      "helper-unavailable",
-      "helper-not-allowed",
-      "helper-reported-error",
-      "helper-incompatible",
-    ] satisfies HelperFailureKind[])(
-      "releases held requests for authoritative %s failures",
-      async (kind) => {
-      pm.apply(baseState({ proxyPort: 3333 }));
-
-      const woken = new FirefoxProxyManager();
-      await woken.restoreFromStorage();
-      const result = woken.listener({ url: "http://100.64.0.5" });
-
-        woken.apply({
-          ...transientDisconnect(),
-          helperFailure: {
-            kind,
-            diagnosticCode: "fixture-authoritative-failure",
-            diagnosticMessage: null,
-          },
-        });
-
-      await expect(result).resolves.toMatchObject({ type: "direct" });
-      const restored = new FirefoxProxyManager();
-      expect(await restored.restoreFromStorage()).toBe(false);
-      },
+        prefs: {
+          exitNodeID: "missing",
+          exitNodeAllowLANAccess: false,
+          corpDNS: true,
+          shieldsUp: false,
+        },
+      }),
     );
-
-    it.each([
-      "helper-start-failed",
-      "helper-stopped",
-    ] satisfies HelperFailureKind[])(
-      "keeps held requests behind the reconnect deadline for transient %s",
-      async (kind) => {
-        pm.apply(baseState({ proxyPort: 3333 }));
-
-        const woken = new FirefoxProxyManager();
-        await woken.restoreFromStorage();
-        const result = woken.listener({ url: "http://100.64.0.5" });
-        woken.apply({
-          ...transientDisconnect(),
-          reconnecting: true,
-          helperFailure: {
-            kind,
-            diagnosticCode: "fixture-transient-failure",
-            diagnosticMessage: null,
-          },
-        });
-
-        woken.apply(baseState({ proxyPort: 4444 }));
-        await expect(result).resolves.toMatchObject({
-          type: "socks",
-          port: 4444,
-        });
-      },
-    );
+    vi.advanceTimersByTime(60_000);
+    expect(first(pm, "https://example.com/").port).toBe(1);
   });
 });

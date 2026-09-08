@@ -3,12 +3,17 @@ import { baseState, makePeer } from "@tailchrome/shared/__test__/fixtures";
 import type { TailscaleState } from "@tailchrome/shared/types";
 import { ChromeProxyManager } from "./chrome-proxy-manager";
 
-function capturePAC(pm: ChromeProxyManager, state: TailscaleState): string | null {
+function capturePAC(
+  pm: ChromeProxyManager,
+  state: TailscaleState,
+): string | null {
   let captured: string | null = null;
   const original = chrome.proxy.settings.set;
 
   chrome.proxy.settings.set = ((details: unknown, cb?: () => void) => {
-    const typedDetails = details as { value?: { pacScript?: { data?: string } } };
+    const typedDetails = details as {
+      value?: { pacScript?: { data?: string } };
+    };
     captured = typedDetails.value?.pacScript?.data ?? null;
     cb?.();
     return Promise.resolve();
@@ -39,31 +44,27 @@ describe("ChromeProxyManager", () => {
       expect(args.value.mode).toBe("pac_script");
     });
 
-    it("clears proxy when backend is not running", () => {
-      const spy = vi.spyOn(chrome.proxy.settings, "set");
+    it("releases its proxy setting after an explicit direct policy", () => {
+      const spy = vi.spyOn(chrome.proxy.settings, "clear");
       pm.apply(baseState());
       pm.apply(baseState({ backendState: "Stopped" }));
-      const lastCall = spy.mock.calls.at(-1)![0] as { value: { mode: string } };
-      expect(lastCall.value.mode).toBe("direct");
+      expect(spy).toHaveBeenCalledWith(
+        { scope: "regular" },
+        expect.any(Function),
+      );
     });
 
-    it("clears proxy when proxyEnabled is false", () => {
+    it("makes PAC mandatory", () => {
       const spy = vi.spyOn(chrome.proxy.settings, "set");
       pm.apply(baseState());
-      pm.apply(baseState({ proxyEnabled: false }));
-      const lastCall = spy.mock.calls.at(-1)![0] as { value: { mode: string } };
-      expect(lastCall.value.mode).toBe("direct");
-    });
-
-    it("clears a potentially persisted PAC on the first stopped state", () => {
-      const spy = vi.spyOn(chrome.proxy.settings, "set");
-      pm.apply(baseState({ backendState: "Stopped" }));
-      expect(spy).toHaveBeenCalledTimes(1);
-      const call = spy.mock.calls[0]![0] as { value: { mode: string } };
-      expect(call.value.mode).toBe("direct");
-
-      pm.apply(baseState({ backendState: "Stopped" }));
-      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          value: expect.objectContaining({
+            pacScript: expect.objectContaining({ mandatory: true }),
+          }),
+        }),
+        expect.any(Function),
+      );
     });
   });
 
@@ -158,9 +159,9 @@ describe("ChromeProxyManager", () => {
 
     it("routes MagicDNS names through proxy", () => {
       const route = evalPAC(pm, baseState());
-      expect(route("http://my-server.example.ts.net", "my-server.example.ts.net")).toBe(
-        "SOCKS5 127.0.0.1:1055",
-      );
+      expect(
+        route("http://my-server.example.ts.net", "my-server.example.ts.net"),
+      ).toBe("SOCKS5 127.0.0.1:1055");
       expect(route("http://example.ts.net", "example.ts.net")).toBe(
         "SOCKS5 127.0.0.1:1055",
       );
@@ -172,10 +173,7 @@ describe("ChromeProxyManager", () => {
     it("routes Tailscale IPv6 literals through the proxy", () => {
       const route = evalPAC(pm, baseState());
       expect(
-        route(
-          "http://[fd7a:115c:a1e0::1234]/",
-          "fd7a:115c:a1e0::1234",
-        ),
+        route("http://[fd7a:115c:a1e0::1234]/", "fd7a:115c:a1e0::1234"),
       ).toBe("SOCKS5 127.0.0.1:1055");
     });
 
@@ -291,9 +289,9 @@ describe("ChromeProxyManager", () => {
       expect(route("http://100.100.100.100", "100.100.100.100")).toBe(
         "SOCKS5 127.0.0.1:1055",
       );
-      expect(
-        route("http://srv.example.ts.net", "srv.example.ts.net"),
-      ).toBe("SOCKS5 127.0.0.1:1055");
+      expect(route("http://srv.example.ts.net", "srv.example.ts.net")).toBe(
+        "SOCKS5 127.0.0.1:1055",
+      );
     });
 
     it("only mode with empty list: catch-all is DIRECT", () => {
@@ -307,9 +305,9 @@ describe("ChromeProxyManager", () => {
       expect(route("http://100.100.100.100", "100.100.100.100")).toBe(
         "SOCKS5 127.0.0.1:1055",
       );
-      expect(
-        route("http://srv.example.ts.net", "srv.example.ts.net"),
-      ).toBe("SOCKS5 127.0.0.1:1055");
+      expect(route("http://srv.example.ts.net", "srv.example.ts.net")).toBe(
+        "SOCKS5 127.0.0.1:1055",
+      );
     });
 
     it("bypass mode with empty list: catch-all is full proxy (no rules to apply)", () => {
@@ -361,6 +359,120 @@ describe("ChromeProxyManager", () => {
       expect(pac).toContain('"ok.example.com"');
     });
   });
+  it("does not cache a rejected configuration and retries the next application", () => {
+    const report = vi.fn();
+    pm.setRoutingHealthListener(report);
+    const original = chrome.proxy.settings.set;
+    const set = vi
+      .spyOn(chrome.proxy.settings, "set")
+      .mockImplementationOnce((_details, callback) => {
+        Object.assign(chrome.runtime, { lastError: { message: "rejected" } });
+        callback?.();
+        Object.assign(chrome.runtime, { lastError: undefined });
+        return Promise.resolve();
+      });
+    pm.apply(baseState());
+    expect(report).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: "unavailable" }),
+    );
+    set.mockImplementation(original);
+    pm.apply(baseState());
+    expect(set).toHaveBeenCalledTimes(2);
+    expect(report).toHaveBeenLastCalledWith({ status: "active", message: "" });
+  });
+
+  it("reports ownership conflicts without claiming an active route", () => {
+    const report = vi.fn();
+    pm.setRoutingHealthListener(report);
+    vi.spyOn(chrome.proxy.settings, "get").mockImplementation(
+      (_details, callback) => {
+        callback({
+          levelOfControl: "controlled_by_other_extensions",
+          value: { mode: "direct" },
+        });
+        return Promise.resolve({});
+      },
+    );
+    const set = vi.spyOn(chrome.proxy.settings, "set");
+    pm.apply(baseState());
+    expect(set).not.toHaveBeenCalled();
+    expect(report).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: "conflicted" }),
+    );
+  });
+
+  it("keeps proxy errors visible through reentrant state notifications", () => {
+    let onError:
+      | ((details: { error: string; details: string; fatal: boolean }) => void)
+      | undefined;
+    vi.spyOn(chrome.proxy.onProxyError, "addListener").mockImplementation(
+      (listener) => {
+        onError = listener;
+      },
+    );
+    const manager = new ChromeProxyManager();
+    const reports: string[] = [];
+    manager.setRoutingHealthListener((health) => {
+      reports.push(health.status);
+      if (health.status === "blocked") manager.apply(baseState());
+    });
+    manager.apply(baseState());
+    onError?.({ error: "connection failed", details: "", fatal: true });
+    expect(reports.at(-1)).toBe("blocked");
+  });
+
+  it("recovers the original route after an error and an intervening blocked policy", () => {
+    let onError:
+      | ((details: { error: string; details: string; fatal: boolean }) => void)
+      | undefined;
+    vi.spyOn(chrome.proxy.onProxyError, "addListener").mockImplementation(
+      (listener) => {
+        onError = listener;
+      },
+    );
+    const manager = new ChromeProxyManager();
+    const report = vi.fn();
+    manager.setRoutingHealthListener(report);
+    manager.apply(baseState());
+    onError?.({ error: "failed", details: "", fatal: true });
+    manager.apply(
+      baseState({
+        prefs: {
+          exitNodeID: "missing",
+          corpDNS: true,
+          shieldsUp: false,
+          exitNodeAllowLANAccess: false,
+        },
+      }),
+    );
+    manager.apply(baseState());
+    expect(report).toHaveBeenLastCalledWith({ status: "active", message: "" });
+  });
+
+  it("accepts Chrome's canonical PAC property order", () => {
+    let value: chrome.proxy.ProxyConfig = { mode: "system" };
+    vi.spyOn(chrome.proxy.settings, "set").mockImplementation(
+      (details, callback) => {
+        const config = details.value as chrome.proxy.ProxyConfig;
+        value = {
+          mode: config.mode,
+          pacScript: { data: config.pacScript?.data, mandatory: true },
+        };
+        callback?.();
+        return Promise.resolve();
+      },
+    );
+    vi.spyOn(chrome.proxy.settings, "get").mockImplementation(
+      (_details, callback) => {
+        callback({ value, levelOfControl: "controlled_by_this_extension" });
+        return Promise.resolve({});
+      },
+    );
+    const health = vi.fn();
+    pm.setRoutingHealthListener(health);
+    pm.apply(baseState());
+    expect(health).toHaveBeenLastCalledWith({ status: "active", message: "" });
+  });
 });
 
 function evalPAC(
@@ -379,6 +491,10 @@ function evalPAC(
   const dnsDomainIs = (host: string, suffix: string): boolean =>
     host === suffix.slice(1) || host.endsWith(suffix);
 
-  const fn = new Function("isInNet", "dnsDomainIs", `${pac}\nreturn FindProxyForURL;`);
+  const fn = new Function(
+    "isInNet",
+    "dnsDomainIs",
+    `${pac}\nreturn FindProxyForURL;`,
+  );
   return fn(isInNet, dnsDomainIs) as (url: string, host: string) => string;
 }

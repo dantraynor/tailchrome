@@ -17,6 +17,7 @@ import {
   isValidControlURL,
 } from "../constants";
 import { StateStore } from "./state-store";
+import { RoutingProtection } from "./routing-protection";
 import {
   NativeHostConnection,
   type NativeConnectionEvent,
@@ -337,8 +338,10 @@ export function initBackground(
     .catch(logUiSurfaceFailure);
 
   const store = new StateStore();
+  const routing = new RoutingProtection();
+  const routingReady = routing.restore();
 
-  void readDomainSplit()
+  const domainSplitReady = readDomainSplit()
     .then((config) => {
       if (!domainSplitEquals(store.getState().domainSplit, config)) {
         store.update({ domainSplit: config });
@@ -546,10 +549,21 @@ export function initBackground(
     );
   }
 
+  proxyManager.setRoutingHealthListener?.((health) => {
+    if (JSON.stringify(store.getState().routingHealth) !== JSON.stringify(health)) {
+      store.update({ routingHealth: health });
+    }
+  });
   store.subscribe((state: TailscaleState) => {
-    proxyManager.apply(state);
-    badgeManager.update(state);
-    broadcastToPopup(state);
+    const routed = routing.decorate(state);
+    proxyManager.apply(routed);
+    const current = routing.decorate(store.getState());
+    badgeManager.update(current);
+    broadcastToPopup(current);
+  });
+  proxyManager.apply(routing.decorate(store.getState()));
+  void Promise.all([routingReady, domainSplitReady]).then(() => {
+    proxyManager.apply(routing.decorate(store.getState()));
   });
 
   function diagnosticFrom(
@@ -684,6 +698,7 @@ export function initBackground(
     // Status update
     if (msg.status) {
       latestBackendState = msg.status.backendState;
+      routing.confirmStatus(msg.status, store.getState());
       store.applyStatusUpdate(msg.status);
 
       // Drop the saved exit node once the host confirms a real coordination
@@ -697,6 +712,7 @@ export function initBackground(
         controlServerChanged(confirmedControlURL, lastConfirmedControlURL)
       ) {
         lastConfirmedControlURL = confirmedControlURL;
+        exitNodeRestoreAttempted = false;
         void chrome.storage.local.remove("lastExitNodeID");
       }
 
@@ -728,29 +744,13 @@ export function initBackground(
         }
       }
 
-      // Restore saved exit node after reconnection
-      if (
-        !exitNodeRestoreAttempted &&
-        msg.status.backendState === "Running" &&
-        !msg.status.exitNode
-      ) {
+      // Restore only the saved selection for this confirmed account.
+      const selected = routing.decorate(store.getState()).selectedExitNodeID;
+      if (!exitNodeRestoreAttempted && msg.status.backendState === "Running" && selected) {
         exitNodeRestoreAttempted = true;
-        chrome.storage.local.get("lastExitNodeID").then((result) => {
-          const lastExitNodeID = result["lastExitNodeID"];
-          if (typeof lastExitNodeID === "string" && lastExitNodeID) {
-            console.log(
-              "[Background] Restoring saved exit node:",
-              lastExitNodeID
-            );
-            nativeHost.send({
-              cmd: "set-exit-node",
-              nodeID: lastExitNodeID,
-            });
-          }
-        });
-      } else if (msg.status.backendState === "Running" && msg.status.exitNode) {
-        // Mark as attempted if already has an exit node
-        exitNodeRestoreAttempted = true;
+        if (selected !== (msg.status.prefs?.exitNodeID || msg.status.exitNode?.id)) {
+          nativeHost.send({ cmd: "set-exit-node", nodeID: selected });
+        }
       }
 
       maybeAutoConnect(msg.status.backendState);
@@ -805,6 +805,7 @@ export function initBackground(
 
     // Error from native host
     if (msg.error) {
+      if (["switch-profile", "new-profile", "set-prefs"].includes(msg.error.cmd)) routing.cancelTransition();
       const safeCommand = /^[a-z][a-z0-9-]{0,48}$/.test(msg.error.cmd)
         ? msg.error.cmd
         : "unknown";
@@ -977,9 +978,13 @@ export function initBackground(
     handleNativeConnectionEvent,
     timerService,
     async () => {
+      await Promise.all([routingReady, domainSplitReady]);
       // A decision already made this lifetime is fresher than storage — a
       // reconnect must restore it even when the session write had failed.
-      if (sessionIntentMirror !== undefined) return sessionIntentMirror;
+      if (sessionIntentMirror !== undefined) {
+        if (sessionIntentMirror) routing.reconnect();
+        return sessionIntentMirror;
+      }
       const sessionIntent = await readSessionIntent();
       let resolved: boolean;
       if (sessionIntent !== undefined) {
@@ -1006,6 +1011,8 @@ export function initBackground(
       }
       // A user action that landed while the resolution was in flight wins.
       sessionIntentMirror ??= resolved;
+      if (sessionIntentMirror) routing.reconnect();
+      proxyManager.apply(routing.decorate(store.getState()));
       await enqueueIntentWrite(false);
       return sessionIntentMirror;
     },
@@ -1068,6 +1075,7 @@ export function initBackground(
         return markAutoConnectHandled().then(() => {
           // Record the intent before sending so the auto-disconnect fallback
           // can never read a stale "stay down" while this `up` is in flight.
+          routing.reconnect();
           recordIntent(true);
           if (!nativeHost.send({ cmd: "up" })) {
             sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
@@ -1257,7 +1265,7 @@ export function initBackground(
     // Immediately send current state to the newly connected popup
     const stateMsg: PopupMessage = {
       type: "state",
-      state: store.getState(),
+      state: routing.decorate(store.getState()),
     };
     try {
       port.postMessage(stateMsg);
@@ -1279,6 +1287,13 @@ export function initBackground(
     const state = store.getState();
 
     switch (msg.type) {
+      case "release-routing": {
+        routing.release();
+        recordIntent(false);
+        nativeHost.send({ cmd: "down" });
+        store.update({ routingHealth: { status: "unavailable", message: "Restoring normal browsing…" } });
+        break;
+      }
       case "toggle": {
         if (state.backendState === "Running") {
           // Treat manual disconnect as an explicit decision so a later SW
@@ -1286,6 +1301,7 @@ export function initBackground(
           void markAutoConnectHandled().catch((err) => {
             console.warn("[Background] markAutoConnectHandled failed:", err);
           });
+          routing.requestDisconnect();
           recordIntent(false);
           if (!nativeHost.send({ cmd: "down" })) {
             sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
@@ -1294,6 +1310,7 @@ export function initBackground(
           state.backendState === "Stopped" ||
           state.backendState === "NoState"
         ) {
+          routing.reconnect();
           recordIntent(true);
           if (!nativeHost.send({ cmd: "up" })) {
             sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
@@ -1319,6 +1336,7 @@ export function initBackground(
         // helpers that predate the wantRunning hint connect right after auth.
         // Record the intent so a later host respawn or the auto-disconnect
         // fallback doesn't yank a freshly logged-in user offline.
+        routing.reconnect();
         recordIntent(true);
         if (
           state.browseToURL &&
@@ -1363,13 +1381,14 @@ export function initBackground(
       }
 
       case "set-exit-node": {
+        routing.selectExitNode(msg.nodeID);
         store.update({ pendingExitNodeID: msg.nodeID });
         nativeHost.send({ cmd: "set-exit-node", nodeID: msg.nodeID });
-        chrome.storage.local.set({ lastExitNodeID: msg.nodeID });
         break;
       }
 
       case "clear-exit-node": {
+        routing.selectExitNode("");
         store.update({ pendingExitNodeID: "" });
         nativeHost.send({ cmd: "set-exit-node", nodeID: "" });
         chrome.storage.local.remove("lastExitNodeID");
@@ -1401,6 +1420,7 @@ export function initBackground(
           // *confirms* the change (see the status handler) rather than here, so
           // a rolled-back switch doesn't permanently lose it.
           if (controlServerChanged(msg.value, state.prefs?.controlURL)) {
+            routing.switchProfile();
             store.update({ browseToURL: "" });
           }
         }
@@ -1412,12 +1432,19 @@ export function initBackground(
       }
 
       case "switch-profile": {
+        if (msg.profileID === state.currentProfile?.id) break;
+        exitNodeRestoreAttempted = false;
+        routing.switchProfile();
+        store.update({ routingHealth: { status: "blocked", message: "Switching accounts — browsing is blocked." } });
         clearIntent();
         nativeHost.send({ cmd: "switch-profile", profileID: msg.profileID });
         break;
       }
 
       case "new-profile": {
+        exitNodeRestoreAttempted = false;
+        routing.switchProfile();
+        store.update({ routingHealth: { status: "blocked", message: "Switching accounts — browsing is blocked." } });
         clearIntent();
         nativeHost.send({ cmd: "new-profile" });
         break;
