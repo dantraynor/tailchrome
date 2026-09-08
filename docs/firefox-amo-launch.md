@@ -29,15 +29,13 @@ Copy the **Firefox AMO** Summary, Description, and Categories from [STORE_LISTIN
 
 ## Media Assets
 
-Upload these existing store assets:
+Upload these 1280x800 store assets in order:
 
-- `store-assets/screenshot-1-hero.png`
-- `store-assets/screenshot-2-popup.png`
-- `store-assets/screenshot-3-features.png`
-- `store-assets/screenshot-4-exit-nodes.png`
-- `store-assets/screenshot-5-actions.png`
-- `store-assets/promo-small.png`
-- `store-assets/promo-marquee.png`
+- `store-assets/screenshot-v2-1-overview.png`
+- `store-assets/screenshot-v2-2-control.png`
+- `store-assets/screenshot-v2-3-profiles.png`
+- `store-assets/screenshot-v2-4-exit-nodes.png`
+- `store-assets/screenshot-v2-5-split-tunneling.png`
 
 ## Submission Payload
 

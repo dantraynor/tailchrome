@@ -1,0 +1,832 @@
+:root {
+  --bone: #f2eadc;
+  --paper: #fbf7ef;
+  --ink: #171b2c;
+  --blue: #4c78c6;
+  --blue-dark: #274f96;
+  --green: #34c759;
+  --coral: #ef705b;
+  --muted: #6f6d68;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  position: relative;
+  color: var(--ink);
+  background: var(--bone);
+  font-family: Cantarell, "Noto Sans", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.store-canvas {
+  width: 1280px;
+  height: 800px;
+}
+
+.marquee-canvas {
+  width: 1400px;
+  height: 560px;
+}
+
+.small-canvas {
+  width: 440px;
+  height: 280px;
+}
+
+.readme-canvas {
+  width: 1400px;
+  height: 820px;
+}
+
+.photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.topline {
+  position: absolute;
+  top: 46px;
+  left: 54px;
+  right: 54px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 15px;
+  font-family: "Source Code Pro", monospace;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.mark {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 34px;
+  flex: 0 0 auto;
+}
+
+.mark i {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+.mark i:nth-child(1) {
+  top: 0;
+  left: 0;
+}
+
+.mark i:nth-child(2) {
+  bottom: 0;
+  left: 0;
+}
+
+.mark i:nth-child(3) {
+  right: 0;
+  bottom: 0;
+}
+
+.mark--light i {
+  background: var(--paper);
+}
+
+.mark--ink i {
+  background: var(--ink);
+}
+
+.series {
+  font-family: "Source Code Pro", monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.copy {
+  position: absolute;
+  z-index: 6;
+}
+
+.eyebrow {
+  margin-bottom: 22px;
+  font-family: "Source Code Pro", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-size: 70px;
+  font-weight: 800;
+  letter-spacing: -0.055em;
+  line-height: 0.96;
+}
+
+.lede {
+  max-width: 500px;
+  margin: 25px 0 0;
+  font-size: 21px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 30px;
+}
+
+.tag {
+  padding: 8px 12px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-family: "Source Code Pro", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.product-frame {
+  position: absolute;
+  z-index: 5;
+  padding: 39px 11px 11px;
+  border: 1px solid rgba(23, 27, 44, 0.22);
+  border-radius: 17px;
+  background: rgba(251, 247, 239, 0.95);
+  box-shadow:
+    0 25px 60px rgba(23, 27, 44, 0.22),
+    0 3px 0 rgba(23, 27, 44, 0.12);
+}
+
+.product-frame::before {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--coral);
+  box-shadow: 14px 0 0 #e7b54e, 28px 0 0 var(--green);
+  content: "";
+}
+
+.product-frame::after {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  color: rgba(23, 27, 44, 0.52);
+  content: attr(data-profile);
+  font-family: "Source Code Pro", monospace;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.capture {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid rgba(23, 27, 44, 0.16);
+  border-radius: 9px;
+  background: #f5f5f7;
+}
+
+.capture img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.route-overlay {
+  position: absolute;
+  z-index: 2;
+  overflow: visible;
+}
+
+.route-overlay path {
+  fill: none;
+  stroke: var(--blue);
+  stroke-linecap: round;
+  stroke-width: 8;
+}
+
+.route-overlay path.shadow {
+  stroke: rgba(23, 27, 44, 0.17);
+  stroke-width: 12;
+  transform: translateY(5px);
+}
+
+.registration {
+  position: absolute;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: var(--coral);
+  opacity: 0.65;
+}
+
+.registration::before,
+.registration::after {
+  position: absolute;
+  background: currentColor;
+  content: "";
+}
+
+.registration::before {
+  top: 11px;
+  left: -9px;
+  width: 40px;
+  height: 1px;
+}
+
+.registration::after {
+  top: -9px;
+  left: 11px;
+  width: 1px;
+  height: 40px;
+}
+
+/* Marquee */
+
+.marquee {
+  background: var(--bone);
+}
+
+.marquee .photo {
+  object-position: center;
+}
+
+.marquee::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(242, 234, 220, 0.98) 0%,
+    rgba(242, 234, 220, 0.89) 31%,
+    rgba(242, 234, 220, 0.08) 58%,
+    rgba(242, 234, 220, 0) 100%
+  );
+  content: "";
+}
+
+.marquee .topline {
+  top: 42px;
+  left: 66px;
+  right: 66px;
+}
+
+.marquee .series {
+  position: absolute;
+  right: 390px;
+}
+
+.marquee .copy {
+  top: 138px;
+  left: 66px;
+  width: 575px;
+}
+
+.marquee h1 {
+  font-size: 68px;
+}
+
+.marquee .lede {
+  width: 430px;
+  font-size: 18px;
+}
+
+.marquee .product-frame {
+  top: 38px;
+  right: 90px;
+  width: 292px;
+  height: 492px;
+  transform: rotate(-0.8deg);
+}
+
+/* Small promotional tile */
+
+.small-promo {
+  background: var(--blue-dark);
+}
+
+.small-promo .photo-cut {
+  position: absolute;
+  top: -5px;
+  right: -82px;
+  width: 410px;
+  height: 290px;
+  overflow: hidden;
+  border-radius: 150px 0 0 150px;
+  box-shadow: -14px 0 0 rgba(23, 27, 44, 0.18);
+}
+
+.small-promo .photo {
+  object-position: 70% center;
+}
+
+.small-promo .mark-badge {
+  position: absolute;
+  top: 91px;
+  left: 36px;
+  display: grid;
+  width: 98px;
+  height: 98px;
+  place-items: center;
+  border: 2px solid var(--paper);
+  border-radius: 50%;
+  background: var(--blue-dark);
+  box-shadow: 0 12px 24px rgba(23, 27, 44, 0.22);
+}
+
+.small-promo .mark {
+  transform: scale(1.45);
+}
+
+/* Store screenshot 1 */
+
+.overview {
+  background: var(--bone);
+}
+
+.overview .photo {
+  object-position: center;
+}
+
+.overview::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(242, 234, 220, 0.98) 0%,
+    rgba(242, 234, 220, 0.88) 36%,
+    rgba(242, 234, 220, 0.04) 67%
+  );
+  content: "";
+}
+
+.overview .copy {
+  top: 205px;
+  left: 76px;
+  width: 600px;
+}
+
+.overview h1 {
+  max-width: 590px;
+  font-size: 78px;
+}
+
+.overview .product-frame {
+  top: 79px;
+  right: 74px;
+  width: 354px;
+  height: 660px;
+  transform: rotate(-0.8deg);
+}
+
+.overview .registration {
+  bottom: 60px;
+  left: 76px;
+}
+
+/* Store screenshot 2 */
+
+.control {
+  color: var(--paper);
+  background: var(--ink);
+}
+
+.control::before {
+  position: absolute;
+  top: -340px;
+  right: -170px;
+  width: 900px;
+  height: 900px;
+  border: 1px solid rgba(251, 247, 239, 0.13);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 90px rgba(76, 120, 198, 0.06),
+    0 0 0 180px rgba(76, 120, 198, 0.04);
+  content: "";
+}
+
+.control .copy {
+  top: 220px;
+  left: 76px;
+  width: 590px;
+}
+
+.control .series,
+.exit-routing .series,
+.split-routing .series {
+  position: absolute;
+  right: 430px;
+}
+
+.control h1 {
+  max-width: 570px;
+  font-size: 76px;
+}
+
+.control .lede {
+  color: rgba(251, 247, 239, 0.72);
+}
+
+.control .tag {
+  color: var(--green);
+}
+
+.control .product-frame {
+  top: 64px;
+  right: 82px;
+  width: 366px;
+  height: 682px;
+  transform: rotate(0.9deg);
+}
+
+.control .route-overlay {
+  bottom: 68px;
+  left: -40px;
+  width: 780px;
+  height: 190px;
+}
+
+.control .route-overlay path {
+  stroke: var(--green);
+}
+
+/* Store screenshot 3 */
+
+.profiles {
+  background: var(--paper);
+}
+
+.profiles::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 43%;
+  height: 100%;
+  background: var(--blue);
+  content: "";
+}
+
+.profiles .copy {
+  top: 178px;
+  left: 72px;
+  width: 590px;
+}
+
+.profiles h1 {
+  max-width: 560px;
+  font-size: 74px;
+}
+
+.profiles .lede {
+  width: 450px;
+  color: var(--muted);
+}
+
+.profiles .lane {
+  position: absolute;
+  z-index: 2;
+  left: 72px;
+  width: 620px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--blue);
+}
+
+.profiles .lane::after {
+  position: absolute;
+  top: -8px;
+  right: -1px;
+  width: 23px;
+  height: 23px;
+  border-radius: 50%;
+  background: inherit;
+  content: "";
+}
+
+.profiles .lane-a {
+  bottom: 116px;
+}
+
+.profiles .lane-b {
+  bottom: 76px;
+  background: var(--coral);
+}
+
+.profiles .lane-label {
+  position: absolute;
+  top: -30px;
+  font-family: "Source Code Pro", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.profiles .profile-frame {
+  top: 129px;
+  right: 366px;
+  width: 300px;
+  height: 420px;
+  transform: rotate(-2deg);
+}
+
+.profiles .dark-frame {
+  top: 77px;
+  right: 64px;
+  width: 318px;
+  height: 642px;
+  transform: rotate(2deg);
+}
+
+/* Store screenshot 4 */
+
+.exit-routing {
+  color: var(--paper);
+  background: var(--blue-dark);
+}
+
+.exit-routing::before {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(251, 247, 239, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(251, 247, 239, 0.07) 1px, transparent 1px);
+  background-size: 64px 64px;
+  content: "";
+}
+
+.exit-routing .copy {
+  top: 188px;
+  left: 74px;
+  width: 600px;
+}
+
+.exit-routing h1 {
+  max-width: 580px;
+  font-size: 78px;
+}
+
+.exit-routing .lede {
+  width: 470px;
+  color: rgba(251, 247, 239, 0.74);
+}
+
+.exit-routing .coordinates {
+  position: absolute;
+  bottom: 58px;
+  left: 76px;
+  font-family: "Source Code Pro", monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.exit-routing .coordinates span {
+  color: var(--green);
+}
+
+.exit-routing .product-frame {
+  top: 50px;
+  right: 72px;
+  width: 370px;
+  height: 702px;
+  transform: rotate(-0.7deg);
+}
+
+.exit-routing .route-overlay {
+  bottom: 35px;
+  left: -25px;
+  width: 810px;
+  height: 240px;
+}
+
+.exit-routing .route-overlay path {
+  stroke: var(--green);
+}
+
+/* Store screenshot 5 */
+
+.split-routing {
+  background: var(--bone);
+}
+
+.split-routing::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 25px;
+  height: 100%;
+  background: var(--coral);
+  content: "";
+}
+
+.split-routing .copy {
+  top: 132px;
+  left: 76px;
+  width: 610px;
+}
+
+.split-routing h1 {
+  max-width: 600px;
+  font-size: 72px;
+}
+
+.split-routing .lede {
+  color: var(--muted);
+}
+
+.split-routing .domain-map {
+  position: absolute;
+  bottom: 62px;
+  left: 76px;
+  z-index: 3;
+  width: 540px;
+  height: 238px;
+}
+
+.split-routing .domain {
+  position: absolute;
+  left: 0;
+  padding: 9px 13px;
+  border: 1px solid rgba(23, 27, 44, 0.22);
+  border-radius: 7px;
+  background: var(--paper);
+  box-shadow: 0 3px 0 rgba(23, 27, 44, 0.08);
+  font-family: "Source Code Pro", monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.split-routing .domain:nth-child(1) {
+  top: 10px;
+}
+
+.split-routing .domain:nth-child(2) {
+  top: 88px;
+}
+
+.split-routing .domain:nth-child(3) {
+  top: 166px;
+}
+
+.split-routing .route-label {
+  position: absolute;
+  right: 0;
+  padding: 8px 11px;
+  border-radius: 999px;
+  color: var(--paper);
+  background: var(--blue-dark);
+  font-family: "Source Code Pro", monospace;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.split-routing .route-label.direct {
+  top: 46px;
+  background: var(--green);
+}
+
+.split-routing .route-label.exit {
+  top: 164px;
+}
+
+.split-routing .domain-lines {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+}
+
+.split-routing .product-frame {
+  top: 52px;
+  right: 70px;
+  width: 374px;
+  height: 696px;
+  transform: rotate(0.8deg);
+}
+
+/* README product strip */
+
+.readme-overview {
+  color: var(--paper);
+  background: var(--ink);
+}
+
+.readme-overview::before {
+  position: absolute;
+  top: -380px;
+  left: 380px;
+  width: 1150px;
+  height: 900px;
+  border: 120px solid rgba(76, 120, 198, 0.16);
+  border-radius: 50%;
+  content: "";
+}
+
+.readme-overview .topline {
+  top: 42px;
+}
+
+.readme-overview .intro {
+  position: absolute;
+  top: 142px;
+  left: 60px;
+  z-index: 4;
+  width: 360px;
+}
+
+.readme-overview h1 {
+  font-size: 61px;
+}
+
+.readme-overview .lede {
+  width: 330px;
+  color: rgba(251, 247, 239, 0.65);
+  font-size: 17px;
+}
+
+.readme-overview .mini-label {
+  position: absolute;
+  z-index: 7;
+  color: var(--green);
+  font-family: "Source Code Pro", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.readme-overview .frame-a {
+  top: 114px;
+  left: 448px;
+  width: 314px;
+  height: 632px;
+  transform: rotate(-1.6deg);
+}
+
+.readme-overview .frame-b {
+  top: 154px;
+  left: 748px;
+  width: 300px;
+  height: 602px;
+  transform: rotate(1deg);
+}
+
+.readme-overview .frame-c {
+  top: 100px;
+  right: 54px;
+  width: 300px;
+  height: 632px;
+  transform: rotate(2.4deg);
+}
+
+.readme-overview .label-a {
+  bottom: 36px;
+  left: 500px;
+}
+
+.readme-overview .label-b {
+  bottom: 36px;
+  left: 814px;
+}
+
+.readme-overview .label-c {
+  right: 112px;
+  bottom: 36px;
+}

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=1280, initial-scale=1">
+    <title>Tailchrome — split tunneling</title>
+    <link rel="stylesheet" href="campaign.css">
+  </head>
+  <body class="split-routing store-canvas">
+    <header class="topline">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        Tailchrome
+      </div>
+      <div class="series">05 / Split tunneling</div>
+    </header>
+    <main class="copy">
+      <div class="eyebrow">Rules that read like intent</div>
+      <h1>Send each domain the right way.</h1>
+      <p class="lede">Bypass the exit node for selected sites, or route only the domains you choose.</p>
+    </main>
+    <div class="domain-map" aria-hidden="true">
+      <span class="domain">banking.example.com</span>
+      <span class="domain">video.example.com</span>
+      <span class="domain">intranet.example.com</span>
+      <span class="route-label direct">Direct</span>
+      <span class="route-label exit">Via exit node</span>
+      <svg class="domain-lines" viewBox="0 0 540 238">
+        <path d="M148 26 C250 26 250 62 430 62" fill="none" stroke="#34c759" stroke-width="5" stroke-linecap="round"></path>
+        <path d="M140 104 C255 104 245 62 430 62" fill="none" stroke="#34c759" stroke-width="5" stroke-linecap="round"></path>
+        <path d="M162 182 C270 182 280 181 424 181" fill="none" stroke="#274f96" stroke-width="5" stroke-linecap="round"></path>
+      </svg>
+    </div>
+    <div class="product-frame" data-profile="Route rules">
+      <div class="capture">
+        <img src="artwork/ui/split-tunneling.png" alt="">
+      </div>
+    </div>
+  </body>
+</html>

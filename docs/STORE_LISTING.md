@@ -78,14 +78,19 @@ Source code is available at https://github.com/dantraynor/tailchrome
 Privacy & Security, Other
 
 
-## Screenshot Descriptions
+## Store Media
 
-For creating store screenshots, capture these states at 360px width:
+Use this 1280x800 sequence for both Chrome Web Store and Firefox AMO:
 
-1. **Connected view** - Show the main popup with a connected tailnet, green status dot, IP address, and a few online peers
-2. **Exit node picker** - Show the exit node selection with suggested node and a few options with country flags
-3. **Split-tunneling** - Show the expanded split-tunneling editor under the Exit Node row with the mode selector and a few example domains in the textarea
-4. **Peer actions** - Show an expanded peer item with Copy IP, Copy DNS, Open, SSH buttons
-5. **Quick Setup** - Show the install stepper with "Download for macOS" button and step 2 instructions
-6. **Profile switcher** - Show multiple profiles with Active badge
-7. **Dark mode** - Repeat screenshot 1 in dark mode to show theme support
+1. `store-assets/screenshot-v2-1-overview.png` — the per-browser-node concept and connected dashboard
+2. `store-assets/screenshot-v2-2-control.png` — the live connected control surface
+3. `store-assets/screenshot-v2-3-profiles.png` — isolated Work and Personal profiles, including dark mode
+4. `store-assets/screenshot-v2-4-exit-nodes.png` — recommended, device, and Mullvad exit routing
+5. `store-assets/screenshot-v2-5-split-tunneling.png` — Bypass/Only domain rules
+
+Chrome Web Store promotional images:
+
+- `store-assets/promo-small-v2.png` — 440x280, text-free small promotional tile
+- `store-assets/promo-marquee-v2.png` — 1400x560 marquee
+
+The matching HTML compositions and shared `store-assets/campaign.css` are kept beside the PNGs. Product surfaces come from deterministic extension fixtures rather than hand-drawn UI, so refresh those captures when the popup changes materially.

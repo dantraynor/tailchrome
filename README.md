@@ -2,15 +2,13 @@
 
 Access your Tailscale network directly from your browser. No system VPN required.
 
-<img width="1400" height="560" alt="promo-marquee" src="https://github.com/user-attachments/assets/88f6953e-014c-4c35-aa44-d612786f6d17" />
+<img width="1400" height="560" alt="Tailchrome routes a private tailnet inside the browser" src="store-assets/promo-marquee-v2.png" />
 
 [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) | [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/) | [tesseras.org/tailchrome](https://tesseras.org/tailchrome/)
 
 Tailchrome runs a full Tailscale node per browser profile, without touching system networking. Works in Chrome, Firefox, and other Chromium-family browsers (Brave, Edge, Vivaldi, Opera, plus Arc on macOS) with full feature parity. Tailnet traffic is routed through a local SOCKS5/HTTP proxy, so it works alongside (or without) the Tailscale system app.
 
-<p align="center">
-  <img src="store-assets/readme-popup.png" alt="Tailchrome popup" width="320">&nbsp;&nbsp;&nbsp;&nbsp;<img src="store-assets/readme-popup-exit-nodes.png" alt="Tailchrome exit node picker" width="320">
-</p>
+<img width="1400" height="820" alt="Tailchrome live status, exit node, and split tunneling views" src="store-assets/readme-overview-v2.png" />
 
 ## Features
 
