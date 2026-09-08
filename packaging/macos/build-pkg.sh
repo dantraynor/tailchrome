@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build tailscale-browser-ext as a universal macOS binary, then a flat .pkg that installs:
+# Build a self-contained per-user app archive and a flat .pkg that installs:
 #   - /Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext
 #   - /Applications/Tailchrome Helper.app  (repair/re-run fallback)
 # and runs a postinstall script that registers native messaging for the logged-in user.
@@ -54,6 +54,19 @@ APP_PLIST="$STAGE/pkgroot/Applications/Tailchrome Helper.app/Contents/Info.plist
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION_PKG" "$APP_PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION_PKG" "$APP_PLIST"
 
+echo "Staging per-user helper app..."
+USER_APP="$STAGE/user/Tailchrome Helper.app"
+mkdir -p "$STAGE/user"
+cp -R "$STAGE/pkgroot/Applications/Tailchrome Helper.app" "$USER_APP"
+xcrun clang -arch arm64 -arch x86_64 -mmacosx-version-min=12.0 \
+  -fobjc-arc -Wall -Wextra -framework Cocoa \
+  "$ROOT/packaging/macos/per-user-launcher.m" -o "$USER_APP/Contents/MacOS/tailchrome-helper"
+cp "$STAGE/pkgroot/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext" \
+  "$USER_APP/Contents/MacOS/tailscale-browser-ext"
+chmod 755 "$USER_APP/Contents/MacOS/"*
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier org.tesseras.tailchrome.helper.user" \
+  "$USER_APP/Contents/Info.plist"
+
 echo "Staging postinstall script..."
 cp "$ROOT/packaging/macos/scripts/postinstall" "$STAGE/scripts/postinstall"
 chmod 755 "$STAGE/scripts/postinstall"
@@ -65,19 +78,24 @@ if [[ -n "${MACOS_SIGN_APPLICATION_IDENTITY:-}" ]]; then
     "$STAGE/pkgroot/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext"
   codesign --force --options runtime --timestamp --deep --sign "$MACOS_SIGN_APPLICATION_IDENTITY" \
     "$STAGE/pkgroot/Applications/Tailchrome Helper.app"
+  codesign --force --options runtime --timestamp --sign "$MACOS_SIGN_APPLICATION_IDENTITY" \
+    "$USER_APP/Contents/MacOS/tailscale-browser-ext"
+  codesign --force --options runtime --timestamp --sign "$MACOS_SIGN_APPLICATION_IDENTITY" \
+    "$USER_APP"
 fi
 
 # Avoid packaging AppleDouble sidecar files when local files have extended
 # attributes or resource forks. Run after signing too, because signing tools can
 # touch extended attributes.
 if command -v xattr >/dev/null 2>&1; then
-  xattr -cr "$STAGE/pkgroot" "$STAGE/scripts"
+  xattr -cr "$STAGE/pkgroot" "$STAGE/scripts" "$STAGE/user"
 fi
 if command -v dot_clean >/dev/null 2>&1; then
   dot_clean -m "$STAGE/pkgroot"
   dot_clean -m "$STAGE/scripts"
+  dot_clean -m "$STAGE/user"
 fi
-find "$STAGE/pkgroot" "$STAGE/scripts" -name '._*' -type f -delete
+find "$STAGE/pkgroot" "$STAGE/scripts" "$STAGE/user" -name '._*' -type f -delete
 
 PKG_PATH="$DIST_DIR/$OUT_NAME"
 echo "Writing $PKG_PATH ..."
@@ -110,4 +128,8 @@ if [[ -n "${MACOS_SIGN_INSTALLER_IDENTITY:-}" ]]; then
   rm -f "$UNSIGNED"
 fi
 
-echo "Done: $PKG_PATH"
+rm -rf "$DIST_DIR/Tailchrome Helper.app"
+cp -R "$USER_APP" "$DIST_DIR/Tailchrome Helper.app"
+ditto -c -k --keepParent "$DIST_DIR/Tailchrome Helper.app" "$DIST_DIR/tailchrome-helper-macos-user.zip"
+
+echo "Done: $PKG_PATH and $DIST_DIR/tailchrome-helper-macos-user.zip"

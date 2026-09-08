@@ -1,6 +1,6 @@
 # Tailchrome Privacy Policy
 
-Last updated: 2026-07-26
+Last updated: 2026-09-08
 
 ## Summary
 
@@ -19,7 +19,7 @@ Tailchrome stores the following data locally in browser storage:
 - `autoConnectHandled` in session storage: a per-session flag used to avoid reconnecting automatically after an explicit manual disconnect.
 - helper discovery retry progress in session storage: the retry source, next retry index, and absolute retry deadline used to resume an interrupted package or repair check.
 - the current-session registration repair recommendation, which is cleared after the helper initializes successfully.
-- `proxyConfig` in Firefox session storage: the active proxy port, MagicDNS suffix, exit-node state, and subnet ranges needed to restore routing after the Firefox background context is suspended.
+- `proxyConfig` in Firefox session storage: the active proxy port, MagicDNS suffix, restricted DNS domains, exit-node state, and subnet ranges needed to restore routing after the Firefox background context is suspended.
 
 This data stays on the local device unless the user exports or syncs their browser profile separately.
 
@@ -39,6 +39,9 @@ Tailchrome sends this data only to:
 - the local native helper on the same machine,
 - the user's tailnet and configured coordination plane (Tailscale by default), and
 - the sites or services the user chooses to access through Tailchrome.
+
+For information about how Tailscale handles data, see the
+[Tailscale Privacy Policy](https://tailscale.com/privacy-policy).
 
 ## Data Tailchrome Does Not Collect
 

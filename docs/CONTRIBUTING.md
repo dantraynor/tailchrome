@@ -12,7 +12,7 @@ host/                 # Native messaging host (Go)
 
 ## Requirements
 
-- Go 1.26.5+
+- Go 1.26.6+
 - Node.js 22+
 - pnpm
 - Chrome or Firefox for manual testing
@@ -83,12 +83,12 @@ Include your browser, OS, extension version, and steps to reproduce.
 
 - PRs run extension tests, Chrome checks, the full Firefox review gate, Go
   tests on Linux and Windows, fallback-installer tests, a macOS package smoke
-  build, Windows signature-verifier fixtures, and Linux package metadata
-  checks.
+  build with per-user launcher tests, Windows signature-verifier fixtures, and
+  Linux package metadata checks.
 - A helper release first produces one immutable candidate artifact containing
   the extension archives, signed macOS/Windows helpers and installers, existing
   verified amd64/x86_64 Linux packages, Linux amd64/arm64 raw helpers, the fallback
-  installer, final checksums, and signature summaries.
+  installer, per-user macOS app, final checksums, and signature summaries.
 - Publication is a separate protected workflow. It accepts the original
   candidate run ID, release tag, and checksum-manifest digest; downloads those
   exact bytes; repeats structural and signature checks; and waits for

@@ -49,6 +49,8 @@ func (h *Host) handleSwitchProfile(profileID string) {
 	}
 
 	h.cancelStartupCorrection()
+	restartWatcher := h.beginProxyProfileChange(lc)
+	defer restartWatcher()
 
 	ctx := context.Background()
 	if err := lc.SwitchProfile(ctx, ipn.ProfileID(profileID)); err != nil {
@@ -68,6 +70,8 @@ func (h *Host) handleNewProfile() {
 	}
 
 	h.cancelStartupCorrection()
+	restartWatcher := h.beginProxyProfileChange(lc)
+	defer restartWatcher()
 
 	ctx := context.Background()
 	if err := lc.SwitchToEmptyProfile(ctx); err != nil {
@@ -92,6 +96,8 @@ func (h *Host) handleDeleteProfile(profileID string) {
 	}
 
 	h.cancelStartupCorrection()
+	restartWatcher := h.beginProxyProfileChange(lc)
+	defer restartWatcher()
 
 	ctx := context.Background()
 	if err := lc.DeleteProfile(ctx, ipn.ProfileID(profileID)); err != nil {

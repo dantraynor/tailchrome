@@ -46,17 +46,24 @@ type Reply struct {
 	Error              *ErrorReply            `json:"error,omitempty"`
 }
 
-// ProcRunningReply is sent immediately after the host starts to inform the
-// extension of the proxy port and process ID.
+// ProxyAuth is delivered only over the private native messaging channel.
+type ProxyAuth struct {
+	Version  int    `json:"version"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// ProcRunningReply announces the proxy endpoint and its process credential.
 type ProcRunningReply struct {
-	Port                     int    `json:"port"`
-	PID                      int    `json:"pid"`
-	Version                  string `json:"version"`
-	Error                    string `json:"error,omitempty"`
-	SupportsNetcheck         bool   `json:"supportsNetcheck,omitempty"`
-	SupportsPingPeer         bool   `json:"supportsPingPeer,omitempty"`
-	SupportsLogin            bool   `json:"supportsLogin,omitempty"`
-	SupportsCustomControlURL bool   `json:"supportsCustomControlURL,omitempty"`
+	ProxyAuth                *ProxyAuth `json:"proxyAuth,omitempty"`
+	Port                     int        `json:"port"`
+	PID                      int        `json:"pid"`
+	Version                  string     `json:"version"`
+	Error                    string     `json:"error,omitempty"`
+	SupportsNetcheck         bool       `json:"supportsNetcheck,omitempty"`
+	SupportsPingPeer         bool       `json:"supportsPingPeer,omitempty"`
+	SupportsLogin            bool       `json:"supportsLogin,omitempty"`
+	SupportsCustomControlURL bool       `json:"supportsCustomControlURL,omitempty"`
 }
 
 // InitReply is the response to an "init" command.
@@ -69,21 +76,23 @@ type PongReply struct{}
 
 // StatusUpdate contains the full state of the Tailscale node.
 type StatusUpdate struct {
-	BackendState   string     `json:"backendState"`
-	Running        bool       `json:"running"`
-	Tailnet        string     `json:"tailnet"`
-	MagicDNSSuffix string     `json:"magicDNSSuffix"`
-	SelfNode       *PeerInfo  `json:"selfNode,omitempty"`
-	NeedsLogin     bool       `json:"needsLogin"`
-	BrowseToURL    string     `json:"browseToURL,omitempty"`
-	AuthURL        string     `json:"authURL,omitempty"`
-	ExitNode       *PeerInfo  `json:"exitNode,omitempty"`
-	Peers          []PeerInfo `json:"peers"`
-	PeersTruncated bool       `json:"peersTruncated,omitempty"`
-	TotalPeers     int        `json:"totalPeers,omitempty"`
-	Prefs          *PrefsView `json:"prefs,omitempty"`
-	Health         []string   `json:"health"`
-	Error          string     `json:"error,omitempty"`
+	BackendState    string     `json:"backendState"`
+	Running         bool       `json:"running"`
+	Tailnet         string     `json:"tailnet"`
+	MagicDNSSuffix  string     `json:"magicDNSSuffix"`
+	DNSRoutes       *[]string  `json:"dnsRoutes,omitempty"`
+	SplitDNSDomains []string   `json:"splitDNSDomains"`
+	SelfNode        *PeerInfo  `json:"selfNode,omitempty"`
+	NeedsLogin      bool       `json:"needsLogin"`
+	BrowseToURL     string     `json:"browseToURL,omitempty"`
+	AuthURL         string     `json:"authURL,omitempty"`
+	ExitNode        *PeerInfo  `json:"exitNode,omitempty"`
+	Peers           []PeerInfo `json:"peers"`
+	PeersTruncated  bool       `json:"peersTruncated,omitempty"`
+	TotalPeers      int        `json:"totalPeers,omitempty"`
+	Prefs           *PrefsView `json:"prefs,omitempty"`
+	Health          []string   `json:"health"`
+	Error           string     `json:"error,omitempty"`
 }
 
 // PrefsView is a simplified view of the Tailscale preferences for the extension.

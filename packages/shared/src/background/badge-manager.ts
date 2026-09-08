@@ -35,7 +35,7 @@ export class BadgeManager {
     if (badgeKey === this.lastBadgeKey) return;
     this.lastBadgeKey = badgeKey;
 
-    if (state.helperFailure) {
+    if (state.helperFailure || (state.routingHealth && !["active", "inactive"].includes(state.routingHealth.status))) {
       this.setIcon(WARNING_ICONS);
       this.setBadge("!", BADGE_COLOR_ORANGE);
       return;
@@ -80,6 +80,7 @@ export class BadgeManager {
   private computeBadgeKey(state: TailscaleState): string {
     return [
       state.helperFailure?.kind ?? "",
+      state.routingHealth?.status ?? "",
       state.hostConnected ? "conn" : "disc",
       state.backendState,
       state.exitNode !== null ? "exit" : "noexit",

@@ -52,6 +52,7 @@ export interface NativeReply {
     supportsLogin?: boolean;
     /** When true, the native host accepts a `controlURL` field in `set-prefs` (omitted on older helpers). */
     supportsCustomControlURL?: boolean;
+    proxyAuth?: { version: 1; username: string; password: string };
   };
   init?: { error?: string };
   pong?: Record<string, never>;
@@ -70,6 +71,10 @@ export interface StatusUpdate {
   running: boolean;
   tailnet: string | null;
   magicDNSSuffix: string;
+  /** Legacy restricted domains; prefer dnsRoutes when supplied. */
+  splitDNSDomains?: string[];
+  /** Restricted DNS suffixes; omitted until available or by older helpers. */
+  dnsRoutes?: string[];
   selfNode: SelfNode | null;
   needsLogin: boolean;
   browseToURL: string;
@@ -219,6 +224,9 @@ export interface HelperVersionNotice {
 }
 
 export interface TailscaleState {
+  routingPolicy?: RoutingPolicy;
+  routingHealth?: RoutingHealth;
+  selectedExitNodeID?: string | null;
   /** Monotonically increasing counter, incremented on every state update. */
   stateVersion: number;
   hostConnected: boolean;
@@ -232,6 +240,8 @@ export interface TailscaleState {
   peers: PeerInfo[];
   exitNode: ExitNodeInfo | null;
   magicDNSSuffix: string | null;
+  splitDNSDomains: string[];
+  dnsRoutes?: string[];
   browseToURL: string | null;
   prefs: TailscalePrefs | null;
   health: string[];
@@ -290,8 +300,10 @@ type SetPrefMessage = {
 
 // Messages from popup to background
 export type BackgroundMessage =
+  | { type: "release-routing" }
   | { type: "toggle" }
   | { type: "login" }
+  | { type: "disconnect-and-login" }
   | { type: "logout" }
   | {
       type: "retry-native-host";
@@ -324,7 +336,32 @@ export type BackgroundMessage =
 
 // === Proxy manager interface ===
 
+export interface ProxySessionCredentials {
+  port: number;
+  username: string;
+  password: string;
+}
+
 export interface ProxyManager {
+  setProxySession?(session: ProxySessionCredentials | null): void;
   apply(state: TailscaleState): void;
   clear(): void;
+  setRoutingHealthListener?(listener: (health: RoutingHealth) => void): void;
+}
+
+export interface RoutingHealth {
+  status: "active" | "blocked" | "conflicted" | "unavailable" | "inactive";
+  message: string;
+}
+
+export interface RoutingPolicy {
+  blockAll?: boolean;
+  mode: "active" | "blocked" | "direct";
+  proxyPort: number | null;
+  selectedExitNodeID: string | null;
+  magicDNSSuffix: string;
+  subnetCIDRs: string[];
+  shortNames: string[];
+  dnsRoutes: string[];
+  domainSplit: DomainSplitConfig;
 }

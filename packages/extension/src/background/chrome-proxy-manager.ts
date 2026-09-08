@@ -1,4 +1,10 @@
-import type { DomainSplitConfig, TailscaleState } from "@tailchrome/shared/types";
+import { ChromeProxyAuth } from "./chrome-proxy-auth";
+import type {
+  ProxySessionCredentials,
+  DomainSplitConfig,
+  TailscaleState,
+  RoutingHealth,
+} from "@tailchrome/shared/types";
 import {
   TAILSCALE_IPV6_PREFIX,
   TAILSCALE_SERVICE_IP,
@@ -7,91 +13,203 @@ import {
   parseCIDR,
   sanitizeMagicDNSSuffix,
   sanitizeDomain,
-  collectSubnetCIDRs,
-  shouldProxyState,
+  sanitizeDNSRoutes,
 } from "@tailchrome/shared/background/proxy-utils";
 
+import {
+  policyFromState,
+  BLOCKED_PROXY_PORT,
+} from "@tailchrome/shared/background/routing-protection";
+
 export class ChromeProxyManager {
-  private currentlyEnabled = false;
-  private lastProxyKey = "";
-  private reconciledBrowserState = false;
+  private readonly auth = new ChromeProxyAuth();
+
+  setProxySession(session: ProxySessionCredentials | null): void {
+    this.auth.set(session);
+  }
+
+  private desired: chrome.proxy.ProxyConfig | null = null;
+  private desiredKey = "";
+  private appliedKey = "";
+  private inFlight = false;
+  private errorKey = "";
+  private changeEpoch = 0;
+  private healthListener: ((health: RoutingHealth) => void) | null = null;
+  private desiredHealth: RoutingHealth = { status: "inactive", message: "" };
+
+  constructor() {
+    chrome.proxy.settings.onChange.addListener((details) => {
+      this.changeEpoch += 1;
+      if (this.inFlight || !this.desired) return;
+      if (
+        details.levelOfControl === "controlled_by_other_extensions" ||
+        details.levelOfControl === "not_controllable"
+      ) {
+        this.appliedKey = "";
+        this.report({
+          status: "conflicted",
+          message:
+            "Browser routing is controlled by another extension or a browser policy.",
+        });
+      } else if (
+        this.desired &&
+        !sameProxyConfig(details.value, this.desired)
+      ) {
+        this.appliedKey = "";
+        this.flush();
+      } else {
+        this.flush();
+      }
+    });
+    chrome.proxy.onProxyError.addListener((details) => {
+      if (!this.desired) return;
+      this.errorKey = this.desiredKey;
+      this.appliedKey = "";
+      this.report({
+        status: details.fatal ? "blocked" : "unavailable",
+        message: details.fatal
+          ? "The proxy is unavailable — protected browsing is blocked."
+          : "Browser routing failed. Traffic may use your normal connection.",
+      });
+    });
+  }
+
+  setRoutingHealthListener(listener: (health: RoutingHealth) => void): void {
+    this.healthListener = listener;
+  }
 
   apply(state: TailscaleState): void {
-    if (!shouldProxyState(state)) {
-      // A service-worker restart loses the in-memory enabled flag while Chrome
-      // can retain the PAC setting. Reconcile browser state once on startup.
-      if (this.currentlyEnabled || !this.reconciledBrowserState) {
-        this.clear();
-      }
-      this.reconciledBrowserState = true;
+    const policy = policyFromState(state);
+    if (policy.mode === "direct") {
+      this.clear();
       return;
     }
-
-    this.reconciledBrowserState = true;
-
-    const port = state.proxyPort!;
-    const magicDNSSuffix = state.magicDNSSuffix;
-    const exitNodeActive = state.exitNode !== null;
-    const subnets = collectSubnetCIDRs(state.peers);
-    const splitDomains = sanitizeSplitDomains(state.domainSplit);
-    const splitMode = state.domainSplit.mode;
-
-    // Skip regeneration if proxy-relevant fields haven't changed
-    const proxyKey = `${port}:${magicDNSSuffix ?? ""}:${exitNodeActive}:${[...subnets].sort().join(",")}:${splitMode}:${splitDomains.join(",")}`;
-    if (proxyKey === this.lastProxyKey) {
-      return;
-    }
-    this.lastProxyKey = proxyKey;
-
-    const pacScript = this.generatePACScript(
-      port,
-      magicDNSSuffix,
-      exitNodeActive,
-      subnets,
-      splitMode,
-      splitDomains,
-    );
-
-    chrome.proxy.settings.set(
-      {
-        value: {
-          mode: "pac_script",
-          pacScript: {
-            data: pacScript,
-          },
-        },
-        scope: "regular",
-      },
-      () => {
-        if (chrome.runtime.lastError) {
-          console.error(
-            "[ProxyManager] Failed to set proxy:",
-            chrome.runtime.lastError.message,
-          );
+    const authenticationMissing = !this.auth.hasSession(policy.proxyPort ?? 0);
+    const blocked = policy.mode === "blocked" || authenticationMissing;
+    const port = blocked ? BLOCKED_PROXY_PORT : policy.proxyPort!;
+    this.desiredHealth = blocked
+      ? {
+          status: "blocked",
+          message: authenticationMissing && policy.mode === "active"
+            ? "Helper authentication unavailable — protected browsing is blocked."
+            : policy.selectedExitNodeID
+            ? "Exit node unavailable — protected browsing is blocked."
+            : "Connection unavailable — tailnet browsing is blocked.",
         }
+      : { status: "active", message: "" };
+    this.desired = {
+      mode: "pac_script",
+      pacScript: {
+        mandatory: true,
+        data: this.generatePACScript(
+          port,
+          policy.magicDNSSuffix,
+          policy.blockAll || policy.selectedExitNodeID !== null,
+          policy.subnetCIDRs,
+          policy.domainSplit.mode,
+          sanitizeSplitDomains(policy.domainSplit),
+          policy.shortNames,
+          policy.dnsRoutes,
+        ),
       },
-    );
-
-    this.currentlyEnabled = true;
+    };
+    const nextKey = JSON.stringify(this.desired);
+    if (nextKey !== this.desiredKey) this.errorKey = "";
+    this.desiredKey = nextKey;
+    this.flush();
   }
 
   clear(): void {
-    chrome.proxy.settings.set(
-      {
-        value: { mode: "direct" },
-        scope: "regular",
-      },
-      () => {
+    this.desired = null;
+    if (this.desiredKey !== "clear") this.errorKey = "";
+    this.desiredKey = "clear";
+    this.desiredHealth = { status: "inactive", message: "" };
+    this.flush();
+  }
+
+  private report(health: RoutingHealth): void {
+    this.healthListener?.(health);
+  }
+
+  private flush(): void {
+    if (!this.desiredKey || this.inFlight || this.errorKey === this.desiredKey)
+      return;
+    if (this.appliedKey === this.desiredKey) {
+      this.report(this.desiredHealth);
+      return;
+    }
+    this.inFlight = true;
+    const key = this.desiredKey;
+    const value = this.desired;
+    const fail = (message: string, conflicted = false): void => {
+      this.appliedKey = "";
+      // Keep reentrant state notifications from immediately retrying a rejection.
+      this.report({
+        status: conflicted ? "conflicted" : "unavailable",
+        message,
+      });
+      this.inFlight = false;
+      if (key !== this.desiredKey) this.flush();
+    };
+    chrome.proxy.settings.get({ incognito: false }, (current) => {
+      if (key !== this.desiredKey) {
+        this.inFlight = false;
+        this.flush();
+        return;
+      }
+      if (chrome.runtime.lastError) {
+        fail("Could not check browser routing.");
+        return;
+      }
+      if (
+        value &&
+        (current.levelOfControl === "not_controllable" ||
+          current.levelOfControl === "controlled_by_other_extensions")
+      ) {
+        fail(
+          "Browser routing is controlled by another extension or a browser policy.",
+          true,
+        );
+        return;
+      }
+      const done = (): void => {
         if (chrome.runtime.lastError) {
-          console.error(
-            "[ProxyManager] Failed to clear proxy:",
-            chrome.runtime.lastError.message,
-          );
+          fail("The browser rejected the routing settings.");
+          return;
         }
-      },
-    );
-    this.currentlyEnabled = false;
-    this.lastProxyKey = "";
+        const verify = (): void => {
+          const epoch = this.changeEpoch;
+          chrome.proxy.settings.get({ incognito: false }, (effective) => {
+            if (epoch !== this.changeEpoch) {
+              verify();
+              return;
+            }
+            if (chrome.runtime.lastError) {
+              fail("Could not verify browser routing.");
+              return;
+            }
+            if (
+              value &&
+              (effective.levelOfControl !== "controlled_by_this_extension" ||
+                !sameProxyConfig(effective.value, value))
+            ) {
+              fail(
+                "Browser routing is controlled by another extension or a browser policy.",
+                true,
+              );
+              return;
+            }
+            this.appliedKey = key;
+            if (key === this.desiredKey) this.report(this.desiredHealth);
+            this.inFlight = false;
+            if (key !== this.desiredKey) this.flush();
+          });
+        };
+        verify();
+      };
+      if (value) chrome.proxy.settings.set({ value, scope: "regular" }, done);
+      else chrome.proxy.settings.clear({ scope: "regular" }, done);
+    });
   }
 
   private generatePACScript(
@@ -101,8 +219,10 @@ export class ChromeProxyManager {
     subnets: string[],
     splitMode: "bypass" | "only",
     splitDomains: string[],
+    shortNames: string[],
+    dnsRoutes: string[],
   ): string {
-    const proxy = `SOCKS5 127.0.0.1:${port}`;
+    const proxy = `PROXY 127.0.0.1:${port}`;
 
     const subnetChecks = subnets
       .map((cidr) => {
@@ -113,7 +233,13 @@ export class ChromeProxyManager {
       .filter((line): line is string => line !== null)
       .join("\n");
 
-    const safeDNSSuffix = sanitizeMagicDNSSuffix(magicDNSSuffix);
+    const safeDNSSuffix = sanitizeMagicDNSSuffix(magicDNSSuffix).toLowerCase();
+    const dnsChecks = [
+      ...sanitizeDNSRoutes(shortNames).filter((name) => !name.includes("."))
+        .map((name) => `host === "${name}"`),
+      ...sanitizeDNSRoutes(dnsRoutes)
+        .map((domain) => `(host === "${domain}" || dnsDomainIs(host, ".${domain}"))`),
+    ].join(" || ");
 
     const domainChecks =
       splitDomains
@@ -133,11 +259,13 @@ export class ChromeProxyManager {
     }
 
     return `function FindProxyForURL(url, host) {
+  host = host.toLowerCase().replace(/\\.$/, "");
   var proxy = "${proxy}";
   var isIPv4 = /^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(host);
 
   if (host === "${TAILSCALE_SERVICE_IP}") return proxy;
 ${safeDNSSuffix ? `  if (dnsDomainIs(host, ".${safeDNSSuffix}") || host === "${safeDNSSuffix}") return proxy;` : "  // No MagicDNS suffix configured"}
+${dnsChecks ? `  if (${dnsChecks}) return proxy;` : "  // No additional DNS routes"}
   if (host.toLowerCase().indexOf("${TAILSCALE_IPV6_PREFIX}") === 0) return proxy;
   if (isIPv4 && isInNet(host, "100.64.0.0", "255.192.0.0")) return proxy;
 
@@ -158,4 +286,16 @@ function sanitizeSplitDomains(config: DomainSplitConfig): string[] {
     out.push(cleaned);
   }
   return out;
+}
+
+function sameProxyConfig(
+  actual: chrome.proxy.ProxyConfig,
+  expected: chrome.proxy.ProxyConfig,
+): boolean {
+  return (
+    actual.mode === expected.mode &&
+    actual.pacScript?.data === expected.pacScript?.data &&
+    (actual.pacScript?.mandatory === true) ===
+      (expected.pacScript?.mandatory === true)
+  );
 }

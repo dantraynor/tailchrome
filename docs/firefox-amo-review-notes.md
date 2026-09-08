@@ -20,9 +20,9 @@ Required so the extension can route tailnet traffic, subnet traffic, and exit-no
 
 ### `<all_urls>`
 
-Required because Firefox proxy resolution runs against requested URLs and Tailchrome must decide whether a request should go direct or through the local proxy for any destination. Tailchrome only proxies requests when they match tailnet IPs, MagicDNS names, advertised subnet CIDRs, or the user has explicitly enabled an exit node.
+Required because Firefox proxy resolution runs against requested URLs and Tailchrome must decide whether a request should go direct or through the local proxy for any destination. Tailchrome only proxies requests when they match tailnet IPs, MagicDNS names, restricted DNS domains supplied by the control plane, advertised subnet CIDRs, or the user has explicitly enabled an exit node.
 
-When an exit node is enabled, Tailchrome can also apply user-configured split-tunneling rules. These rules either bypass the exit node for listed domains or restrict exit-node routing to listed domains only; tailnet IPs, MagicDNS names, and subnet routes remain routed through the helper.
+When an exit node is enabled, Tailchrome can also apply user-configured split-tunneling rules. These rules either bypass the exit node for listed domains or restrict exit-node routing to listed domains only; tailnet IPs, MagicDNS names, restricted DNS domains, and subnet routes remain routed through the helper.
 
 ### `nativeMessaging`
 

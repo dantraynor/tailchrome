@@ -22,6 +22,7 @@ import (
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
+	"tailscale.com/types/netmap"
 )
 
 const (
@@ -61,12 +62,14 @@ type Host struct {
 	correctionCancel context.CancelFunc
 	correctionDone   <-chan struct{}
 
-	// Cached state for building status updates.
-	stateMu         sync.Mutex
-	lastState       string
-	lastBrowseToURL string
-	lastPrefs       *PrefsView
-	lastHealth      []string
+	// Cached IPN state for status updates and proxy routing.
+	stateMu             sync.Mutex
+	lastState           string
+	lastBrowseToURL     string
+	lastPrefs           *PrefsView
+	lastHealth          []string
+	lastSplitDNSDomains []string // Normalized once per netmap; never mutated in place.
+	lastNetMap          *netmap.NetworkMap
 
 	pendingMu        sync.Mutex
 	pendingTransfers map[string]*fileTransferAccumulator
@@ -76,6 +79,9 @@ type Host struct {
 
 	webMu    sync.Mutex
 	webCache *webServerCache
+
+	proxyAuth     *ProxyAuth
+	proxyListener net.Listener
 
 	// proxyDial is a test seam; production leaves it nil and uses tsnet.
 	proxyDial func(context.Context, string, string) (net.Conn, error)
@@ -215,6 +221,8 @@ func (h *Host) clearCachedStatus(prefs *ipn.Prefs) {
 	h.lastBrowseToURL = ""
 	h.lastPrefs = nil
 	h.lastHealth = nil
+	h.lastSplitDNSDomains = nil
+	h.lastNetMap = nil
 	if prefs != nil {
 		h.lastPrefs = prefsViewFromIPN(prefs.View())
 	}
@@ -985,6 +993,8 @@ func (h *Host) handleLogout() {
 	}
 
 	h.cancelStartupCorrection()
+	restartWatcher := h.beginProxyProfileChange(lc)
+	defer restartWatcher()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

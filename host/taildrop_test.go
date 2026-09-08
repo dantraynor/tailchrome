@@ -6,21 +6,22 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 	"time"
 )
 
-func decodeReply(t *testing.T, buf *bytes.Buffer) Reply {
+func decodeReply(t *testing.T, reader io.Reader) Reply {
 	t.Helper()
 
 	var length uint32
-	if err := binary.Read(buf, binary.LittleEndian, &length); err != nil {
+	if err := binary.Read(reader, binary.LittleEndian, &length); err != nil {
 		t.Fatalf("read length: %v", err)
 	}
 
 	data := make([]byte, length)
-	if _, err := buf.Read(data); err != nil {
+	if _, err := io.ReadFull(reader, data); err != nil {
 		t.Fatalf("read body: %v", err)
 	}
 

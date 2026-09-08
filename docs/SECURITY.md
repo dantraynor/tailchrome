@@ -57,6 +57,10 @@ Helper diagnostic reports are generated only when the user clicks the copy or ex
 
 ## Local Proxy Trust Boundary
 
-The helper exposes its SOCKS5/HTTP proxy only on a randomly assigned `127.0.0.1` port. Browser proxy APIs do not support attaching authentication credentials to PAC/listener-selected SOCKS connections, so the listener itself is unauthenticated.
+The helper exposes its SOCKS5/HTTP proxy on a randomly assigned `127.0.0.1` port and requires a fresh random credential on every helper launch. Credentials are sent over native messaging and held only by the background proxy manager, outside popup state, storage, and diagnostics. Chromium uses authenticated HTTP proxying; Firefox uses authenticated SOCKS5.
 
-On a normal single-user workstation, the loopback binding prevents remote access and the random port limits accidental discovery. On a shared machine, another process running as any local user may be able to discover the listening port and use the browser profile's tailnet access. Tailchrome should therefore be installed only on machines where local users and processes are trusted; use separate OS accounts or a dedicated machine for mutually untrusted users.
+Update the extension and helper together. The extension blocks proxy use when a helper does not provide the authenticated proxy capability; current helpers do not expose an unauthenticated compatibility listener.
+
+The helper checks destinations against its authoritative network map and current preferences. It permits Tailscale addresses, approved subnet routes, public destinations through a selected exit node, and attached private LAN destinations when LAN access is explicitly enabled. Loopback, link-local, and multicast destinations are blocked. The local Tailscale web client is authenticated separately before dispatch. DNS answers are checked before literal addresses are dialed; protected connections cannot fall back to the system network after route removal.
+
+This limits access by other local users and processes that can discover the port. It does not protect against processes that can read the browser or helper memory or control the same operating-system account.

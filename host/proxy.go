@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log"
@@ -9,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strings"
+	"time"
 
 	"tailscale.com/client/local"
 	"tailscale.com/client/web"
@@ -22,13 +26,15 @@ type webServerCache struct {
 }
 
 // startProxy starts an HTTP+SOCKS5 proxy on 127.0.0.1:0 and returns the port.
-// The proxy uses the tsnet.Server's Dial method to route connections through the tailnet.
+// Protected connections use the userspace network stack after destination validation.
 func (h *Host) startProxy() (int, error) {
+	h.proxyAuth = &ProxyAuth{Version: 1, Username: "tailchrome", Password: rand.Text() + rand.Text()}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return 0, fmt.Errorf("failed to listen: %w", err)
 	}
 
+	h.proxyListener = ln
 	port := ln.Addr().(*net.TCPAddr).Port
 
 	// Split the listener into SOCKS5 and HTTP listeners.
@@ -36,8 +42,10 @@ func (h *Host) startProxy() (int, error) {
 
 	// Start the SOCKS5 proxy.
 	socksServer := &socks5.Server{
-		Logf:   log.Printf,
-		Dialer: h.tsnetDialer,
+		Logf:     func(string, ...any) {},
+		Username: h.proxyAuth.Username,
+		Password: h.proxyAuth.Password,
+		Dialer:   h.tsnetDialer,
 	}
 	go func() {
 		if err := socksServer.Serve(socksLn); err != nil {
@@ -64,13 +72,13 @@ func (h *Host) tsnetDialer(ctx context.Context, network, addr string) (net.Conn,
 	if ts == nil {
 		return nil, fmt.Errorf("tsnet server not initialized")
 	}
-	return ts.Dial(ctx, network, addr)
+	return h.dialAllowedProxyDestination(ctx, ts, network, addr)
 }
 
 // serveHTTPProxy serves HTTP proxy requests, routing 100.100.100.100 to the
 // Tailscale web client and everything else through the tailnet.
 func (h *Host) serveHTTPProxy(ln net.Listener) error {
-	server := &http.Server{Handler: h.httpProxyHandler()}
+	server := &http.Server{Handler: h.httpProxyHandler(), ReadHeaderTimeout: 10 * time.Second}
 	return server.Serve(ln)
 }
 
@@ -80,11 +88,18 @@ func (h *Host) httpProxyHandler() http.Handler {
 			// No-op: we handle the request ourselves.
 		},
 		Transport: &http.Transport{
-			DialContext: h.tsnetDialer,
+			DialContext:       h.tsnetDialer,
+			DisableKeepAlives: true,
 		},
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !h.authenticateProxyRequest(r) {
+			w.Header().Set("Proxy-Authenticate", `Basic realm="Tailchrome"`)
+			http.Error(w, "Proxy authentication required", http.StatusProxyAuthRequired)
+			return
+		}
+		r.Header.Del("Proxy-Authorization")
 		host := r.Host
 		if h, _, err := net.SplitHostPort(host); err == nil {
 			host = h
@@ -198,4 +213,21 @@ func (h *Host) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}()
 	<-done
 	<-done
+}
+
+func (h *Host) authenticateProxyRequest(r *http.Request) bool {
+	if h.proxyAuth == nil {
+		return false
+	}
+	const prefix = "Basic "
+	value := r.Header.Get("Proxy-Authorization")
+	if len(value) < len(prefix) || !strings.EqualFold(value[:len(prefix)], prefix) {
+		return false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(value[len(prefix):])
+	if err != nil {
+		return false
+	}
+	expected := h.proxyAuth.Username + ":" + h.proxyAuth.Password
+	return subtle.ConstantTimeCompare(decoded, []byte(expected)) == 1
 }

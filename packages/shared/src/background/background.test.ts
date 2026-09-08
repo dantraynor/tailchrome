@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { ProxyManager, TailscaleState, NativeReply } from "../types";
+import type { ProxyManager, TailscaleState, NativeReply, RoutingHealth } from "../types";
 import {
   getHelperVersionNotice,
   initBackground,
@@ -148,6 +148,7 @@ describe("initBackground", () => {
     vi.useFakeTimers();
 
     proxyManager = {
+      setProxySession: vi.fn(),
       apply: vi.fn(),
       clear: vi.fn(),
     };
@@ -205,7 +206,7 @@ describe("initBackground", () => {
 
   function advertiseLoginSupport() {
     sendNativeMessage({
-      procRunning: {
+      procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) },
         port: 1055,
         pid: 1234,
         version: "0.1.11",
@@ -216,7 +217,7 @@ describe("initBackground", () => {
 
   function advertiseCustomControlURLSupport() {
     sendNativeMessage({
-      procRunning: {
+      procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) },
         port: 1055,
         pid: 1234,
         version: "0.1.11",
@@ -248,9 +249,34 @@ describe("initBackground", () => {
   });
 
   describe("native message handling", () => {
+    it("rejects legacy unauthenticated helpers visibly", async () => {
+      await setupBackground();
+      sendNativeMessage({ procRunning: { port: 1055, pid: 1 } });
+      expect(proxyManager.setProxySession).toHaveBeenLastCalledWith(null);
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(expect.objectContaining({
+        proxyPort: null, proxyEnabled: false,
+        helperFailure: expect.objectContaining({ kind: "helper-incompatible", diagnosticCode: "helper-proxy-auth-required" }),
+      }));
+    });
+
+    it("delivers credentials privately and clears them on disconnect", async () => {
+      await setupBackground();
+      const popup = createPopupPort();
+      connectListeners[0]!(popup);
+      const password = "private-credential-".repeat(3);
+      sendNativeMessage({ procRunning: { port: 1055, pid: 1, proxyAuth: { version: 1, username: "user", password } } });
+      expect(proxyManager.setProxySession).toHaveBeenLastCalledWith({ port: 1055, username: "user", password });
+      expect(JSON.stringify(vi.mocked(proxyManager.apply).mock.calls)).not.toContain(password);
+      expect(JSON.stringify(popup.postMessage.mock.calls)).not.toContain(password);
+      expect(JSON.stringify(vi.mocked(chrome.storage.local.set).mock.calls)).not.toContain(password);
+      expect(JSON.stringify(vi.mocked(chrome.storage.session.set).mock.calls)).not.toContain(password);
+      nativePort.onDisconnect._listeners[0]!(nativePort);
+      expect(proxyManager.setProxySession).toHaveBeenLastCalledWith(null);
+    });
+
     it("updates proxy port on procRunning message", async () => {
       await setupBackground();
-      sendNativeMessage({ procRunning: { port: 1055, pid: 1234 } });
+      sendNativeMessage({ procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234 } });
 
       // proxyManager.apply should have been called with state containing new port
       expect(proxyManager.apply).toHaveBeenCalledWith(
@@ -267,7 +293,7 @@ describe("initBackground", () => {
     it("sets supportsNetcheck when procRunning advertises it", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, supportsNetcheck: true },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, supportsNetcheck: true },
       });
 
       expect(proxyManager.apply).toHaveBeenCalledWith(
@@ -278,7 +304,7 @@ describe("initBackground", () => {
     it("sets supportsPingPeer when procRunning advertises it", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, supportsPingPeer: true },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, supportsPingPeer: true },
       });
 
       expect(proxyManager.apply).toHaveBeenCalledWith(
@@ -289,7 +315,7 @@ describe("initBackground", () => {
     it("sets supportsLogin when procRunning advertises it", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, supportsLogin: true },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, supportsLogin: true },
       });
 
       expect(proxyManager.apply).toHaveBeenCalledWith(
@@ -300,7 +326,7 @@ describe("initBackground", () => {
     it("sets supportsCustomControlURL when procRunning advertises it", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.1.11", supportsCustomControlURL: true },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, version: "0.1.11", supportsCustomControlURL: true },
       });
 
       expect(proxyManager.apply).toHaveBeenCalledWith(
@@ -311,7 +337,7 @@ describe("initBackground", () => {
     it("defaults supportsCustomControlURL to false on older helpers", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234 },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234 },
       });
 
       expect(proxyManager.apply).toHaveBeenCalledWith(
@@ -322,7 +348,7 @@ describe("initBackground", () => {
     it("keeps a differing helper version connected with a non-blocking notice", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: {
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) },
           port: 1055,
           pid: 1234,
           version: "0.1.11",
@@ -347,10 +373,10 @@ describe("initBackground", () => {
     it("clears the version notice when the companion helper connects", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.1.11" },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, version: "0.1.11" },
       });
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.1.13" },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, version: "0.1.13" },
       });
 
       expect(proxyManager.apply).toHaveBeenLastCalledWith(
@@ -367,7 +393,7 @@ describe("initBackground", () => {
       async (version) => {
         await setupBackground();
         sendNativeMessage({
-          procRunning: {
+          procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) },
             port: 1055,
             pid: 1234,
             ...(version === undefined ? {} : { version }),
@@ -412,7 +438,7 @@ describe("initBackground", () => {
       await setupBackground();
       sendNativeMessage({ init: { error: "failed at /Users/alice/private" } });
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.1.12" },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, version: "0.1.12" },
       });
 
       expect(proxyManager.apply).toHaveBeenLastCalledWith(
@@ -444,7 +470,7 @@ describe("initBackground", () => {
     it("requires procRunning and init recovery from the same connection attempt", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.1.12" },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, version: "0.1.12" },
       });
       sendNativeMessage({ init: { error: "first attempt failed" } });
 
@@ -470,7 +496,7 @@ describe("initBackground", () => {
       );
 
       secondPort.onMessage._listeners[0]!({
-        procRunning: { port: 1055, pid: 4321, version: "0.1.12" },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 4321, version: "0.1.12" },
       });
       expect(proxyManager.apply).toHaveBeenLastCalledWith(
         expect.objectContaining({
@@ -489,6 +515,7 @@ describe("initBackground", () => {
           running: true,
           tailnet: "my-tailnet",
           magicDNSSuffix: "my-tailnet.ts.net",
+          splitDNSDomains: ["internal.example.com"],
           selfNode: null,
           needsLogin: false,
           browseToURL: "",
@@ -504,6 +531,7 @@ describe("initBackground", () => {
         expect.objectContaining({
           backendState: "Running",
           tailnet: "my-tailnet",
+          splitDNSDomains: ["internal.example.com"],
         })
       );
     });
@@ -824,7 +852,7 @@ describe("initBackground", () => {
       await setupBackground();
       // Helper connects and reports an older version: non-blocking notice state.
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.0.1", supportsLogin: true },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, version: "0.0.1", supportsLogin: true },
       });
 
       const popupPort = createPopupPort();
@@ -1045,7 +1073,7 @@ describe("initBackground", () => {
       expect(proxyManager.apply).toHaveBeenCalledWith(
         expect.objectContaining({ pendingExitNodeID: "node123" }),
       );
-      expect(chrome.storage.local.set).toHaveBeenCalledWith({ lastExitNodeID: "node123" });
+      expect(chrome.storage.local.set).not.toHaveBeenCalledWith({ lastExitNodeID: "node123" });
     });
 
     it("handles clear-exit-node message", async () => {
@@ -1064,6 +1092,84 @@ describe("initBackground", () => {
         expect.objectContaining({ pendingExitNodeID: "" }),
       );
       expect(chrome.storage.local.remove).toHaveBeenCalledWith("lastExitNodeID");
+    });
+
+    it.each([true, false])("waits for normal routing before login (existing URL: %s)", async (existingURL) => {
+      let reportHealth!: (health: RoutingHealth) => void;
+      proxyManager.setRoutingHealthListener = (listener) => { reportHealth = listener; };
+      await setupBackground();
+      advertiseLoginSupport();
+      sendNativeMessage({ status: {
+        backendState: "NeedsLogin", running: false, tailnet: null,
+        magicDNSSuffix: "", selfNode: null, needsLogin: true,
+        browseToURL: existingURL ? "https://login.tailscale.com/auth/xyz" : "",
+        exitNode: null, peers: [], prefs: null, health: [], error: null,
+      } });
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      nativePort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "disconnect-and-login" });
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(expect.objectContaining({
+        routingPolicy: expect.objectContaining({ mode: "direct" }),
+      }));
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "login" });
+      reportHealth({ status: "blocked", message: "Waiting for settings" });
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      reportHealth({ status: "inactive", message: "" });
+      if (existingURL) {
+        expect(chrome.tabs.create).toHaveBeenCalledExactlyOnceWith({ url: "https://login.tailscale.com/auth/xyz" });
+      } else {
+        expect(nativePort.postMessage).toHaveBeenCalledExactlyOnceWith({ cmd: "login" });
+      }
+    });
+
+    it("cancels a waiting login when the user disconnects", async () => {
+      let reportHealth!: (health: RoutingHealth) => void;
+      proxyManager.setRoutingHealthListener = (listener) => { reportHealth = listener; };
+      await setupBackground();
+      sendNativeMessage({ status: {
+        backendState: "NeedsLogin", running: false, tailnet: null,
+        magicDNSSuffix: "", selfNode: null, needsLogin: true,
+        browseToURL: "https://login.tailscale.com/auth/xyz",
+        exitNode: null, peers: [], prefs: null, health: [], error: null,
+      } });
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "disconnect-and-login" });
+      popupPort.onMessage._listeners[0]!({ type: "release-routing" });
+      reportHealth({ status: "inactive", message: "" });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+        type: "toast", message: "Could not restore normal browsing. Check browser routing and try again.",
+      }));
+    });
+
+    it("does not open login when restoring normal routing times out", async () => {
+      let reportHealth!: (health: RoutingHealth) => void;
+      proxyManager.setRoutingHealthListener = (listener) => { reportHealth = listener; };
+      await setupBackground();
+      sendNativeMessage({ status: {
+        backendState: "NeedsLogin", running: false, tailnet: null,
+        magicDNSSuffix: "", selfNode: null, needsLogin: true,
+        browseToURL: "https://login.tailscale.com/auth/xyz",
+        exitNode: null, peers: [], prefs: null, health: [], error: null,
+      } });
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "disconnect-and-login" });
+      reportHealth({ status: "unavailable", message: "Browser rejected settings" });
+      await vi.advanceTimersByTimeAsync(5_000);
+      reportHealth({ status: "inactive", message: "" });
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: "toast", message: "Could not restore normal browsing. Check browser routing and try again.",
+      }));
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      reportHealth({ status: "inactive", message: "" });
+      expect(chrome.tabs.create).toHaveBeenCalledExactlyOnceWith({ url: "https://login.tailscale.com/auth/xyz" });
     });
 
     it("handles login with valid URL", async () => {
@@ -1240,7 +1346,7 @@ describe("initBackground", () => {
     it("does not send login command when native helper lacks login support", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.1.11" },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, version: "0.1.11" },
       });
       sendNativeMessage({
         status: {
@@ -1931,7 +2037,7 @@ describe("initBackground", () => {
     it("does not open the stale login URL after switching coordination servers", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: {
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) },
           port: 1055,
           pid: 1234,
           version: "0.1.11",
@@ -1986,7 +2092,7 @@ describe("initBackground", () => {
     it("clears the saved exit node when the coordination server changes", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.1.11", supportsCustomControlURL: true },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, version: "0.1.11", supportsCustomControlURL: true },
       });
       sendNativeMessage({
         status: {
@@ -2056,7 +2162,7 @@ describe("initBackground", () => {
     it("keeps the saved exit node when the host rolls a server switch back", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.1.11", supportsCustomControlURL: true },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, version: "0.1.11", supportsCustomControlURL: true },
       });
       sendNativeMessage({
         status: {
@@ -2123,7 +2229,7 @@ describe("initBackground", () => {
     it("keeps the saved exit node when re-saving the same coordination server", async () => {
       await setupBackground();
       sendNativeMessage({
-        procRunning: { port: 1055, pid: 1234, version: "0.1.11", supportsCustomControlURL: true },
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, version: "0.1.11", supportsCustomControlURL: true },
       });
       sendNativeMessage({
         status: {
@@ -2276,7 +2382,7 @@ describe("initBackground", () => {
   });
 
   describe("exit node restoration", () => {
-    it("restores saved exit node on first Running status without exit node", async () => {
+    it("does not restore an unscoped legacy exit node into an unknown account", async () => {
       (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
         profileId: "test-id",
         lastExitNodeID: "saved-exit-node",
@@ -2305,7 +2411,7 @@ describe("initBackground", () => {
       // Let storage.get promise resolve
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(nativePort.postMessage).toHaveBeenCalledWith({
+      expect(nativePort.postMessage).not.toHaveBeenCalledWith({
         cmd: "set-exit-node",
         nodeID: "saved-exit-node",
       });
@@ -2447,7 +2553,7 @@ describe("initBackground", () => {
 
       nativePort.postMessage.mockClear();
       sendNativeMessage({
-        procRunning: {
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) },
           port: 1055,
           pid: 1234,
           version: "0.1.11",
@@ -3086,6 +3192,26 @@ describe("initBackground", () => {
         expect(chrome.storage.local.remove).toHaveBeenCalledWith(
           "lastSessionWantRunning",
         );
+      });
+
+      it("blocks while deleting the current profile and ignores unrelated command errors", async () => {
+        await setupBackground();
+        sendNativeMessage({
+          profiles: {
+            current: { id: "p1", name: "A" },
+            profiles: [{ id: "p1", name: "A" }],
+          },
+        });
+        const popupPort = createPopupPort();
+        connectListeners[0]!(popupPort);
+        popupPort.onMessage._listeners[0]!({ type: "delete-profile", profileID: "p1" });
+        expect(proxyManager.apply).toHaveBeenLastCalledWith(expect.objectContaining({
+          routingPolicy: expect.objectContaining({ mode: "blocked", blockAll: true }),
+        }));
+        sendNativeMessage({ error: { cmd: "set-prefs", message: "Earlier preference update failed" } });
+        expect(proxyManager.apply).toHaveBeenLastCalledWith(expect.objectContaining({
+          routingPolicy: expect.objectContaining({ mode: "blocked", blockAll: true }),
+        }));
       });
 
       it("keeps the stay-down intent when deleting a non-current profile", async () => {

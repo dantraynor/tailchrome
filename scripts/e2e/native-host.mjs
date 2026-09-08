@@ -140,10 +140,22 @@ function mockSource(baseUrl, initialControl) {
   const commandReplyIndexes = Object.create(null);
   let connectionAttempt = 0;
   let manualRecoveryRequested = false;
+  let currentNativePort = null;
 
-  // The incompatible kind is intentionally defensive-only in production until
-  // a future protocol supplies explicit evidence. Transform background state
-  // only inside this fixture so both browser families still exercise that UI.
+  if (control.allowRuntimeUpdates) {
+    chrome.runtime.onMessage.addListener((message, _sender, reply) => {
+      const update = message?.tailchromeE2ENative;
+      if (!update) return;
+      if (update.control) Object.assign(control, update.control);
+      if (update.reply?.status) control.status = update.reply.status;
+      if (update.reply) currentNativePort?.onMessage.dispatch(update.reply);
+      if (update.disconnect) currentNativePort?.disconnect();
+      reply({ ok: true });
+    });
+  }
+
+
+  // Inject explicit helper failures so both browser families exercise recovery.
   if (control.popupFailureKind) {
     chrome.runtime.onConnect.addListener((port) => {
       if (port.name !== "popup") return;
@@ -311,6 +323,8 @@ function mockSource(baseUrl, initialControl) {
       },
     };
 
+    currentNativePort = port;
+
     // Dispatch procRunning synchronously from the inlined snapshot so it
     // reaches the background before the popup connects. The fetch
     // round-trip used previously raced with openPopup and left the popup
@@ -328,6 +342,7 @@ function mockSource(baseUrl, initialControl) {
       }
       onMessage.dispatch({
         procRunning: {
+          ...(control.legacyProxy ? {} : { proxyAuth: control.proxyAuth ?? { version: 1, username: "fixture", password: "fixture-credential-".repeat(3) } }),
           port: control.proxyPort ?? 1055,
           pid: 1,
           version: control.hostVersion ?? ${JSON.stringify(expectedHostVersion)},

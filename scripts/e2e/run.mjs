@@ -108,6 +108,7 @@ async function loadCases({ browserName, suite, grep }) {
         name: mod.name ?? file.replace(/\.mjs$/, ""),
         control: mod.control,
         nativeHost: mod.nativeHost,
+        launchOptions: mod.launchOptions,
         run: mod.run,
       },
     ];
@@ -135,7 +136,7 @@ async function runCase({ browserName, extensionDir, item }) {
   let failed = false;
   try {
     const caseExtensionDir = await nativeHost.prepareExtension(extensionDir);
-    const launched = await launch(caseExtensionDir, { browserName });
+    const launched = await launch(caseExtensionDir, { ...testCase.launchOptions, browserName });
     browser = launched.browser;
     await testCase.run({
       browser,

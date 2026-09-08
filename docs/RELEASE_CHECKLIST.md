@@ -50,6 +50,7 @@ not apply.
   - `tailscale-browser-ext-darwin-amd64`
   - `tailscale-browser-ext-darwin-arm64`
   - `tailchrome-helper-macos.pkg`
+  - `tailchrome-helper-macos-user.zip`
   - `tailscale-browser-ext-linux-amd64`
   - `tailscale-browser-ext-linux-arm64`
   - `tailchrome-helper-linux-amd64.deb`
@@ -61,7 +62,7 @@ not apply.
 
 - [ ] Artifact attestations exist for the same final files.
 - [ ] The macOS raw helpers and repair app pass `codesign --verify --deep --strict` and Gatekeeper assessment.
-- [ ] The macOS package passes signature and stapling validation.
+- [ ] The macOS package and extracted per-user app pass signature and stapling validation.
 - [ ] The Linux raw helpers report the intended amd64 and arm64 architectures.
 - [ ] The DEB and RPM contain only their declared system paths and no per-user install hook.
 - [ ] The raw Windows EXE has one valid SHA-256 Authenticode signature, a timestamp, and the exact expected subject.

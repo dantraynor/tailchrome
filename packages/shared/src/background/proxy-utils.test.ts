@@ -3,7 +3,11 @@ import {
   ipToNum,
   parseCIDR,
   sanitizeMagicDNSSuffix,
+  sanitizeSplitDNSDomains,
   collectSubnetCIDRs,
+  collectShortNames,
+  sanitizeDNSName,
+  sanitizeDNSRoutes,
   shouldProxyState,
   CGNAT_NETWORK,
   CGNAT_MASK,
@@ -153,6 +157,30 @@ describe("sanitizeMagicDNSSuffix", () => {
   });
 });
 
+describe("sanitizeSplitDNSDomains", () => {
+  it("normalizes case and trailing dots, deduplicates, and preserves valid labels", () => {
+    expect(sanitizeSplitDNSDomains([
+      "Internal.Example.COM.", "internal.example.com", "home", "xn--bcher-kva.example",
+    ])).toEqual(["home", "internal.example.com", "xn--bcher-kva.example"]);
+  });
+
+  it.each([
+    "", ".", "..", "*.example.com", ".example.com", "example..com", "example.com..",
+    "https://example.com", "example.com/path", "example.com:53", " example.com ",
+    "-bad.example", "bad-.example", "bad_label.example", "café.example",
+    'evil\"); return \"DIRECT\"; //', "example.com\n", "a".repeat(64) + ".example",
+    Array(4).fill("a".repeat(63)).join("."), null, 42,
+  ])("rejects malformed control-plane domain %j", (domain) => {
+    expect(sanitizeSplitDNSDomains([domain])).toEqual([]);
+  });
+
+  it("defaults missing or malformed collections to no restricted domains", () => {
+    expect(sanitizeSplitDNSDomains(undefined)).toEqual([]);
+    expect(sanitizeSplitDNSDomains(null)).toEqual([]);
+    expect(sanitizeSplitDNSDomains("internal.example.com")).toEqual([]);
+  });
+});
+
 // === collectSubnetCIDRs ===
 
 describe("collectSubnetCIDRs", () => {
@@ -233,5 +261,26 @@ describe("CGNAT constants", () => {
     // Outside range
     expect(check("100.128.0.0")).toBe(false);
     expect(check("10.0.0.1")).toBe(false);
+  });
+});
+
+
+describe("DNS names and routes", () => {
+  it("keeps only complete, valid DNS names", () => {
+    expect(sanitizeDNSRoutes(["Internal.Example.", "internal.example", "other.example"])).toEqual(["internal.example", "other.example"]);
+    for (const name of ["", ".", "*.example", "https://internal.example", "bad..example", "bad.example:53", "127.0.0.1", "-bad.example", "bad-.example", "bad\n.example", "a".repeat(64) + ".example"]) {
+      expect(sanitizeDNSName(name)).toBeNull();
+    }
+    expect(sanitizeDNSRoutes([12, null, {}, "good.example"])).toEqual(["good.example"]);
+  });
+
+  it("derives exact short names from peer DNS records, not device hostnames", () => {
+    expect(collectShortNames(baseState({ peers: [
+      makePeer({ hostname: "wrong", dnsName: "Wiki.Example.Ts.Net." }),
+      makePeer({ hostname: "router", dnsName: "router.other.ts.net." }),
+      makePeer({ dnsName: "nested.wiki.example.ts.net." }),
+      makePeer({ dnsName: "wiki.example.ts.net." }),
+    ] }))).toEqual(["wiki"]);
+    expect(collectShortNames(baseState({ magicDNSSuffix: null, peers: [makePeer()] }))).toEqual([]);
   });
 });

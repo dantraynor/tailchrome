@@ -1,4 +1,4 @@
-import { expectText, waitForPopup } from "../assertions.mjs";
+import { expectText, getProxyConfig, waitForPopup } from "../assertions.mjs";
 import { makeControl } from "../fixtures.mjs";
 
 export const suite = "smoke";
@@ -11,23 +11,14 @@ export async function run({ openPopup }) {
   try {
     await waitForPopup(page);
     await expectText(page, "example.ts.net");
-    const proxyConfig = await page.evaluate(
-      () =>
-        new Promise((resolve, reject) => {
-          chrome.proxy.settings.get({ incognito: false }, (details) => {
-            const err = chrome.runtime.lastError;
-            if (err) reject(new Error(err.message));
-            else resolve(details.value);
-          });
-        }),
-    );
+    const proxyConfig = await getProxyConfig(page);
 
     if (proxyConfig.mode !== "pac_script") {
       throw new Error(`Expected pac_script proxy mode, got ${proxyConfig.mode}`);
     }
     const data = proxyConfig.pacScript?.data ?? "";
     for (const expected of [
-      "SOCKS5 127.0.0.1:1055",
+      "PROXY 127.0.0.1:1055",
       "100.100.100.100",
       "100.64.0.0",
       "fd7a:115c:a1e0:",

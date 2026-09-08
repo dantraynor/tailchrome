@@ -85,12 +85,12 @@ describe("startChromeBackground", () => {
     );
   });
 
-  it("clears proxy settings on suspend", () => {
+  it("preserves proxy settings on suspend", () => {
     startChromeBackground();
 
-    expect(onSuspendAddListener).toHaveBeenCalledTimes(1);
+    expect(onSuspendAddListener).not.toHaveBeenCalled();
     suspendListener?.();
-    expect(proxyManagerInstance.clear).toHaveBeenCalledTimes(1);
+    expect(proxyManagerInstance.clear).not.toHaveBeenCalled();
   });
 
   it("rehydrates a pending helper retry during MV3 startup", () => {

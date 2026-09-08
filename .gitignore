@@ -6,6 +6,7 @@ yarn.lock
 
 # Build output
 dist/
+/host/host
 packaging/macos/.pkg-stage-*/
 packaging/macos/**/_CodeSignature/
 .output/
