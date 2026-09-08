@@ -22,12 +22,13 @@ SmartScreen unknown-publisher warning. The variable must be removed as soon as
 a signing provider and expected signer subject are recorded, at which point the
 fail-closed signed gate below is the only release path again.
 
-SignPath Foundation and Azure Artifact Signing Individual are the evaluated
-onboarding paths. SignPath is preferred if the Foundation application is
-accepted and its trusted-build flow succeeds. Otherwise, Azure may be selected
-after Individual identity validation and a successful OIDC-backed test
-signature. Exactly one integration and one expected signer subject must be
-recorded here before this change can merge.
+The project is applying to SignPath Foundation. SignPath becomes the selected
+production provider only after the Foundation accepts the application and its
+trusted-build flow produces a successful test signature. Azure Artifact Signing
+Individual remains the evaluated alternative if SignPath does not accept the
+project. Azure may be selected only after Individual identity validation and a
+successful OIDC-backed test signature. Exactly one integration and one expected
+signer subject must be recorded here before signed publication is enabled.
 
 If SignPath supplies the production signature, the project home and download
 surfaces must include this acknowledgement:
@@ -54,16 +55,20 @@ The signed Windows release consists of:
 
 ## Roles
 
-- **Maintainer:** approves policy changes, provider selection, publisher
-  migrations, and releases.
-- **Developer:** prepares reviewed source changes but cannot approve their own
-  release solely by authoring them.
-- **Signing submitter:** submits only artifacts produced by the reviewed,
-  GitHub-hosted release workflow.
-- **Signing approver:** reviews the source revision and signing request before
-  the provider releases a signature.
-- **Release reviewer:** compares Defender and Malwarebytes results with the
-  exact candidate hashes and approves the protected publication environment.
+- **Maintainer, author, committer, and reviewer:** [Daniel Traynor
+  (`dantraynor`)](https://github.com/dantraynor) approves policy changes,
+  provider selection, publisher migrations, and releases. Changes proposed by
+  other contributors require his review before merge.
+- **Developer:** a contributor may prepare source changes but cannot approve a
+  signing request solely by authoring those changes.
+- **Signing submitter and approver:** [Daniel Traynor
+  (`dantraynor`)](https://github.com/dantraynor) submits only artifacts produced
+  by the reviewed, GitHub-hosted release workflow and explicitly reviews each
+  source revision and signing request before the provider releases a signature.
+- **Release reviewer:** [Daniel Traynor
+  (`dantraynor`)](https://github.com/dantraynor) compares Defender and
+  Malwarebytes results with the exact candidate hashes and approves the
+  protected publication environment.
 
 One person may hold more than one role for a small project, but the workflow's
 provider approval and protected publication approval must remain explicit.
