@@ -114,3 +114,16 @@ If either scanner reports malware, PUA, or suspicious behavior, stop. Record the
 - [ ] The draft was made public only by the final publication step.
 
 If the candidate artifact expires, or any file or digest differs, create a new candidate and repeat this checklist. Never rebuild, resign, repackage, regenerate checksums, or replace assets after clearance.
+
+## After publication: Homebrew
+
+- [ ] Inspect the `Update Homebrew` follow-up for the published release tag and the same approved `SHA256SUMS.txt` digest.
+- [ ] Review the automated Homebrew update PR. If no PR was created, apply the `homebrew-update-vX.Y.Z` patch artifact in a normal PR, or use the documented manual update.
+- [ ] Confirm both definitions use the published version and that the cask's macOS package hash matches the approved release manifest.
+- [ ] Verify the formula's source archive URL points to the reviewed release tag and independently check its SHA-256 against the downloaded archive; GitHub's tag archive is separate from the signed package manifest.
+- [ ] Approve any pending CI workflow runs on the update PR and wait for the updater tests and Homebrew checks to pass.
+- [ ] Merge the update PR into `main` and verify that `brew update` makes the published version available in the tap.
+
+See [Homebrew maintenance](../packaging/homebrew/README.md#maintaining-the-tap)
+for workflow retries and manual updates. The helper release remains published
+while this follow-up is completed.

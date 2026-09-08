@@ -24,6 +24,7 @@ jobs:
     outputs:
       host: ${{ steps.filter.outputs.host }}
       packaging: ${{ steps.filter.outputs.packaging }}
+      homebrew: ${{ steps.filter.outputs.homebrew }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
       - uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
@@ -43,6 +44,12 @@ jobs:
               - 'scripts/verify-windows-signatures.test.ps1'
               - 'Makefile'
               - '.github/workflows/*.yml'
+            homebrew:
+              - 'Casks/**'
+              - 'Formula/**'
+              - 'scripts/update-homebrew*.mjs'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/update-homebrew.yml'
 
   extension-tests:
     runs-on: ubuntu-latest
@@ -60,6 +67,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm test:installer
+      - run: pnpm test:homebrew
       - name: Lint installer shell script
         run: shellcheck scripts/install.sh scripts/install.test.sh
 
@@ -149,6 +157,47 @@ jobs:
           cache-dependency-path: host/go.sum
       - run: go test ./...
         working-directory: host
+
+  homebrew:
+    needs: changes
+    if: needs.changes.outputs.homebrew == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+      - name: Add Linux Homebrew to PATH
+        if: runner.os == 'Linux'
+        run: echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
+      - name: Tap the checkout under test
+        run: |
+          set -euo pipefail
+          tap="$(brew --repository)/Library/Taps/dantraynor/homebrew-tailchrome"
+          mkdir -p "$(dirname "$tap")"
+          ln -s "$GITHUB_WORKSPACE" "$tap"
+      - name: Build the formula from source and test registration and removal
+        run: |
+          set -euo pipefail
+          brew style --formula dantraynor/tailchrome/tailchrome
+          brew install --build-from-source --formula dantraynor/tailchrome/tailchrome
+          brew test dantraynor/tailchrome/tailchrome
+          brew uninstall --formula dantraynor/tailchrome/tailchrome
+      - name: Validate and fetch the signed macOS installer
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          brew style --cask dantraynor/tailchrome/tailchrome
+          brew info --cask --json=v2 dantraynor/tailchrome/tailchrome
+          brew fetch --cask dantraynor/tailchrome/tailchrome
+          pkg="$(brew --cache --cask dantraynor/tailchrome/tailchrome)"
+          pkgutil --check-signature "$pkg"
+          xcrun stapler validate "$pkg"
 
   package-linux:
     needs: changes

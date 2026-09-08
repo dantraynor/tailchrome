@@ -1,5 +1,12 @@
 # macOS Helper installer (.pkg)
 
+Homebrew users can install the same signed release package with the
+[Tailchrome cask](../homebrew/README.md#macos). It supports Apple Silicon and
+Intel Macs and uses the package's existing registration and repair flow.
+The [source formula](../homebrew/README.md#source-formula-macos-and-linux) is also
+available for users who prefer to build the helper locally and register it
+without administrator privileges.
+
 The script `build-pkg.sh` produces `dist/tailchrome-helper-macos.pkg`, which installs:
 
 1. **Universal** `tailscale-browser-ext` at  

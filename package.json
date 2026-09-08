@@ -13,6 +13,7 @@
     "test": "pnpm -r test && pnpm test:e2e-utils",
     "test:e2e-utils": "node --test scripts/e2e/*.test.mjs",
     "test:installer": "bash ./scripts/install.test.sh",
+    "test:homebrew": "node --test scripts/update-homebrew.test.mjs",
     "typecheck": "pnpm -r typecheck",
     "e2e": "node ./scripts/e2e/run.mjs",
     "e2e:chrome": "node ./scripts/e2e/run.mjs --browser=chrome",
