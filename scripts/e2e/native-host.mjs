@@ -140,6 +140,20 @@ function mockSource(baseUrl, initialControl) {
   const commandReplyIndexes = Object.create(null);
   let connectionAttempt = 0;
   let manualRecoveryRequested = false;
+  let currentNativePort = null;
+
+  if (control.allowRuntimeUpdates) {
+    chrome.runtime.onMessage.addListener((message, _sender, reply) => {
+      const update = message?.tailchromeE2ENative;
+      if (!update) return;
+      if (update.control) Object.assign(control, update.control);
+      if (update.reply?.status) control.status = update.reply.status;
+      if (update.reply) currentNativePort?.onMessage.dispatch(update.reply);
+      if (update.disconnect) currentNativePort?.disconnect();
+      reply({ ok: true });
+    });
+  }
+
 
   // The incompatible kind is intentionally defensive-only in production until
   // a future protocol supplies explicit evidence. Transform background state
@@ -310,6 +324,8 @@ function mockSource(baseUrl, initialControl) {
         queueMicrotask(() => onDisconnect.dispatch(port));
       },
     };
+
+    currentNativePort = port;
 
     // Dispatch procRunning synchronously from the inlined snapshot so it
     // reaches the background before the popup connects. The fetch

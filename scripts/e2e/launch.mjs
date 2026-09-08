@@ -94,7 +94,7 @@ function isNavigationTimeout(err) {
   );
 }
 
-async function launchChrome(extensionDir) {
+async function launchChrome(extensionDir, { chromeArgs = [] } = {}) {
   await ensureChromeInstalled();
 
   const headless = process.env.HEADLESS !== "false";
@@ -108,6 +108,7 @@ async function launchChrome(extensionDir) {
       `--load-extension=${extensionDir}`,
       "--no-first-run",
       "--no-default-browser-check",
+      ...chromeArgs,
       // CI runners restrict unprivileged user namespaces (AppArmor on current
       // Ubuntu images), which crashes Chrome's sandbox at launch. The suite
       // only visits extension pages and localhost, so dropping the sandbox
@@ -131,7 +132,7 @@ async function launchChrome(extensionDir) {
   };
 }
 
-async function launchFirefox(extensionDir) {
+async function launchFirefox(extensionDir, { firefoxPrefs = {} } = {}) {
   const executablePath = ensureFirefoxInstalled();
   const headless = process.env.HEADLESS !== "false";
   const userDataDir = mkdtempSync(resolve(tmpdir(), "tailchrome-firefox-profile-"));
@@ -141,6 +142,7 @@ async function launchFirefox(extensionDir) {
     headless,
     userDataDir,
     extraPrefsFirefox: {
+      ...firefoxPrefs,
       "extensions.webextensions.uuids": JSON.stringify({
         [firefoxAddonId]: firefoxExtensionUuid,
       }),
@@ -168,12 +170,12 @@ async function launchFirefox(extensionDir) {
   };
 }
 
-export async function launch(extensionDir, { browserName = "chrome" } = {}) {
+export async function launch(extensionDir, { browserName = "chrome", ...options } = {}) {
   if (browserName === "chrome") {
-    return launchChrome(extensionDir);
+    return launchChrome(extensionDir, options);
   }
   if (browserName === "firefox") {
-    return launchFirefox(extensionDir);
+    return launchFirefox(extensionDir, options);
   }
 
   throw new Error(`Unsupported e2e browser: ${browserName}`);
