@@ -86,6 +86,25 @@ describe("ChromeProxyManager", () => {
   });
 
   describe("PAC script generation", () => {
+    it.each(["tailnet", "only", "bypass"] as const)("routes known DNS names before %s split rules", (mode) => {
+      const state = baseState({
+        peers: [makePeer({ hostname: "unrelated", dnsName: "wiki.example.ts.net." })],
+        dnsRoutes: ["Internal.Example.", "*.invalid", 'bad\";'],
+        exitNode: mode === "tailnet" ? null : { id: "exit", hostname: "exit", dnsName: "exit.example.ts.net", online: true, location: null },
+        domainSplit: { mode: mode === "bypass" ? "bypass" : "only", domains: mode === "bypass" ? ["wiki", "internal.example", "wiki.local", "unrelated", "notinternal.example", "example.com"] : [] },
+      });
+      const route = evalPAC(pm, state);
+      expect(route("http://wiki/", "wiki")).toContain("PROXY");
+      expect(route("http://wiki/", "WIKI.")).toContain("PROXY");
+      expect(route("http://wiki.local/", "wiki.local")).toBe("DIRECT");
+      expect(route("http://unrelated/", "unrelated")).toBe("DIRECT");
+      expect(route("http://internal.example/", "internal.example")).toContain("PROXY");
+      expect(route("http://app.internal.example/", "app.internal.example")).toContain("PROXY");
+      expect(route("http://notinternal.example/", "notinternal.example")).toBe("DIRECT");
+      expect(route("https://example.com/", "example.com")).toBe("DIRECT");
+      expect(capturePAC(pm, { ...state, dnsRoutes: [], peers: [] })).not.toBeNull();
+    });
+
     it("always proxies the Tailscale service IP", () => {
       const pac = capturePAC(pm, baseState())!;
       expect(pac).toContain('host === "100.100.100.100"');

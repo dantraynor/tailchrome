@@ -235,6 +235,63 @@ describe("routing protection", () => {
       domainSplit: { mode: "only", domains: ["work.example"] },
     });
   });
+  it("replaces restricted DNS routes from current status, including an empty list", async () => {
+    const routing = new RoutingProtection();
+    await routing.restore();
+    const state = connected({ dnsRoutes: ["Old.Example."] });
+    routing.confirmStatus(status(state), state);
+    expect(routing.decorate(state).routingPolicy?.dnsRoutes).toEqual(["old.example"]);
+    routing.confirmStatus({ ...status(state), dnsRoutes: ["new.example"] }, state);
+    expect(routing.decorate(state).routingPolicy?.dnsRoutes).toEqual(["new.example"]);
+    routing.confirmStatus({ ...status(state), dnsRoutes: [] }, state);
+    expect(routing.decorate(state).routingPolicy?.dnsRoutes).toEqual([]);
+  });
+  it("preserves missing DNS routes across disconnect and restore without crossing accounts", async () => {
+    const routing = new RoutingProtection();
+    await routing.restore();
+    const state = connected({ dnsRoutes: ["internal.example"] });
+    routing.confirmStatus(status(state), state);
+    routing.confirmStatus({ ...status(state), dnsRoutes: undefined }, state);
+    await flush();
+    const restored = new RoutingProtection();
+    await restored.restore();
+    expect(restored.decorate(offline()).routingPolicy).toMatchObject({
+      mode: "blocked", dnsRoutes: ["internal.example"],
+    });
+    const other = connected({ selfNode: { ...makePeer(), keyExpiry: null, id: "self2" } });
+    restored.confirmStatus(status(other), other);
+    expect(restored.decorate(other).routingPolicy?.dnsRoutes).toEqual([]);
+  });
+  it("replaces known short names only after a complete peer update", async () => {
+    const routing = new RoutingProtection();
+    await routing.restore();
+    const state = connected({ peers: [makePeer({ dnsName: "wiki.example.ts.net." })] });
+    routing.confirmStatus(status(state), state);
+    expect(routing.decorate(state).routingPolicy?.shortNames).toEqual(["router", "wiki"]);
+    const missing = { ...status(state), peers: null } as unknown as StatusUpdate;
+    routing.confirmStatus(missing, state);
+    expect(routing.decorate(state).routingPolicy?.shortNames).toContain("wiki");
+    const partial = { ...status(state), peers: [makePeer({ dnsName: "docs.example.ts.net." })], peersTruncated: true };
+    routing.confirmStatus(partial, state);
+    expect(routing.decorate(state).routingPolicy?.shortNames).toEqual(["router", "wiki", "docs"]);
+    routing.confirmStatus({ ...partial, peersTruncated: false }, state);
+    expect(routing.decorate(state).routingPolicy?.shortNames).toEqual(["docs", "router"]);
+    routing.confirmStatus({ ...status(state), peers: [] }, state);
+    expect(routing.decorate(state).routingPolicy?.shortNames).toEqual(["router"]);
+  });
+  it("keeps known short names protected after restart and a missing suffix", async () => {
+    const routing = new RoutingProtection();
+    await routing.restore();
+    const state = connected({ peers: [makePeer({ dnsName: "wiki.example.ts.net." })] });
+    routing.confirmStatus(status(state), state);
+    routing.confirmStatus({ ...status(state), peers: [], magicDNSSuffix: "" }, state);
+    await flush();
+    const restored = new RoutingProtection();
+    await restored.restore();
+    expect(restored.decorate(offline()).routingPolicy).toMatchObject({
+      mode: "blocked", shortNames: ["router", "wiki"],
+    });
+  });
   it.each(["Stopped", "NeedsLogin"] as const)("releases a requested disconnect after %s is confirmed", async (backendState) => {
     const routing = new RoutingProtection();
     await routing.restore();

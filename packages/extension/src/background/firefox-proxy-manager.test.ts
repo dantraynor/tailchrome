@@ -110,6 +110,24 @@ describe("FirefoxProxyManager", () => {
   });
 
   describe("routing decisions", () => {
+    it.each(["tailnet", "only", "bypass"] as const)("routes known DNS names before %s split rules", (mode) => {
+      pm.apply(baseState({
+        peers: [makePeer({ hostname: "unrelated", dnsName: "wiki.example.ts.net." })],
+        dnsRoutes: ["Internal.Example.", "*.invalid"],
+        exitNode: mode === "tailnet" ? null : { id: "exit", hostname: "exit", dnsName: "exit.example.ts.net", online: true, location: null },
+        domainSplit: { mode: mode === "bypass" ? "bypass" : "only", domains: mode === "bypass" ? ["wiki", "internal.example", "wiki.local", "unrelated", "notinternal.example", "example.com"] : [] },
+      }));
+      for (const url of ["http://wiki/", "http://WIKI./", "http://internal.example/", "http://app.internal.example/"]) {
+        expect(first(pm, url)).toMatchObject({ type: "socks", proxyDNS: true });
+      }
+      for (const url of ["http://wiki.local/", "http://unrelated/", "http://notinternal.example/", "https://example.com/"]) {
+        expect(first(pm, url)).toMatchObject({ type: "direct" });
+      }
+      pm.apply(baseState({ peers: [], dnsRoutes: [] }));
+      expect(first(pm, "http://wiki/")).toMatchObject({ type: "direct" });
+      expect(first(pm, "http://internal.example/")).toMatchObject({ type: "direct" });
+    });
+
     it("routes Tailscale IPs through proxy, regular sites direct", () => {
       pm.apply(baseState());
       const resolve = (url: string) => first(pm, url);

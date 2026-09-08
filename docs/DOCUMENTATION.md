@@ -402,13 +402,26 @@ When the raw host binary is run in a terminal (detected via `term.IsTerminal`), 
 
 ## Proxy System
 
+### DNS
+
+Known peer short names, full MagicDNS names, and restricted DNS domains use the
+helper. Split DNS follows the most specific domain route from Tailscale or
+Headscale and supports IPv4/IPv6 nameserver addresses. Encrypted resolver URLs
+are not supported. Routes without a supported IP nameserver fail instead of
+falling back to system DNS.
+
+Ordinary browsing keeps the browser/system resolver. Proxied exit-node traffic
+uses the exit node's DNS unless a restricted resolver is configured to stay in
+use with that exit node. Excluded domains keep their normal resolver. Restricted
+DNS routes require the MagicDNS setting to be enabled.
+
 ### Chrome: PAC Script
 
 Chrome uses a dynamically generated PAC (Proxy Auto-Config) script set via `chrome.proxy.settings.set()`. The PAC script routes traffic based on:
 
 1. **Tailscale service IP** (`100.100.100.100`) -> proxy
 2. **CGNAT range** (`100.64.0.0/10`) -> proxy (all Tailscale IPs)
-3. **MagicDNS suffix** (e.g., `*.ts.net`) -> proxy before any `isInNet()` call, avoiding local DNS resolution of ordinary hostnames
+3. **MagicDNS names and restricted DNS domains** -> proxy, including exact known peer short names such as `wiki`
 4. **Tailscale IPv6 prefix** (`fd7a:115c:a1e0::/48`) -> proxy
 5. **Subnet routes** (from subnet router peers) -> proxy via `isInNet()` only for IPv4 literals
 6. **Exit node selected** -> protected traffic stays proxied, or blocked while the node is unavailable

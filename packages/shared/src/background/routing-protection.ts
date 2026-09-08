@@ -2,7 +2,10 @@ import type { RoutingPolicy, StatusUpdate, TailscaleState } from "../types";
 import { normalizeDomainSplit } from "./domain-split";
 import {
   collectSubnetCIDRs,
+  collectShortNames,
   parseCIDR,
+  sanitizeDNSName,
+  sanitizeDNSRoutes,
   sanitizeMagicDNSSuffix,
   shouldProxyState,
 } from "./proxy-utils";
@@ -46,15 +49,11 @@ function snapshot(value: unknown): Snapshot | null {
     (s) => /\/\d{1,2}$/.test(s) && parseCIDR(s) !== null,
   );
   const shortNames = strings(raw.shortNames, (s) =>
-    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(s),
+    !s.includes(".") && sanitizeDNSName(s) === s,
   );
   const dnsRoutes = strings(
     raw.dnsRoutes,
-    (s) =>
-      s.length < 254 &&
-      s
-        .split(".")
-        .every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)),
+    (s) => sanitizeDNSName(s) === s,
   );
   for (const [key, clean] of [
     ["subnetCIDRs", subnetCIDRs],
@@ -117,9 +116,11 @@ export function policyFromState(state: TailscaleState): RoutingPolicy {
     proxyPort: state.proxyPort,
     selectedExitNodeID,
     magicDNSSuffix: sanitizeMagicDNSSuffix(state.magicDNSSuffix),
-    subnetCIDRs: collectSubnetCIDRs(state.peers).filter(
+    subnetCIDRs: collectSubnetCIDRs(state.peers ?? []).filter(
       (s) => parseCIDR(s) !== null,
     ),
+    shortNames: collectShortNames(state),
+    dnsRoutes: sanitizeDNSRoutes(state.dnsRoutes),
     domainSplit: normalizeDomainSplit(state.domainSplit),
   };
 }
@@ -274,12 +275,15 @@ export class RoutingProtection {
       subnetCIDRs: [
         ...new Set([...(prior?.subnetCIDRs ?? []), ...policy.subnetCIDRs]),
       ],
-      shortNames: [
-        ...new Set([...(prior?.shortNames ?? []), ...policy.shortNames]),
-      ],
-      dnsRoutes: [
-        ...new Set([...(prior?.dnsRoutes ?? []), ...policy.dnsRoutes]),
-      ],
+      shortNames:
+        Array.isArray(status.peers) &&
+        !status.peersTruncated &&
+        sanitizeDNSName(status.magicDNSSuffix)
+          ? policy.shortNames
+          : [...new Set([...(prior?.shortNames ?? []), ...policy.shortNames])],
+      dnsRoutes: status.dnsRoutes !== undefined
+        ? policy.dnsRoutes
+        : prior?.dnsRoutes ?? [],
       domainSplit: policy.domainSplit,
     };
     this.save();

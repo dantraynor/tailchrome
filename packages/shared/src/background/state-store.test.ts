@@ -128,6 +128,7 @@ describe("StateStore", () => {
         running: true,
         tailnet: "my-tailnet",
         magicDNSSuffix: "my-tailnet.ts.net",
+        dnsRoutes: ["Internal.Example.", "*.invalid", "internal.example"],
         selfNode: {
           id: "self1",
           hostname: "my-machine",
@@ -151,7 +152,12 @@ describe("StateStore", () => {
       expect(state.backendState).toBe("Running");
       expect(state.tailnet).toBe("my-tailnet");
       expect(state.magicDNSSuffix).toBe("my-tailnet.ts.net");
+      expect(state.dnsRoutes).toEqual(["internal.example"]);
       expect(state.selfNode?.hostname).toBe("my-machine");
+      store.applyStatusUpdate({ ...status, dnsRoutes: undefined });
+      expect(store.getState().dnsRoutes).toEqual(["internal.example"]);
+      store.applyStatusUpdate({ ...status, dnsRoutes: [] });
+      expect(store.getState().dnsRoutes).toEqual([]);
     });
 
     it("keeps raw status errors out of normal state copy", () => {

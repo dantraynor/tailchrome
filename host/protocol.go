@@ -80,6 +80,7 @@ type StatusUpdate struct {
 	Running        bool       `json:"running"`
 	Tailnet        string     `json:"tailnet"`
 	MagicDNSSuffix string     `json:"magicDNSSuffix"`
+	DNSRoutes      *[]string  `json:"dnsRoutes,omitempty"`
 	SelfNode       *PeerInfo  `json:"selfNode,omitempty"`
 	NeedsLogin     bool       `json:"needsLogin"`
 	BrowseToURL    string     `json:"browseToURL,omitempty"`

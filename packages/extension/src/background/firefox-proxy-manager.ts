@@ -14,8 +14,7 @@ import {
   ipToNum,
   sanitizeMagicDNSSuffix,
   sanitizeDomain,
-  collectSubnetCIDRs,
-  shouldProxyState,
+  sanitizeDNSRoutes,
   CGNAT_NETWORK,
   CGNAT_MASK,
 } from "@tailchrome/shared/background/proxy-utils";
@@ -61,6 +60,8 @@ export class FirefoxProxyManager {
   private subnetRanges: Array<{ network: number; mask: number }> = [];
   private splitMode: DomainSplitMode = "bypass";
   private splitDomains: string[] = [];
+  private shortNames = new Set<string>();
+  private dnsRoutes: string[] = [];
   private mode: "active" | "blocked" | "direct" = "blocked";
   private failedKey = "";
   private policyKey = "";
@@ -99,7 +100,9 @@ export class FirefoxProxyManager {
     this.proxyPort = policy.proxyPort ?? BLOCKED_PROXY_PORT;
     this.exitNodeActive =
       policy.blockAll === true || policy.selectedExitNodeID !== null;
-    this.magicDNSSuffix = sanitizeMagicDNSSuffix(policy.magicDNSSuffix);
+    this.magicDNSSuffix = sanitizeMagicDNSSuffix(policy.magicDNSSuffix).toLowerCase();
+    this.shortNames = new Set(sanitizeDNSRoutes(policy.shortNames).filter((name) => !name.includes(".")));
+    this.dnsRoutes = sanitizeDNSRoutes(policy.dnsRoutes);
     this.subnetRanges = policy.subnetCIDRs
       .map((cidr) => parseCIDR(cidr))
       .filter((r): r is { network: number; mask: number } => r !== null);
@@ -160,7 +163,7 @@ export class FirefoxProxyManager {
 
     let host: string;
     try {
-      host = new URL(url).hostname;
+      host = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
       if (host.startsWith("[") && host.endsWith("]")) {
         host = host.slice(1, -1);
       }
@@ -169,6 +172,8 @@ export class FirefoxProxyManager {
     }
 
     if (host === TAILSCALE_SERVICE_IP) return proxy;
+    if (this.shortNames.has(host)) return proxy;
+    if (this.dnsRoutes.some((domain) => host === domain || host.endsWith(`.${domain}`))) return proxy;
     if (host.toLowerCase().startsWith(TAILSCALE_IPV6_PREFIX)) return proxy;
 
     const hostNum = ipToNum(host);
