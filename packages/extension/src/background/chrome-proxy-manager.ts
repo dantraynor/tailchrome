@@ -1,4 +1,6 @@
+import { ChromeProxyAuth } from "./chrome-proxy-auth";
 import type {
+  ProxySessionCredentials,
   DomainSplitConfig,
   TailscaleState,
   RoutingHealth,
@@ -21,6 +23,12 @@ import {
 } from "@tailchrome/shared/background/routing-protection";
 
 export class ChromeProxyManager {
+  private readonly auth = new ChromeProxyAuth();
+
+  setProxySession(session: ProxySessionCredentials | null): void {
+    this.auth.set(session);
+  }
+
   private desired: chrome.proxy.ProxyConfig | null = null;
   private desiredKey = "";
   private appliedKey = "";
@@ -77,12 +85,15 @@ export class ChromeProxyManager {
       this.clear();
       return;
     }
-    const blocked = policy.mode === "blocked";
+    const authenticationMissing = !this.auth.hasSession(policy.proxyPort ?? 0);
+    const blocked = policy.mode === "blocked" || authenticationMissing;
     const port = blocked ? BLOCKED_PROXY_PORT : policy.proxyPort!;
     this.desiredHealth = blocked
       ? {
           status: "blocked",
-          message: policy.selectedExitNodeID
+          message: authenticationMissing && policy.mode === "active"
+            ? "Helper authentication unavailable — protected browsing is blocked."
+            : policy.selectedExitNodeID
             ? "Exit node unavailable — protected browsing is blocked."
             : "Connection unavailable — tailnet browsing is blocked.",
         }
@@ -208,7 +219,7 @@ export class ChromeProxyManager {
     splitMode: "bypass" | "only",
     splitDomains: string[],
   ): string {
-    const proxy = `SOCKS5 127.0.0.1:${port}`;
+    const proxy = `PROXY 127.0.0.1:${port}`;
 
     const subnetChecks = subnets
       .map((cidr) => {

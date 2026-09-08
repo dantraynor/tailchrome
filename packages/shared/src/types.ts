@@ -52,6 +52,7 @@ export interface NativeReply {
     supportsLogin?: boolean;
     /** When true, the native host accepts a `controlURL` field in `set-prefs` (omitted on older helpers). */
     supportsCustomControlURL?: boolean;
+    proxyAuth?: { version: 1; username: string; password: string };
   };
   init?: { error?: string };
   pong?: Record<string, never>;
@@ -329,7 +330,14 @@ export type BackgroundMessage =
 
 // === Proxy manager interface ===
 
+export interface ProxySessionCredentials {
+  port: number;
+  username: string;
+  password: string;
+}
+
 export interface ProxyManager {
+  setProxySession?(session: ProxySessionCredentials | null): void;
   apply(state: TailscaleState): void;
   clear(): void;
   setRoutingHealthListener?(listener: (health: RoutingHealth) => void): void;

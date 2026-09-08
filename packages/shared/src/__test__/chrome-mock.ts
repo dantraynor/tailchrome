@@ -8,6 +8,7 @@ const storageChangedListeners: Array<
 
 let proxyValue: unknown = { mode: "system" };
 const chromeMock = {
+  webRequest: { onAuthRequired: { addListener: vi.fn() } },
   action: {
     setIcon: (_details: unknown) => Promise.resolve(),
     setBadgeText: (_details: unknown) => {},

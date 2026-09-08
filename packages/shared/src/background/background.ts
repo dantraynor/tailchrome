@@ -23,6 +23,7 @@ import {
   type NativeConnectionEvent,
 } from "./native-host";
 import { sanitizeDiagnosticMessage } from "../helper-diagnostics";
+import { readProxySession } from "./proxy-session";
 import { BadgeManager } from "./badge-manager";
 import { DefaultTimerService, type TimerService } from "./timer-service";
 import { applyUiSurface, readUiSurface, type BrowserKind } from "./ui-surface";
@@ -642,6 +643,21 @@ export function initBackground(
   function handleNativeMessage(msg: NativeReply): void {
     // Process running: the native host tells us which port to proxy through
     if (msg.procRunning) {
+      const session = msg.procRunning.error ? null : readProxySession(msg.procRunning);
+      proxyManager.setProxySession?.(session);
+      if (!msg.procRunning.error && !session) {
+        sawHealthyProcRunning = false;
+        store.update({
+          proxyPort: null,
+          proxyEnabled: false,
+          helperFailure: {
+            kind: "helper-incompatible",
+            diagnosticCode: "helper-proxy-auth-required",
+            diagnosticMessage: "Update the helper and extension together to enable authenticated browsing.",
+          },
+        });
+        return;
+      }
       const hostVersion = normalizedHelperVersion(msg.procRunning.version);
       const helperVersionNotice = getHelperVersionNotice(
         hostVersion,
@@ -882,6 +898,7 @@ export function initBackground(
       return;
     }
 
+    proxyManager.setProxySession?.(null);
     exitNodeRestoreAttempted = false;
     autoDisconnectAttempted = false;
     sawHealthyProcRunning = false;

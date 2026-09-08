@@ -155,9 +155,7 @@ function mockSource(baseUrl, initialControl) {
   }
 
 
-  // The incompatible kind is intentionally defensive-only in production until
-  // a future protocol supplies explicit evidence. Transform background state
-  // only inside this fixture so both browser families still exercise that UI.
+  // Inject explicit helper failures so both browser families exercise recovery.
   if (control.popupFailureKind) {
     chrome.runtime.onConnect.addListener((port) => {
       if (port.name !== "popup") return;
@@ -344,6 +342,7 @@ function mockSource(baseUrl, initialControl) {
       }
       onMessage.dispatch({
         procRunning: {
+          ...(control.legacyProxy ? {} : { proxyAuth: { version: 1, username: "fixture", password: "fixture-credential-".repeat(3) } }),
           port: control.proxyPort ?? 1055,
           pid: 1,
           version: control.hostVersion ?? ${JSON.stringify(expectedHostVersion)},
