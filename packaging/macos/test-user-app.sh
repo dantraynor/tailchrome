@@ -13,7 +13,7 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Contents/In
   tailchrome-helper
 for bin in tailchrome-helper tailscale-browser-ext; do
   test -x "$APP/Contents/MacOS/$bin"
-  lipo -verify_arch arm64 x86_64 "$APP/Contents/MacOS/$bin"
+  lipo "$APP/Contents/MacOS/$bin" -verify_arch arm64 x86_64
 done
 test "$("$APP/Contents/MacOS/tailscale-browser-ext" -version)" = "${2:-0.0.0}"
 xcrun clang -fobjc-arc -Wall -Wextra -framework Cocoa \
