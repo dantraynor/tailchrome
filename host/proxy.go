@@ -60,11 +60,30 @@ func (h *Host) tsnetDialer(ctx context.Context, network, addr string) (net.Conn,
 	if h.proxyDial != nil {
 		return h.proxyDial(ctx, network, addr)
 	}
-	ts, _, _ := h.sessionSnapshot()
+	h.sessionMu.RLock()
+	ts, lc := h.ts, h.lc
+	h.stateMu.Lock()
+	domains := h.lastSplitDNSDomains
+	acceptDNS := h.lastPrefs != nil && h.lastPrefs.CorpDNS
+	h.stateMu.Unlock()
+	h.sessionMu.RUnlock()
 	if ts == nil {
 		return nil, fmt.Errorf("tsnet server not initialized")
 	}
-	return ts.Dial(ctx, network, addr)
+	if !acceptDNS || len(domains) == 0 {
+		return ts.Dial(ctx, network, addr)
+	}
+	return dialWithSplitDNS(ctx, network, addr, domains, func(ctx context.Context, name, queryType string) ([]byte, error) {
+		if lc == nil {
+			return nil, fmt.Errorf("Tailscale DNS resolver not initialized")
+		}
+		// QueryDNS uses the embedded DNS forwarder, including restricted
+		// nameservers, local records, and the selected exit node's DNS policy.
+		// The pinned tsnet revision routes both UDP and TCP through netstack
+		// for tailnet/subnet upstreams, including overlapping local addresses.
+		response, _, err := lc.QueryDNS(ctx, name, queryType)
+		return response, err
+	}, ts.Dial)
 }
 
 // serveHTTPProxy serves HTTP proxy requests, routing 100.100.100.100 to the

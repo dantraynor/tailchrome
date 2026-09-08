@@ -61,12 +61,13 @@ type Host struct {
 	correctionCancel context.CancelFunc
 	correctionDone   <-chan struct{}
 
-	// Cached state for building status updates.
-	stateMu         sync.Mutex
-	lastState       string
-	lastBrowseToURL string
-	lastPrefs       *PrefsView
-	lastHealth      []string
+	// Cached IPN state for status updates and proxy routing.
+	stateMu             sync.Mutex
+	lastState           string
+	lastBrowseToURL     string
+	lastPrefs           *PrefsView
+	lastHealth          []string
+	lastSplitDNSDomains []string // Normalized once per netmap; never mutated in place.
 
 	pendingMu        sync.Mutex
 	pendingTransfers map[string]*fileTransferAccumulator
@@ -215,6 +216,7 @@ func (h *Host) clearCachedStatus(prefs *ipn.Prefs) {
 	h.lastBrowseToURL = ""
 	h.lastPrefs = nil
 	h.lastHealth = nil
+	h.lastSplitDNSDomains = nil
 	if prefs != nil {
 		h.lastPrefs = prefsViewFromIPN(prefs.View())
 	}

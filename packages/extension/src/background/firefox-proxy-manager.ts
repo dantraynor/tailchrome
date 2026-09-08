@@ -11,6 +11,7 @@ import {
   parseCIDR,
   ipToNum,
   sanitizeMagicDNSSuffix,
+  sanitizeSplitDNSDomains,
   sanitizeDomain,
   collectSubnetCIDRs,
   shouldProxyState,
@@ -63,6 +64,7 @@ export const RECONNECT_GATE_TIMEOUT_MS = 10_000;
 interface StoredProxyConfig {
   proxyPort: number;
   magicDNSSuffix: string;
+  splitDNSDomains?: string[];
   exitNodeActive: boolean;
   subnetRanges: Array<{ network: number; mask: number }>;
   splitMode: DomainSplitMode;
@@ -72,6 +74,7 @@ interface StoredProxyConfig {
 export class FirefoxProxyManager {
   private proxyPort = 0;
   private magicDNSSuffix = "";
+  private splitDNSDomains: string[] = [];
   private exitNodeActive = false;
   private subnetRanges: Array<{ network: number; mask: number }> = [];
   private splitMode: DomainSplitMode = "bypass";
@@ -144,6 +147,7 @@ export class FirefoxProxyManager {
     this.proxyPort = state.proxyPort!;
     this.exitNodeActive = state.exitNode !== null;
     this.magicDNSSuffix = sanitizeMagicDNSSuffix(state.magicDNSSuffix);
+    this.splitDNSDomains = sanitizeSplitDNSDomains(state.splitDNSDomains);
     this.subnetRanges = collectSubnetCIDRs(state.peers)
       .map((cidr) => parseCIDR(cidr))
       .filter((r): r is { network: number; mask: number } => r !== null);
@@ -163,6 +167,7 @@ export class FirefoxProxyManager {
   clear(): void {
     this.proxyPort = 0;
     this.magicDNSSuffix = "";
+    this.splitDNSDomains = [];
     this.exitNodeActive = false;
     this.subnetRanges = [];
     this.splitMode = "bypass";
@@ -184,6 +189,7 @@ export class FirefoxProxyManager {
       }
 
       this.magicDNSSuffix = config.magicDNSSuffix;
+      this.splitDNSDomains = sanitizeSplitDNSDomains(config.splitDNSDomains);
       this.exitNodeActive = config.exitNodeActive;
       this.subnetRanges = config.subnetRanges;
       this.splitMode = config.splitMode ?? "bypass";
@@ -244,6 +250,7 @@ export class FirefoxProxyManager {
     const config: StoredProxyConfig = {
       proxyPort: this.proxyPort,
       magicDNSSuffix: this.magicDNSSuffix,
+      splitDNSDomains: this.splitDNSDomains,
       exitNodeActive: this.exitNodeActive,
       subnetRanges: this.subnetRanges,
       splitMode: this.splitMode,
@@ -266,7 +273,7 @@ export class FirefoxProxyManager {
 
     let host: string;
     try {
-      host = new URL(url).hostname;
+      host = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
       if (host.startsWith("[") && host.endsWith("]")) {
         host = host.slice(1, -1);
       }
@@ -275,7 +282,7 @@ export class FirefoxProxyManager {
     }
 
     if (host === TAILSCALE_SERVICE_IP) return proxy;
-    if (host.toLowerCase().startsWith(TAILSCALE_IPV6_PREFIX)) return proxy;
+    if (host.startsWith(TAILSCALE_IPV6_PREFIX)) return proxy;
 
     const hostNum = ipToNum(host);
     if (hostNum !== null && (hostNum & CGNAT_MASK) === CGNAT_NETWORK) {
@@ -298,12 +305,14 @@ export class FirefoxProxyManager {
       }
     }
 
+    if (this.matchesDomain(host, this.splitDNSDomains)) return proxy;
+
     if (this.exitNodeActive) {
       if (this.splitMode === "only") {
         // Only mode: empty list means nothing leaves through the exit node.
-        return this.matchSplitDomain(host) ? proxy : direct;
+        return this.matchesDomain(host, this.splitDomains) ? proxy : direct;
       }
-      if (this.splitDomains.length > 0 && this.matchSplitDomain(host)) {
+      if (this.matchesDomain(host, this.splitDomains)) {
         return direct;
       }
       return proxy;
@@ -312,9 +321,9 @@ export class FirefoxProxyManager {
     return direct;
   }
 
-  private matchSplitDomain(host: string): boolean {
-    for (const d of this.splitDomains) {
-      if (host === d || host.endsWith(`.${d}`)) return true;
+  private matchesDomain(host: string, domains: string[]): boolean {
+    for (const domain of domains) {
+      if (host === domain || host.endsWith(`.${domain}`)) return true;
     }
     return false;
   }

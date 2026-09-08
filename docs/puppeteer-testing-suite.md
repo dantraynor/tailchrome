@@ -59,6 +59,7 @@ An array provides sequential replies for repeated commands. Every request is sti
 
 - `popup-loads`: packaged popup renders without page or console errors.
 - `proxy-routing`: Chrome installs a PAC containing service IP, IPv4/IPv6 tailnet ranges, MagicDNS, and subnet routes.
+- `split-dns`: Chrome sends restricted-domain hostnames to a local SOCKS5 responder without an exit node; domain replacement and removal update routing.
 - `connection-states`: install, update, login, stopped, and machine-approval views.
 - `toggle-commands`: `up`/`down` commands plus their resulting UI transitions.
 - `connected-dashboard`: identity, helper version, health warnings, peers, and search.

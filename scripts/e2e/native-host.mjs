@@ -311,6 +311,10 @@ function mockSource(baseUrl, initialControl) {
       },
     };
 
+    // Let scenarios deliver control-plane updates after the initial snapshot.
+    // This hook exists only in the patched test extension.
+    globalThis.__tailchromeE2ENativeReply = (reply) => onMessage.dispatch(reply);
+
     // Dispatch procRunning synchronously from the inlined snapshot so it
     // reaches the background before the popup connects. The fetch
     // round-trip used previously raced with openPopup and left the popup

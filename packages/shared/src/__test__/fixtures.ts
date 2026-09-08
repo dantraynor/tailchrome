@@ -13,6 +13,7 @@ export function baseState(overrides: Partial<TailscaleState> = {}): TailscaleSta
     peers: [],
     exitNode: null,
     magicDNSSuffix: "example.ts.net",
+    splitDNSDomains: [],
     browseToURL: null,
     prefs: null,
     health: [],

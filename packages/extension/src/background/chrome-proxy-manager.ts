@@ -6,6 +6,7 @@ import {
 import {
   parseCIDR,
   sanitizeMagicDNSSuffix,
+  sanitizeSplitDNSDomains,
   sanitizeDomain,
   collectSubnetCIDRs,
   shouldProxyState,
@@ -35,9 +36,10 @@ export class ChromeProxyManager {
     const subnets = collectSubnetCIDRs(state.peers);
     const splitDomains = sanitizeSplitDomains(state.domainSplit);
     const splitMode = state.domainSplit.mode;
+    const splitDNSDomains = sanitizeSplitDNSDomains(state.splitDNSDomains);
 
     // Skip regeneration if proxy-relevant fields haven't changed
-    const proxyKey = `${port}:${magicDNSSuffix ?? ""}:${exitNodeActive}:${[...subnets].sort().join(",")}:${splitMode}:${splitDomains.join(",")}`;
+    const proxyKey = `${port}:${magicDNSSuffix ?? ""}:${exitNodeActive}:${[...subnets].sort().join(",")}:${splitMode}:${splitDomains.join(",")}:${splitDNSDomains.join(",")}`;
     if (proxyKey === this.lastProxyKey) {
       return;
     }
@@ -50,6 +52,7 @@ export class ChromeProxyManager {
       subnets,
       splitMode,
       splitDomains,
+      splitDNSDomains,
     );
 
     chrome.proxy.settings.set(
@@ -101,6 +104,7 @@ export class ChromeProxyManager {
     subnets: string[],
     splitMode: "bypass" | "only",
     splitDomains: string[],
+    splitDNSDomains: string[],
   ): string {
     const proxy = `SOCKS5 127.0.0.1:${port}`;
 
@@ -114,6 +118,11 @@ export class ChromeProxyManager {
       .join("\n");
 
     const safeDNSSuffix = sanitizeMagicDNSSuffix(magicDNSSuffix);
+    const splitDNSChecks = splitDNSDomains
+      .map((domain) =>
+        `  if (host === "${domain}" || dnsDomainIs(host, ".${domain}")) return proxy;`,
+      )
+      .join("\n");
 
     const domainChecks =
       splitDomains
@@ -134,11 +143,13 @@ export class ChromeProxyManager {
 
     return `function FindProxyForURL(url, host) {
   var proxy = "${proxy}";
+  host = host.toLowerCase().replace(/\\.$/, "");
   var isIPv4 = /^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(host);
 
   if (host === "${TAILSCALE_SERVICE_IP}") return proxy;
 ${safeDNSSuffix ? `  if (dnsDomainIs(host, ".${safeDNSSuffix}") || host === "${safeDNSSuffix}") return proxy;` : "  // No MagicDNS suffix configured"}
-  if (host.toLowerCase().indexOf("${TAILSCALE_IPV6_PREFIX}") === 0) return proxy;
+${splitDNSChecks || "  // No restricted DNS domains configured"}
+  if (host.indexOf("${TAILSCALE_IPV6_PREFIX}") === 0) return proxy;
   if (isIPv4 && isInNet(host, "100.64.0.0", "255.192.0.0")) return proxy;
 
 ${subnetChecks || "  // No subnet routes"}

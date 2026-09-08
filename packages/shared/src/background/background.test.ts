@@ -489,6 +489,7 @@ describe("initBackground", () => {
           running: true,
           tailnet: "my-tailnet",
           magicDNSSuffix: "my-tailnet.ts.net",
+          splitDNSDomains: ["internal.example.com"],
           selfNode: null,
           needsLogin: false,
           browseToURL: "",
@@ -504,6 +505,7 @@ describe("initBackground", () => {
         expect.objectContaining({
           backendState: "Running",
           tailnet: "my-tailnet",
+          splitDNSDomains: ["internal.example.com"],
         })
       );
     });

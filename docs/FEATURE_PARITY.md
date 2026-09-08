@@ -2,7 +2,7 @@
 
 > Comparison of the Tailchrome browser extension against the native Tailscale desktop/mobile clients (macOS, Windows, Linux, iOS, Android).
 
-Last updated: 2026-08-16
+Last updated: 2026-09-07
 
 ---
 
@@ -48,12 +48,12 @@ Last updated: 2026-08-16
 | Exit node suggestion              | Yes           | Yes        | The picker shows a client-side **Recommended** Mullvad row, preferring an online nearby location based on the browser time zone; it is never auto-applied. |
 | Exit node: allow LAN access       | Yes           | Yes        | Toggle in exit node picker view                                                                                                                                                         |
 | Exit node persistence             | Yes           | Yes        | Last-selected exit node saved to `chrome.storage.local` and restored after reconnect                                                                                                    |
-| Split-tunneling (per-domain)      | No            | Yes        | Tailchrome-exclusive: under the Exit Node row, configure **Bypass** domains (skip the exit node) or **Only** domains (restrict the exit node to a listed set). Tailscale-internal traffic (MagicDNS, CGNAT, subnet routes) is never affected. |
+| Split-tunneling (per-domain)      | No            | Yes        | Tailchrome-exclusive: under the Exit Node row, configure **Bypass** domains (skip the exit node) or **Only** domains (restrict the exit node to a listed set). Tailscale-internal traffic (MagicDNS, restricted DNS domains, CGNAT, subnet routes) is never affected. |
 | Subnet routing (use routes)       | Yes           | Yes        | Auto-detected from peer `subnets[]`; PAC/listener routes matching CIDRs                                                                                                                 |
 | Subnet routing (advertise routes) | Yes           | Yes        | Advanced quick settings accept comma- or newline-separated CIDRs and apply `AdvertiseRoutes` through `set-prefs`. |
 | Advertise as exit node            | Yes           | Yes        | Toggle in quick settings                                                                                                                                                                |
-| Split DNS                         | Yes           | No         | Extension proxies based on destination IP/DNS suffix, but does not configure per-domain DNS resolvers                                                                                   |
-| Custom DNS nameservers            | Yes           | No         | Not configurable from the extension                                                                                                                                                     |
+| Split DNS                         | Yes           | Yes        | Restricted domains from Tailscale/Headscale are routed to the helper and resolved through its embedded resolver when `corpDNS` is enabled; no exit node required. UDP and TCP DNS follow tailnet/subnet routes. See [setup and testing](split-dns.md). |
+| Custom DNS nameservers            | Yes           | Partial    | Control-plane restricted nameservers are honored for proxied domains; no extension UI for configuring nameservers or global override. |
 | HTTPS proxy / CONNECT tunneling   | Yes           | Yes        | Native host handles `CONNECT` method with bidirectional hijack                                                                                                                          |
 | IPv4 tailnet access               | Yes           | Yes        | Full support via CGNAT range `100.64.0.0/10`                                                                                                                                            |
 | IPv6 tailnet access               | Yes           | Yes        | Chrome PAC and Firefox request routing recognize Tailscale's `fd7a:115c:a1e0::/48` range, including IPv6 literal URLs. |
@@ -182,7 +182,7 @@ Last updated: 2026-08-16
 | Category          | Missing Features                                                                      |
 | ----------------- | ------------------------------------------------------------------------------------- |
 | **File transfer** | Receiving files (Taildrop inbound); sends are capped at 50 MiB and buffered in memory |
-| **Networking**    | Split DNS, custom DNS nameservers                                                      |
+| **Networking**    | Global DNS override and an extension UI for configuring nameservers                    |
 | **Security**      | Network lock, key signing/rotation                                                    |
 | **Services**      | Tailscale Serve, Tailscale Funnel, SSH server                                         |
 | **Diagnostics**   | A full Tailscale bug report and a user-facing `netcheck` control                       |
@@ -195,6 +195,6 @@ These gaps exist for fundamental reasons:
 
 1. **No inbound connections to the browser** -- browsers cannot accept incoming TCP connections, so Taildrop receive, Serve, and Funnel are not possible without a separate receiver process.
 2. **Native messaging payload limit** -- Chrome enforces a 1 MB message limit, so Taildrop sends are split into roughly 700 KB chunks and reassembled by the helper. The implementation caps assembled files at 50 MiB and still buffers the encoded file in extension/host memory.
-3. **Browser sandbox** -- the extension cannot modify system DNS, routing tables, or network configuration. All networking goes through the SOCKS5/HTTP proxy, which means split DNS and custom nameserver configuration are not feasible from the browser alone.
+3. **Browser sandbox** -- the extension cannot modify system DNS, routing tables, or network configuration. Restricted DNS domains are sent through the SOCKS5/HTTP proxy to the native helper, which resolves them using the control plane's DNS configuration. This supports split DNS for browser traffic without changing system networking.
 4. **tsnet scope** -- the native host runs a `tsnet.Server`, which is a userspace Tailscale node. It does not have the full feature surface of `tailscaled` (the system daemon). Features like Serve, Funnel, and network lock require daemon-level integration that `tsnet` does not expose.
 5. **UI surface area** -- the popup is constrained to a small window. Some features (SSH server toggle and advanced daemon diagnostics) remain omitted even when lower layers expose related data.

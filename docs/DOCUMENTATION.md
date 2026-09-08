@@ -114,6 +114,7 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 - **Exit nodes** -- route all browser traffic through any exit node on your tailnet, with a "Best available" Recommended row in the picker that picks a nearby Mullvad location when one is available
 - **Split-tunneling** -- per-profile domain rules (Bypass / Only) that exempt specific domains from the exit node or restrict the exit node to a chosen domain set; rules are suffix-matched and applied after Tailscale-mandatory routes (MagicDNS, 100.64.0.0/10, subnet routes) so tailnet traffic is never affected
 - **MagicDNS** -- resolve tailnet device names automatically
+- **Split DNS** -- resolve restricted domains through nameservers supplied by Tailscale or Headscale, including nameservers reachable over subnet routes
 - **Subnet routing** -- access resources behind subnet routers (auto-detected from peer info)
 - **Allow LAN access** -- when using an exit node, optionally allow local network access
 
@@ -215,6 +216,7 @@ interface StatusUpdate {
   running: boolean;
   tailnet: string | null;
   magicDNSSuffix: string;
+  splitDNSDomains?: string[];       // Restricted suffixes; absent on older helpers
   selfNode: SelfNode | null;
   needsLogin: boolean;
   browseToURL: string;              // Login URL from control plane
@@ -354,7 +356,7 @@ Defined in `packages/shared/src/constants.ts`:
 
 ## Native Host Internals
 
-The native host is a Go binary at `host/` using `tailscale.com/tsnet` v1.100.0.
+The native host is a Go binary at `host/` using `tailscale.com/tsnet` pinned to `v1.103.0-pre.0.20260819151608-90ed0bcf4bc2`. This revision includes the UDP DNS routing fix and the security fixes from v1.102.3; see [Split DNS](split-dns.md).
 
 ### Files
 
@@ -392,6 +394,8 @@ The proxy uses Tailscale's `proxymux.SplitSOCKSAndHTTP()` to multiplex a single 
 - **Requests to `100.100.100.100`** are routed to the Tailscale web client (`web.Server` in `ManageServerMode`), with a `Sec-Tailscale: browser-ext` header for CSRF protection.
 - **HTTPS CONNECT** requests are hijacked for bidirectional tunneling through tsnet.
 
+All three proxy paths resolve configured restricted DNS domains through the embedded Tailscale resolver before dialing their IPs with tsnet. The IPN watcher sends these domains to the extension as `splitDNSDomains`; disabling `corpDNS` or removing a route clears the corresponding browser routing. See [Split DNS](split-dns.md) for setup and nameserver routing requirements.
+
 The loopback proxy has no application-layer authentication because browser PAC/proxy APIs cannot attach credentials to these SOCKS connections. See [SECURITY.md](SECURITY.md#local-proxy-trust-boundary) for the shared-machine trust boundary.
 
 ### Auto-Installation
@@ -406,13 +410,9 @@ When the raw host binary is run in a terminal (detected via `term.IsTerminal`), 
 
 Chrome uses a dynamically generated PAC (Proxy Auto-Config) script set via `chrome.proxy.settings.set()`. The PAC script routes traffic based on:
 
-1. **Tailscale service IP** (`100.100.100.100`) -> proxy
-2. **CGNAT range** (`100.64.0.0/10`) -> proxy (all Tailscale IPs)
-3. **MagicDNS suffix** (e.g., `*.ts.net`) -> proxy before any `isInNet()` call, avoiding local DNS resolution of ordinary hostnames
-4. **Tailscale IPv6 prefix** (`fd7a:115c:a1e0::/48`) -> proxy
-5. **Subnet routes** (from subnet router peers) -> proxy via `isInNet()` only for IPv4 literals
-6. **Exit node active** -> all traffic through proxy
-7. **Otherwise** -> `DIRECT`
+1. **Tailnet destinations** -> proxy: the service IP (`100.100.100.100`), MagicDNS and restricted DNS domains, CGNAT addresses (`100.64.0.0/10`), Tailscale IPv6 addresses (`fd7a:115c:a1e0::/48`), and advertised subnet IPv4 addresses. Domain rules match both the domain and its subdomains. `isInNet()` is used only for IPv4 literals, avoiding local DNS resolution of hostnames.
+2. **Other traffic with an active exit node** -> proxy subject to the user's **Bypass** or **Only** domain rules.
+3. **Otherwise** -> `DIRECT`.
 
 The proxy target is `SOCKS5 127.0.0.1:<port>`.
 
@@ -424,11 +424,11 @@ On service worker suspension, `chrome.proxy.settings.set({ mode: "direct" })` is
 
 Firefox uses the `browser.proxy.onRequest` API with an event listener that evaluates each request URL:
 
-1. Same routing logic as Chrome (service IP, CGNAT, Tailscale IPv6, MagicDNS, subnets, exit node)
+1. Same routing logic as Chrome (service IP, CGNAT, Tailscale IPv6, MagicDNS, subnets, restricted DNS domains, exit node)
 2. Returns `{ type: "socks", host: "127.0.0.1", port, proxyDNS: true }` or `{ type: "direct" }`
 3. IP matching uses numeric comparison (`ipToNum()`) instead of PAC's `isInNet()`
 
-**Session storage persistence:** Firefox suspends background event pages aggressively. The proxy config (port, suffix, exit node state, subnet ranges, and split-domain rules) is persisted to `browser.storage.session` under the key `"proxyConfig"`. On wake, the listener returns a `Promise` that waits for both storage restoration and an authoritative reconnect state; transient `NoState`/`Starting` updates do not release requests to the direct network.
+**Session storage persistence:** Firefox suspends background event pages aggressively. The proxy config (port, suffix, restricted DNS domains, exit node state, subnet ranges, and split-domain rules) is persisted to `browser.storage.session` under the key `"proxyConfig"`. On wake, the listener returns a `Promise` that waits for both storage restoration and an authoritative reconnect state; transient `NoState`/`Starting` updates do not release requests to the direct network.
 
 ---
 
@@ -451,6 +451,7 @@ interface TailscaleState {
   peers: PeerInfo[];
   exitNode: ExitNodeInfo | null;
   magicDNSSuffix: string | null;
+  splitDNSDomains: string[];
   browseToURL: string | null;
   prefs: TailscalePrefs | null;
   health: string[];
@@ -786,7 +787,7 @@ tailchrome/
 
 ### Prerequisites
 
-- Go 1.26.5+ (per `host/go.mod`)
+- Go 1.26.6+ (per `host/go.mod`)
 - Node.js 22+
 - pnpm (via corepack)
 - Desktop Chrome or Firefox for testing
@@ -1172,7 +1173,7 @@ Full listing text: [STORE_LISTING.md](STORE_LISTING.md)
 ## Contributing
 
 1. Fork the repo and clone locally
-2. Install dependencies: Go 1.26.5+, Node.js 22+, pnpm (via `corepack enable`)
+2. Install dependencies: Go 1.26.6+, Node.js 22+, pnpm (via `corepack enable`)
 3. `pnpm install --frozen-lockfile`
 4. Build: `pnpm build:chrome`, `pnpm build:firefox`, `make host`
 5. Load extension in browser for testing:
@@ -1199,6 +1200,6 @@ Key dependencies in `host/go.mod`:
 
 | Dependency          | Version  | Purpose                                                |
 | ------------------- | -------- | ------------------------------------------------------ |
-| `tailscale.com`     | v1.100.0 | tsnet, local client, IPN, socks5, proxymux, web client |
+| `tailscale.com`     | v1.103.0-pre.0.20260819151608-90ed0bcf4bc2 | tsnet, local client, IPN, socks5, proxymux, web client |
 | `golang.org/x/term` | v0.43.0  | Terminal detection for auto-install                    |
 | `golang.org/x/sys`  | v0.45.0  | System calls                                           |

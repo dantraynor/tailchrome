@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/tailcfg"
+	"tailscale.com/util/dnsname"
 )
 
 // watchIPNBus watches the IPN notification bus for state changes and sends
@@ -144,6 +147,14 @@ func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generat
 			if healthChanged {
 				h.lastHealth = health
 			}
+			if n.NetMap != nil {
+				// Replace the domain list so removed routes disappear too.
+				h.lastSplitDNSDomains = configuredSplitDNSDomains(&n.NetMap.DNS)
+			} else if stateChanged && (*n.State == ipn.NoState || *n.State == ipn.NeedsLogin) {
+				// Profile changes and logout clear the backend's netmap, but a
+				// nil NetMap is omitted from the notification stream.
+				h.lastSplitDNSDomains = nil
+			}
 			h.stateMu.Unlock()
 			h.sessionMu.RUnlock()
 			sendDebounced()
@@ -215,6 +226,7 @@ func (h *Host) buildStatusUpdate(st *ipnstate.Status) *StatusUpdate {
 	browseToURL := h.lastBrowseToURL
 	prefs := h.lastPrefs
 	health := h.lastHealth
+	dnsDomains := h.lastSplitDNSDomains
 	h.stateMu.Unlock()
 
 	// Use the backend state from the status if we don't have one cached.
@@ -227,14 +239,18 @@ func (h *Host) buildStatusUpdate(st *ipnstate.Status) *StatusUpdate {
 	}
 
 	update := &StatusUpdate{
-		BackendState: state,
-		Running:      state == "Running",
-		NeedsLogin:   state == "NeedsLogin" || state == "NeedsMachineAuth",
-		BrowseToURL:  browseToURL,
-		AuthURL:      authURL,
-		Prefs:        prefs,
-		Health:       health,
-		Peers:        []PeerInfo{},
+		BackendState:    state,
+		Running:         state == "Running",
+		NeedsLogin:      state == "NeedsLogin" || state == "NeedsMachineAuth",
+		BrowseToURL:     browseToURL,
+		AuthURL:         authURL,
+		Prefs:           prefs,
+		Health:          health,
+		Peers:           []PeerInfo{},
+		SplitDNSDomains: []string{},
+	}
+	if prefs != nil && prefs.CorpDNS && len(dnsDomains) > 0 {
+		update.SplitDNSDomains = dnsDomains
 	}
 
 	if st.CurrentTailnet != nil {
@@ -262,4 +278,24 @@ func (h *Host) buildStatusUpdate(st *ipnstate.Status) *StatusUpdate {
 	}
 
 	return update
+}
+
+// configuredSplitDNSDomains returns the suffixes the browser must send to the
+// helper for resolution. Empty resolver lists are local-authoritative routes
+// (for example ExtraRecords), so they still need to reach the internal resolver.
+// The root route is a global DNS override, not a restricted domain.
+func configuredSplitDNSDomains(config *tailcfg.DNSConfig) []string {
+	domains := []string{}
+	if config == nil {
+		return domains
+	}
+	for suffix := range config.Routes {
+		domain := strings.ToLower(strings.TrimSuffix(suffix, "."))
+		if domain == "" || len(domain) > 253 || strings.HasPrefix(domain, ".") || strings.HasSuffix(domain, ".") || dnsname.ValidHostname(domain) != nil {
+			continue
+		}
+		domains = append(domains, domain)
+	}
+	slices.Sort(domains)
+	return slices.Compact(domains)
 }

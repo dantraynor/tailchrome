@@ -40,6 +40,19 @@ export async function expectNoText(page, unexpected) {
   }
 }
 
+export async function getProxyConfig(page) {
+  return page.evaluate(
+    () =>
+      new Promise((resolve, reject) => {
+        chrome.proxy.settings.get({ incognito: false }, (details) => {
+          const error = chrome.runtime.lastError;
+          if (error) reject(new Error(error.message));
+          else resolve(details.value);
+        });
+      }),
+  );
+}
+
 /**
  * Return whether a generated PAC script contains an exact host comparison.
  * Extracting the quoted operands first prevents lookalike domains from

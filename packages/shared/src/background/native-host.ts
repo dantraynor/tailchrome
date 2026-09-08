@@ -438,6 +438,7 @@ function isStatus(value: unknown): boolean {
     isBoolean(value["running"]) &&
     isNullableString(value["tailnet"]) &&
     isString(value["magicDNSSuffix"]) &&
+    optionalField(value, "splitDNSDomains", isStringArray) &&
     optionalField(
       value,
       "selfNode",

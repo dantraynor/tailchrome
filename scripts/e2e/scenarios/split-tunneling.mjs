@@ -3,6 +3,7 @@ import {
   expandDisclosureRow,
   expectText,
   expectTextIn,
+  getProxyConfig,
   pacHasExactHostRule,
   setInputValue,
   waitForPopup,
@@ -31,16 +32,7 @@ export const control = () =>
   });
 
 async function getPacScript(page) {
-  return page.evaluate(
-    () =>
-      new Promise((resolve, reject) => {
-        chrome.proxy.settings.get({ incognito: false }, (details) => {
-          const err = chrome.runtime.lastError;
-          if (err) reject(new Error(err.message));
-          else resolve(details.value?.pacScript?.data ?? "");
-        });
-      }),
-  );
+  return (await getProxyConfig(page))?.pacScript?.data ?? "";
 }
 
 async function waitForPacDomain(page, expectedHost) {

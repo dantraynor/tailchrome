@@ -70,6 +70,8 @@ export interface StatusUpdate {
   running: boolean;
   tailnet: string | null;
   magicDNSSuffix: string;
+  /** Restricted DNS domains; omitted by older native hosts. */
+  splitDNSDomains?: string[];
   selfNode: SelfNode | null;
   needsLogin: boolean;
   browseToURL: string;
@@ -232,6 +234,7 @@ export interface TailscaleState {
   peers: PeerInfo[];
   exitNode: ExitNodeInfo | null;
   magicDNSSuffix: string | null;
+  splitDNSDomains: string[];
   browseToURL: string | null;
   prefs: TailscalePrefs | null;
   health: string[];

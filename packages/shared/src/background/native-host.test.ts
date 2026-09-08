@@ -725,6 +725,22 @@ describe("NativeHostConnection", () => {
 });
 
 describe("isValidNativeReply", () => {
+  it("accepts restricted DNS domain lists and older hosts without the field", () => {
+    expect(isValidNativeReply({ status: makeValidStatus() })).toBe(true);
+    expect(isValidNativeReply({ status: { ...makeValidStatus(), splitDNSDomains: [] } })).toBe(true);
+    expect(isValidNativeReply({ status: {
+      ...makeValidStatus(), splitDNSDomains: ["internal.example.com"],
+    } })).toBe(true);
+  });
+
+  it.each([null, "internal.example.com", [42], {}])(
+    "rejects malformed restricted DNS lists: %j", (splitDNSDomains) => {
+      expect(isValidNativeReply({ status: {
+        ...makeValidStatus(), splitDNSDomains,
+      } })).toBe(false);
+    },
+  );
+
   it("accepts recognized reply envelopes and rejects arbitrary objects", () => {
     expect(isValidNativeReply({ procRunning: { port: 1055, pid: 1 } })).toBe(
       true,

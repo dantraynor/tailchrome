@@ -13,6 +13,7 @@ describe("StateStore", () => {
       expect(state.proxyPort).toBeNull();
       expect(state.peers).toEqual([]);
       expect(state.health).toEqual([]);
+      expect(state.splitDNSDomains).toEqual([]);
       expect(state.helperFailure).toBeNull();
       expect(state.helperVersionNotice).toBeNull();
       expect(state.repairRegistrationAvailable).toBe(false);
@@ -128,6 +129,7 @@ describe("StateStore", () => {
         running: true,
         tailnet: "my-tailnet",
         magicDNSSuffix: "my-tailnet.ts.net",
+        splitDNSDomains: ["internal.example.com"],
         selfNode: {
           id: "self1",
           hostname: "my-machine",
@@ -151,7 +153,19 @@ describe("StateStore", () => {
       expect(state.backendState).toBe("Running");
       expect(state.tailnet).toBe("my-tailnet");
       expect(state.magicDNSSuffix).toBe("my-tailnet.ts.net");
+      expect(state.splitDNSDomains).toEqual(["internal.example.com"]);
       expect(state.selfNode?.hostname).toBe("my-machine");
+
+      store.applyStatusUpdate({ ...status, splitDNSDomains: ["office.example.com"] });
+      expect(store.getState().splitDNSDomains).toEqual(["office.example.com"]);
+
+      store.applyStatusUpdate({ ...status, splitDNSDomains: [] });
+      expect(store.getState().splitDNSDomains).toEqual([]);
+
+      store.applyStatusUpdate(status);
+      const { splitDNSDomains: _, ...olderHostStatus } = status;
+      store.applyStatusUpdate(olderHostStatus);
+      expect(store.getState().splitDNSDomains).toEqual([]);
     });
 
     it("keeps raw status errors out of normal state copy", () => {

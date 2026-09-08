@@ -124,7 +124,102 @@ describe("FirefoxProxyManager", () => {
     });
   });
 
+  describe("restricted DNS routing", () => {
+    it("proxies the domain and descendants with remote DNS and no exit node", () => {
+      pm.apply(baseState({ splitDNSDomains: ["Internal.Example.COM."] }));
+      for (const host of ["internal.example.com", "srv.internal.example.com", "SRV.Internal.Example.COM."]) {
+        expect(pm.listener({ url: `https://${host}/` })).toMatchObject({
+          type: "socks", port: 1055, proxyDNS: true,
+        });
+      }
+      for (const host of ["notinternal.example.com", "internal.example.com.evil.test", "example.com"]) {
+        expect(pm.listener({ url: `https://${host}/` })).toEqual({ type: "direct" });
+      }
+    });
+
+    it.each(["bypass", "only"] as const)(
+      "restricted DNS takes priority over exit-node %s rules", (mode) => {
+        pm.apply(baseState({
+          splitDNSDomains: ["internal.example.com"],
+          exitNode: {
+            id: "exit1", hostname: "exit", dnsName: "exit.example.ts.net.",
+            location: null, online: true,
+          },
+          domainSplit: { mode, domains: mode === "bypass" ? ["internal.example.com"] : [] },
+        }));
+        expect(pm.listener({ url: "https://srv.internal.example.com/" }))
+          .toMatchObject({ type: "socks", proxyDNS: true });
+      },
+    );
+
+    it("rejects malformed suffixes without broadening proxy routing", () => {
+      pm.apply(baseState({
+        splitDNSDomains: [
+          ".", "https://example.com", "example.com/path", "example.com:53",
+          ".example.com", "example..com", "-bad.example.com", 'evil\"); return \"DIRECT\"; //',
+        ],
+      }));
+      expect(pm.listener({ url: "https://example.com/" })).toEqual({ type: "direct" });
+      expect(pm.listener({ url: "https://www.example.com/" })).toEqual({ type: "direct" });
+    });
+
+    it("replaces restricted domains on each update and clears them when disabled", () => {
+      pm.apply(baseState({ splitDNSDomains: ["old.example.com"] }));
+      pm.apply(baseState({ splitDNSDomains: ["new.example.com"] }));
+      expect(pm.listener({ url: "https://old.example.com/" })).toEqual({ type: "direct" });
+      expect(pm.listener({ url: "https://new.example.com/" })).toMatchObject({ type: "socks" });
+
+      pm.apply(baseState());
+      expect(pm.listener({ url: "https://new.example.com/" })).toEqual({ type: "direct" });
+
+      pm.apply(baseState({ splitDNSDomains: ["new.example.com"] }));
+      pm.clear();
+      expect(pm.listener({ url: "https://new.example.com/" })).toEqual({ type: "direct" });
+      expect((pm as unknown as { splitDNSDomains: string[] }).splitDNSDomains).toEqual([]);
+    });
+  });
+
   describe("session storage persistence", () => {
+    it("restores restricted domains and waits for current host status before routing", async () => {
+      pm.apply(baseState({ splitDNSDomains: ["Internal.Example.COM."] }));
+      const restored = new FirefoxProxyManager();
+      expect(await restored.restoreFromStorage()).toBe(true);
+      expect((restored as unknown as { splitDNSDomains: string[] }).splitDNSDomains)
+        .toEqual(["internal.example.com"]);
+      const request = restored.listener({ url: "https://srv.internal.example.com/" });
+      expect(request).toBeInstanceOf(Promise);
+      restored.apply(baseState({ proxyPort: 4444, splitDNSDomains: ["internal.example.com"] }));
+      await expect(request).resolves.toMatchObject({ type: "socks", port: 4444, proxyDNS: true });
+    });
+
+    it("uses refreshed restricted domains for requests held during restoration", async () => {
+      pm.apply(baseState({ splitDNSDomains: ["old.example.com"] }));
+      const restored = new FirefoxProxyManager();
+      await restored.restoreFromStorage();
+      const oldRequest = restored.listener({ url: "https://old.example.com/" });
+      const newRequest = restored.listener({ url: "https://new.example.com/" });
+      restored.apply(baseState({ splitDNSDomains: ["new.example.com"] }));
+      await expect(oldRequest).resolves.toEqual({ type: "direct" });
+      await expect(newRequest).resolves.toMatchObject({ type: "socks", proxyDNS: true });
+    });
+
+    it.each([undefined, ["Internal.Example.COM.", ".", "https://example.com", 42]])(
+      "validates restored domains and supports stored configs without them: %j", async (splitDNSDomains) => {
+        const session = (globalThis as unknown as {
+          browser: { storage: { session: { set(items: Record<string, unknown>): Promise<void> } } };
+        }).browser.storage.session;
+        await session.set({ proxyConfig: {
+          proxyPort: 1055, magicDNSSuffix: "example.ts.net", exitNodeActive: false,
+          subnetRanges: [], splitMode: "bypass", splitDomains: [],
+          ...(splitDNSDomains === undefined ? {} : { splitDNSDomains }),
+        } });
+        expect(await pm.restoreFromStorage()).toBe(true);
+        expect((pm as unknown as { splitDNSDomains: string[] }).splitDNSDomains)
+          .toEqual(splitDNSDomains === undefined ? [] : ["internal.example.com"]);
+        pm.clear();
+      },
+    );
+
     it("persists proxy config to session storage on apply", async () => {
       pm.apply(baseState({ proxyPort: 5555 }));
 
