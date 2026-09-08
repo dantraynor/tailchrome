@@ -119,7 +119,8 @@ If the candidate artifact expires, or any file or digest differs, create a new c
 
 - [ ] Inspect the `Update Homebrew` follow-up for the published release tag and the same approved `SHA256SUMS.txt` digest.
 - [ ] Review the automated Homebrew update PR. If no PR was created, apply the `homebrew-update-vX.Y.Z` patch artifact in a normal PR, or use the documented manual update.
-- [ ] Confirm `Casks/tailchrome.rb` and `Formula/tailchrome.rb` use the published version and that the macOS package and both Linux helper hashes match the approved release manifest.
+- [ ] Confirm both definitions use the published version and that the cask's macOS package hash matches the approved release manifest.
+- [ ] Verify the formula's source archive URL points to the reviewed release tag and independently check its SHA-256 against the downloaded archive; GitHub's tag archive is separate from the signed package manifest.
 - [ ] Approve any pending CI workflow runs on the update PR and wait for the updater tests and Homebrew checks to pass.
 - [ ] Merge the update PR into `main` and verify that `brew update` makes the published version available in the tap.
 

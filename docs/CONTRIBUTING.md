@@ -100,6 +100,8 @@ Include your browser, OS, extension version, and steps to reproduce.
   switch publisher identities.
 - Store publication uses GitHub Actions with manual environment approvals for Chrome Web Store and Firefox AMO submission
 - Successful helper publication calls the Homebrew update workflow, which
-  proposes the published version and final package checksums in a pull request.
+  proposes the published version, final macOS package checksum, and release
+  source archive checksum in a pull request. CI builds the formula from source
+  and tests registration and removal on macOS and Linux.
   See [Homebrew maintenance](../packaging/homebrew/README.md#maintaining-the-tap)
   for setup, retries, and manual updates.

@@ -47,7 +47,7 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false
-      - name: Verify the published release manifest
+      - name: Verify the published release manifest and fetch its source
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
@@ -59,7 +59,17 @@ jobs:
           gh release download "$RELEASE_TAG" --pattern SHA256SUMS.txt --dir "$RUNNER_TEMP/homebrew-release"
           manifest="$RUNNER_TEMP/homebrew-release/SHA256SUMS.txt"
           test "$(sha256sum "$manifest" | cut -d' ' -f1)" = "$EXPECTED_MANIFEST_DIGEST"
-          node scripts/update-homebrew.mjs "$RELEASE_TAG" "$manifest"
+          source_archive="$RUNNER_TEMP/homebrew-release/$RELEASE_TAG.tar.gz"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            "https://github.com/dantraynor/tailchrome/archive/refs/tags/$RELEASE_TAG.tar.gz" \
+            --output "$source_archive"
+          # Check the archive's declared version before proposing its checksum.
+          source_version="${RELEASE_TAG#v}"
+          tar -xzOf "$source_archive" "tailchrome-$source_version/packages/extension/package.json" | \
+            jq -e --arg version "$source_version" '.version == $version'
+          node scripts/update-homebrew.mjs "$RELEASE_TAG" "$manifest" "$source_archive"
+          source_sha256="$(sha256sum "$source_archive" | cut -d' ' -f1)"
+          echo "SOURCE_ARCHIVE_SHA256=$source_sha256" >> "$GITHUB_ENV"
           node --test scripts/update-homebrew.test.mjs
           ruby -c Casks/tailchrome.rb
           ruby -c Formula/tailchrome.rb
@@ -99,8 +109,9 @@ jobs:
           fi
           body="$RUNNER_TEMP/homebrew-pr.md"
           {
-            printf 'Update the macOS cask and Linux formula to the published %s helper release.\n\n' "$RELEASE_TAG"
-            printf "The package hashes come from the final SHA256SUMS.txt, verified against \`%s\`.\n\n" "$EXPECTED_MANIFEST_DIGEST"
+            printf 'Update the macOS cask and source formula to the published %s helper release.\n\n' "$RELEASE_TAG"
+            printf "The cask checksum comes from the final SHA256SUMS.txt, verified against \`%s\`.\n\n" "$EXPECTED_MANIFEST_DIGEST"
+            printf "The source archive for the release tag has SHA-256 \`%s\`.\n\n" "$SOURCE_ARCHIVE_SHA256"
             printf 'Validation: Homebrew updater tests, Ruby syntax checks, and git diff --check.\n\n'
             printf 'Approve any pending CI workflow runs on this automated PR before merging. If your GitHub deployment does not create runs for GITHUB_TOKEN PRs, close and reopen the PR as a maintainer to trigger CI.\n'
           } > "$body"

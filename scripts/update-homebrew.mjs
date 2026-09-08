@@ -1,16 +1,13 @@
 #!/usr/bin/env node
 
 import { readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const releasePattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-const assets = [
-  "tailchrome-helper-macos.pkg",
-  "tailscale-browser-ext-linux-arm64",
-  "tailscale-browser-ext-linux-amd64",
-];
+const caskAsset = "tailchrome-helper-macos.pkg";
 
 export function parseChecksums(contents) {
   const checksums = new Map();
@@ -21,9 +18,7 @@ export function parseChecksums(contents) {
     if (checksums.has(asset)) throw new Error(`Duplicate checksum for ${asset}`);
     checksums.set(asset, checksum);
   }
-  for (const asset of assets) {
-    if (!checksums.has(asset)) throw new Error(`Missing checksum for ${asset}`);
-  }
+  if (!checksums.has(caskAsset)) throw new Error(`Missing checksum for ${caskAsset}`);
   return checksums;
 }
 
@@ -37,23 +32,30 @@ function replaceOnce(contents, pattern, replacement) {
   return result;
 }
 
+function checkUpgrade(current, tag) {
+  const previous = current.split(".").map(BigInt);
+  const next = tag.slice(1).split(".").map(BigInt);
+  const difference = next.findIndex((part, i) => part !== previous[i]);
+  if (difference !== -1 && next[difference] < previous[difference]) {
+    throw new Error(`Refusing to downgrade Homebrew from ${current} to ${tag}`);
+  }
+}
+
 function updateVersion(contents, tag) {
   return replaceOnce(contents, /^  version "([0-9]+\.[0-9]+\.[0-9]+)"$/gm, (_, current) => {
-    const previous = current.split(".").map(BigInt);
-    const next = tag.slice(1).split(".").map(BigInt);
-    const difference = next.findIndex((part, i) => part !== previous[i]);
-    if (difference !== -1 && next[difference] < previous[difference]) {
-      throw new Error(`Refusing to downgrade Homebrew from ${current} to ${tag}`);
-    }
+    checkUpgrade(current, tag);
     return `  version "${tag.slice(1)}"`;
   });
 }
 
-// Read the final release manifest, never the pre-signing build outputs. Compute
-// both updates before writing either file so invalid input cannot partially bump.
-export async function updateHomebrew(tag, manifest, directory = root) {
+// The cask uses the final release manifest; the formula pins the tag's source
+// archive separately. Compute both updates before writing either definition.
+export async function updateHomebrew(tag, manifest, sourceSha256, directory = root) {
   if (!releasePattern.test(tag) || tag.trim() !== tag) {
     throw new Error("Expected an explicit stable release tag such as v0.1.13");
+  }
+  if (!/^[0-9a-f]{64}$/.test(sourceSha256) || sourceSha256.trim() !== sourceSha256) {
+    throw new Error("Expected the SHA-256 of the release source archive");
   }
   const checksums = parseChecksums(manifest);
   const caskPath = path.join(directory, "Casks/tailchrome.rb");
@@ -65,27 +67,29 @@ export async function updateHomebrew(tag, manifest, directory = root) {
   const cask = replaceOnce(
     updateVersion(originalCask, tag),
     /^  sha256 "[0-9a-f]{64}"$/gm,
-    () => `  sha256 "${checksums.get(assets[0])}"`,
+    () => `  sha256 "${checksums.get(caskAsset)}"`,
   );
-  let formula = updateVersion(originalFormula, tag);
-  for (const asset of assets.slice(1)) {
-    formula = replaceOnce(
-      formula,
-      new RegExp(`(url "[^"\\n]+/${asset}",\\n +using: :nounzip\\n +sha256 ")[0-9a-f]{64}"`, "g"),
-      (_, prefix) => `${prefix}${checksums.get(asset)}"`,
-    );
-  }
+  let formula = replaceOnce(
+    originalFormula,
+    /^  url "https:\/\/github\.com\/dantraynor\/tailchrome\/archive\/refs\/tags\/v([0-9]+\.[0-9]+\.[0-9]+)\.tar\.gz"$/gm,
+    (_, current) => {
+      checkUpgrade(current, tag);
+      return `  url "https://github.com/dantraynor/tailchrome/archive/refs/tags/${tag}.tar.gz"`;
+    },
+  );
+  formula = replaceOnce(formula, /^  sha256 "[0-9a-f]{64}"$/gm, () => `  sha256 "${sourceSha256}"`);
   await writeFile(caskPath, cask);
   await writeFile(formulaPath, formula);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   try {
-    const [tag, manifestPath, ...extra] = process.argv.slice(2);
-    if (!tag || !manifestPath || extra.length) {
-      throw new Error("Usage: node scripts/update-homebrew.mjs <vX.Y.Z> <SHA256SUMS.txt>");
+    const [tag, manifestPath, sourcePath, ...extra] = process.argv.slice(2);
+    if (!tag || !manifestPath || !sourcePath || extra.length) {
+      throw new Error("Usage: node scripts/update-homebrew.mjs <vX.Y.Z> <SHA256SUMS.txt> <source.tar.gz>");
     }
-    await updateHomebrew(tag, await readFile(manifestPath, "utf8"));
+    const sourceSha256 = createHash("sha256").update(await readFile(sourcePath)).digest("hex");
+    await updateHomebrew(tag, await readFile(manifestPath, "utf8"), sourceSha256);
     console.log(`Updated the Homebrew cask and formula to ${tag}`);
   } catch (error) {
     console.error(error.message);

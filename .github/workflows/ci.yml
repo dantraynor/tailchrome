@@ -181,12 +181,11 @@ jobs:
           tap="$(brew --repository)/Library/Taps/dantraynor/homebrew-tailchrome"
           mkdir -p "$(dirname "$tap")"
           ln -s "$GITHUB_WORKSPACE" "$tap"
-      - name: Test Linux helper registration and removal
-        if: runner.os == 'Linux'
+      - name: Build the formula from source and test registration and removal
         run: |
           set -euo pipefail
           brew style --formula dantraynor/tailchrome/tailchrome
-          brew install --formula dantraynor/tailchrome/tailchrome
+          brew install --build-from-source --formula dantraynor/tailchrome/tailchrome
           brew test dantraynor/tailchrome/tailchrome
           brew uninstall --formula dantraynor/tailchrome/tailchrome
       - name: Validate and fetch the signed macOS installer

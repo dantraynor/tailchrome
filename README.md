@@ -60,15 +60,16 @@ brew tap dantraynor/tailchrome https://github.com/dantraynor/tailchrome
 On macOS, install the signed helper package with
 `brew install --cask dantraynor/tailchrome/tailchrome`.
 
-On Linux (x86_64 or ARM64), run:
+To build the helper from source on Linux or macOS, run:
 
 ```bash
 brew install --formula dantraynor/tailchrome/tailchrome
 tailscale-browser-ext -install-now
 ```
 
-Linux users must close their browsers and repeat `tailscale-browser-ext -install-now`
-after each `brew upgrade` to refresh the per-user runtime copy. See the
+The formula installs Go as a build dependency. Formula users must close their
+browsers and repeat `tailscale-browser-ext -install-now` after each `brew upgrade`
+to refresh the per-user runtime copy. See the
 [Homebrew instructions](packaging/homebrew/README.md) for upgrades, repair,
 and removal. The browser extension is installed separately.
 

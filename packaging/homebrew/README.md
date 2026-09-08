@@ -1,8 +1,9 @@
 # Homebrew installation
 
 This repository is also a Homebrew tap. The macOS cask uses the signed,
-notarized universal `.pkg`; the Linux formula uses the published x86_64 or
-ARM64 helper. Both pin a release version and SHA-256 checksums.
+notarized universal `.pkg`. The formula builds the helper from a checksummed
+release source archive on macOS and Linux, with Go as a build dependency.
+Both pin a release version and SHA-256 checksum.
 
 Install [Homebrew](https://brew.sh/) and add the tap:
 
@@ -60,7 +61,11 @@ If other accounts used Tailchrome, run the following once in each account
 "/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext" -uninstall
 ```
 
-## Linux
+## Source formula (macOS and Linux)
+
+The formula builds the native helper locally for your architecture. It does
+not install the macOS package or **Tailchrome Helper.app**; register the helper
+with the command below. Go is needed only to build the helper.
 
 ```bash
 brew install --formula dantraynor/tailchrome/tailchrome
@@ -68,10 +73,12 @@ tailscale-browser-ext -install-now
 ```
 
 Run registration without `sudo`. The helper registers Chrome, Firefox, and
-the other supported Chromium-family browsers for your current user. It copies
-the executable to `~/.local/share/tailscale/browser-ext/tailscale-browser-ext`.
-Homebrew owns the downloaded helper in its prefix; the registration command
-owns this separate runtime copy and your native-messaging manifests.
+the other supported Chromium-family browsers for your current user. Homebrew
+owns the built helper in its prefix; the registration command owns a separate
+runtime copy and your native-messaging manifests. The runtime copy lives at:
+
+- macOS: `~/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext`
+- Linux: `~/.local/share/tailscale/browser-ext/tailscale-browser-ext`
 
 After **every** upgrade, disconnect Tailchrome and close your browsers before
 refreshing that runtime copy:
@@ -95,9 +102,13 @@ brew uninstall --formula dantraynor/tailchrome/tailchrome
 ```
 
 Run `-uninstall` in each registered user account before removing the formula.
-If you already removed it, the runtime copy can still clean itself up:
+If you already removed it, run the runtime copy's `-uninstall` command using
+the path for your platform:
 
 ```bash
+# macOS
+"$HOME/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext" -uninstall
+# Linux
 "$HOME/.local/share/tailscale/browser-ext/tailscale-browser-ext" -uninstall
 ```
 
@@ -115,13 +126,17 @@ when Homebrew is available inside WSL.
 
 `Casks/tailchrome.rb` and `Formula/tailchrome.rb` track the latest **published**
 stable helper release. Do not bump them with `scripts/bump-version.sh`: the
-final checksums are available only after signing, notarization, and packaging.
+cask's final checksum is available only after signing, notarization, and packaging.
 
 After protected helper publication succeeds, `Publish Helper Release` calls
 `Update Homebrew`. That workflow verifies the public release and the approved
-`SHA256SUMS.txt` digest, updates both definitions, tests the updater, and opens a
-pull request against `main`. It uses this repository's `GITHUB_TOKEN`; no separate
-tap repository or PAT is needed. Merge the update PR to make the new version
+`SHA256SUMS.txt` digest for the cask. It also downloads the release tag's source
+archive, checks its declared version, and computes the formula's SHA-256.
+GitHub's source archive is separate from the signed package manifest; review
+its tag and checksum independently. The workflow updates both definitions,
+tests the updater, and opens a pull request against `main`. It uses this
+repository's `GITHUB_TOKEN`; no separate tap repository or PAT is needed.
+Merge the update PR to make the new version
 available through `brew update`.
 
 For automatic PR creation, enable **Settings → Actions → General → Workflow
@@ -149,15 +164,42 @@ gh release download vX.Y.Z --repo dantraynor/tailchrome \
   --pattern SHA256SUMS.txt --dir .context/homebrew-update
 # Compare this digest with the approved publication summary before continuing.
 shasum -a 256 .context/homebrew-update/SHA256SUMS.txt
-node scripts/update-homebrew.mjs vX.Y.Z .context/homebrew-update/SHA256SUMS.txt
+curl --fail --location --proto '=https' --tlsv1.2 \
+  https://github.com/dantraynor/tailchrome/archive/refs/tags/vX.Y.Z.tar.gz \
+  --output .context/homebrew-update/vX.Y.Z.tar.gz
+shasum -a 256 .context/homebrew-update/vX.Y.Z.tar.gz
+node scripts/update-homebrew.mjs vX.Y.Z .context/homebrew-update/SHA256SUMS.txt \
+  .context/homebrew-update/vX.Y.Z.tar.gz
 pnpm test:homebrew
 git diff --check
 git diff -- Casks/tailchrome.rb Formula/tailchrome.rb
 ```
 
-Commit the reviewed definition updates through a pull request. CI tests Linux
-installation, registration, and removal in Homebrew's temporary test home. On
-macOS it checks cask syntax/style and fetches the package to verify its checksum,
-signature, and stapled notarization ticket. Full macOS install/upgrade/uninstall
-still needs a Mac with a logged-in user; follow the commands above and check
-browser discovery after each step.
+Commit the reviewed definition updates through a pull request. CI builds the
+formula from source on macOS and Linux and tests registration and removal in
+Homebrew's temporary test home. It also checks cask syntax/style on macOS and
+fetches the package to verify its checksum, signature, and stapled notarization
+ticket. Full macOS cask install/upgrade/uninstall still needs a Mac with a
+logged-in user; follow the commands above and check browser discovery after
+each step.
+
+## Preparing a Homebrew core submission
+
+`Formula/tailchrome.rb` builds from source on both supported platforms and can
+be proposed to [Homebrew/homebrew-core](https://github.com/Homebrew/homebrew-core)
+as `Formula/t/tailchrome.rb`. Follow Homebrew's
+[new formula checklist](https://docs.brew.sh/Adding-Software-to-Homebrew) and
+[acceptance requirements](https://docs.brew.sh/Acceptable-Formulae). In a local
+checkout of that tap, validate the formula before opening the upstream PR:
+
+```bash
+brew style --formula homebrew/core/tailchrome
+brew audit --new --strict --online --formula homebrew/core/tailchrome
+HOMEBREW_NO_INSTALL_FROM_API=1 brew install --build-from-source --formula homebrew/core/tailchrome
+brew test homebrew/core/tailchrome
+```
+
+Homebrew reviews eligibility and generates bottles through its own CI. Core
+acceptance is separate from this project's tap; the release workflow above
+updates only this repository. Once accepted, submit later core updates through
+Homebrew's contribution process as well.

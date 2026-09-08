@@ -1,8 +1,9 @@
 # Linux helper installation
 
 Homebrew users on x86_64 or ARM64 can use the
-[Tailchrome formula](../homebrew/README.md#linux). It installs a checksummed
-release helper; browser registration is a separate per-user command that
+[Tailchrome formula](../homebrew/README.md#source-formula-macos-and-linux). It builds
+the helper from a checksummed release source archive using Homebrew's Go;
+browser registration is a separate per-user command that
 must also be run after upgrades.
 
 `build-packages.sh` produces:
