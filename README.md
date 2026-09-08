@@ -8,7 +8,10 @@ Access your Tailscale network directly from your browser. No system VPN required
 
 Tailchrome runs a full Tailscale node per browser profile, without touching system networking. Works in Chrome, Firefox, and other Chromium-family browsers (Brave, Edge, Vivaldi, Opera, plus Arc on macOS) with full feature parity. Tailnet traffic is routed through a local SOCKS5/HTTP proxy, so it works alongside (or without) the Tailscale system app.
 
-<img width="1400" height="820" alt="Tailchrome live status, exit node, and split tunneling views" src="store-assets/readme-overview-v2.png" />
+<p align="center">
+  <img width="45%" alt="Tailchrome popup showing connection status and devices" src="store-assets/readme-popup.png" />
+  <img width="45%" alt="Tailchrome exit-node picker showing devices and Mullvad VPN locations" src="store-assets/readme-popup-exit-nodes.png" />
+</p>
 
 ## Features
 
