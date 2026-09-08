@@ -159,10 +159,33 @@ export function render(state: TailscaleState): void {
   syncHelperVersionNotice(root, state);
 }
 
+function syncRoutingNotice(root: HTMLElement, state: TailscaleState): void {
+  root.querySelector(".routing-notice")?.remove();
+  const health = state.routingHealth;
+  if (!health || health.status === "active" || health.status === "inactive") return;
+  const view = root.querySelector<HTMLElement>(".view");
+  if (!view) return;
+  const notice = document.createElement("section");
+  notice.className = "routing-notice";
+  notice.setAttribute("role", "alert");
+  const text = document.createElement("p");
+  text.textContent = health.message;
+  notice.appendChild(text);
+  if (state.routingPolicy?.mode !== "direct") {
+    const release = document.createElement("button");
+    release.className = "btn btn-secondary";
+    release.textContent = "Disconnect and browse normally";
+    release.addEventListener("click", () => sendMessage({ type: "release-routing" }));
+    notice.appendChild(release);
+  }
+  view.prepend(notice);
+}
+
 function syncHelperVersionNotice(
   root: HTMLElement,
   state: TailscaleState,
 ): void {
+  syncRoutingNotice(root, state);
   root.querySelector(".helper-version-notice")?.remove();
   const notice = state.helperVersionNotice;
   if (!notice || helperVersionNoticeDismissed) return;

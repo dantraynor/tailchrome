@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { ProxyManager, TailscaleState, NativeReply } from "../types";
+import type { ProxyManager, TailscaleState, NativeReply, RoutingHealth } from "../types";
 import {
   getHelperVersionNotice,
   initBackground,
@@ -1045,7 +1045,7 @@ describe("initBackground", () => {
       expect(proxyManager.apply).toHaveBeenCalledWith(
         expect.objectContaining({ pendingExitNodeID: "node123" }),
       );
-      expect(chrome.storage.local.set).toHaveBeenCalledWith({ lastExitNodeID: "node123" });
+      expect(chrome.storage.local.set).not.toHaveBeenCalledWith({ lastExitNodeID: "node123" });
     });
 
     it("handles clear-exit-node message", async () => {
@@ -1064,6 +1064,84 @@ describe("initBackground", () => {
         expect.objectContaining({ pendingExitNodeID: "" }),
       );
       expect(chrome.storage.local.remove).toHaveBeenCalledWith("lastExitNodeID");
+    });
+
+    it.each([true, false])("waits for normal routing before login (existing URL: %s)", async (existingURL) => {
+      let reportHealth!: (health: RoutingHealth) => void;
+      proxyManager.setRoutingHealthListener = (listener) => { reportHealth = listener; };
+      await setupBackground();
+      advertiseLoginSupport();
+      sendNativeMessage({ status: {
+        backendState: "NeedsLogin", running: false, tailnet: null,
+        magicDNSSuffix: "", selfNode: null, needsLogin: true,
+        browseToURL: existingURL ? "https://login.tailscale.com/auth/xyz" : "",
+        exitNode: null, peers: [], prefs: null, health: [], error: null,
+      } });
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      nativePort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "disconnect-and-login" });
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(expect.objectContaining({
+        routingPolicy: expect.objectContaining({ mode: "direct" }),
+      }));
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "login" });
+      reportHealth({ status: "blocked", message: "Waiting for settings" });
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      reportHealth({ status: "inactive", message: "" });
+      if (existingURL) {
+        expect(chrome.tabs.create).toHaveBeenCalledExactlyOnceWith({ url: "https://login.tailscale.com/auth/xyz" });
+      } else {
+        expect(nativePort.postMessage).toHaveBeenCalledExactlyOnceWith({ cmd: "login" });
+      }
+    });
+
+    it("cancels a waiting login when the user disconnects", async () => {
+      let reportHealth!: (health: RoutingHealth) => void;
+      proxyManager.setRoutingHealthListener = (listener) => { reportHealth = listener; };
+      await setupBackground();
+      sendNativeMessage({ status: {
+        backendState: "NeedsLogin", running: false, tailnet: null,
+        magicDNSSuffix: "", selfNode: null, needsLogin: true,
+        browseToURL: "https://login.tailscale.com/auth/xyz",
+        exitNode: null, peers: [], prefs: null, health: [], error: null,
+      } });
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "disconnect-and-login" });
+      popupPort.onMessage._listeners[0]!({ type: "release-routing" });
+      reportHealth({ status: "inactive", message: "" });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+        type: "toast", message: "Could not restore normal browsing. Check browser routing and try again.",
+      }));
+    });
+
+    it("does not open login when restoring normal routing times out", async () => {
+      let reportHealth!: (health: RoutingHealth) => void;
+      proxyManager.setRoutingHealthListener = (listener) => { reportHealth = listener; };
+      await setupBackground();
+      sendNativeMessage({ status: {
+        backendState: "NeedsLogin", running: false, tailnet: null,
+        magicDNSSuffix: "", selfNode: null, needsLogin: true,
+        browseToURL: "https://login.tailscale.com/auth/xyz",
+        exitNode: null, peers: [], prefs: null, health: [], error: null,
+      } });
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "disconnect-and-login" });
+      reportHealth({ status: "unavailable", message: "Browser rejected settings" });
+      await vi.advanceTimersByTimeAsync(5_000);
+      reportHealth({ status: "inactive", message: "" });
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: "toast", message: "Could not restore normal browsing. Check browser routing and try again.",
+      }));
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      reportHealth({ status: "inactive", message: "" });
+      expect(chrome.tabs.create).toHaveBeenCalledExactlyOnceWith({ url: "https://login.tailscale.com/auth/xyz" });
     });
 
     it("handles login with valid URL", async () => {
@@ -2276,7 +2354,7 @@ describe("initBackground", () => {
   });
 
   describe("exit node restoration", () => {
-    it("restores saved exit node on first Running status without exit node", async () => {
+    it("does not restore an unscoped legacy exit node into an unknown account", async () => {
       (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
         profileId: "test-id",
         lastExitNodeID: "saved-exit-node",
@@ -2305,7 +2383,7 @@ describe("initBackground", () => {
       // Let storage.get promise resolve
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(nativePort.postMessage).toHaveBeenCalledWith({
+      expect(nativePort.postMessage).not.toHaveBeenCalledWith({
         cmd: "set-exit-node",
         nodeID: "saved-exit-node",
       });
@@ -3086,6 +3164,26 @@ describe("initBackground", () => {
         expect(chrome.storage.local.remove).toHaveBeenCalledWith(
           "lastSessionWantRunning",
         );
+      });
+
+      it("blocks while deleting the current profile and ignores unrelated command errors", async () => {
+        await setupBackground();
+        sendNativeMessage({
+          profiles: {
+            current: { id: "p1", name: "A" },
+            profiles: [{ id: "p1", name: "A" }],
+          },
+        });
+        const popupPort = createPopupPort();
+        connectListeners[0]!(popupPort);
+        popupPort.onMessage._listeners[0]!({ type: "delete-profile", profileID: "p1" });
+        expect(proxyManager.apply).toHaveBeenLastCalledWith(expect.objectContaining({
+          routingPolicy: expect.objectContaining({ mode: "blocked", blockAll: true }),
+        }));
+        sendNativeMessage({ error: { cmd: "set-prefs", message: "Earlier preference update failed" } });
+        expect(proxyManager.apply).toHaveBeenLastCalledWith(expect.objectContaining({
+          routingPolicy: expect.objectContaining({ mode: "blocked", blockAll: true }),
+        }));
       });
 
       it("keeps the stay-down intent when deleting a non-current profile", async () => {

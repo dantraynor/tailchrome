@@ -219,6 +219,9 @@ export interface HelperVersionNotice {
 }
 
 export interface TailscaleState {
+  routingPolicy?: RoutingPolicy;
+  routingHealth?: RoutingHealth;
+  selectedExitNodeID?: string | null;
   /** Monotonically increasing counter, incremented on every state update. */
   stateVersion: number;
   hostConnected: boolean;
@@ -290,8 +293,10 @@ type SetPrefMessage = {
 
 // Messages from popup to background
 export type BackgroundMessage =
+  | { type: "release-routing" }
   | { type: "toggle" }
   | { type: "login" }
+  | { type: "disconnect-and-login" }
   | { type: "logout" }
   | {
       type: "retry-native-host";
@@ -327,4 +332,22 @@ export type BackgroundMessage =
 export interface ProxyManager {
   apply(state: TailscaleState): void;
   clear(): void;
+  setRoutingHealthListener?(listener: (health: RoutingHealth) => void): void;
+}
+
+export interface RoutingHealth {
+  status: "active" | "blocked" | "conflicted" | "unavailable" | "inactive";
+  message: string;
+}
+
+export interface RoutingPolicy {
+  blockAll?: boolean;
+  mode: "active" | "blocked" | "direct";
+  proxyPort: number | null;
+  selectedExitNodeID: string | null;
+  magicDNSSuffix: string;
+  subnetCIDRs: string[];
+  shortNames: string[];
+  dnsRoutes: string[];
+  domainSplit: DomainSplitConfig;
 }

@@ -18,7 +18,6 @@ export function startChromeBackground(): void {
       timerService: new ChromeAlarmTimerService(),
     },
   );
-  const { proxyManager } = background;
   void background.rehydrateHelperRetries().catch((err) => {
     console.warn(
       "[Chrome] Could not restore pending helper discovery retry:",
@@ -26,7 +25,4 @@ export function startChromeBackground(): void {
     );
   });
 
-  chrome.runtime.onSuspend?.addListener(() => {
-    proxyManager.clear();
-  });
 }

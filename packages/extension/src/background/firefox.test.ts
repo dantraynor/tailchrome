@@ -208,22 +208,6 @@ describe("startFirefoxBackground", () => {
     expect(mocks.sendKeepalive).toHaveBeenCalledTimes(1);
   });
 
-  it("logs startup failures when restoreFromStorage rejects", async () => {
-    const error = new Error("restore failed");
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    mocks.restoreFromStorage.mockRejectedValue(error);
-
-    startFirefoxBackground();
-    await flushMicrotasks();
-
-    expect(errorSpy).toHaveBeenCalledWith(
-      "[Firefox] Background start failed:",
-      "restore failed",
-    );
-
-    errorSpy.mockRestore();
-  });
-
   it("logs sanitized helper retry restoration failures", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.restoreFromStorage.mockResolvedValue(true);

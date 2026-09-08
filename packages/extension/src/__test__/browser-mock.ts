@@ -9,6 +9,7 @@ const sessionStore: Record<string, unknown> = {};
 
 const browserMock = {
   proxy: {
+    onError: { addListener: (_fn: () => void) => {} },
     onRequest: {
       addListener: (listener: ProxyListener, _filter: { urls: string[] }) => {
         listeners.push(listener);

@@ -18,6 +18,12 @@ import {
   CGNAT_MASK,
 } from "@tailchrome/shared/background/proxy-utils";
 
+import type { RoutingHealth } from "@tailchrome/shared/types";
+import {
+  BLOCKED_PROXY_PORT,
+  policyFromState,
+} from "@tailchrome/shared/background/routing-protection";
+
 export interface FirefoxProxyInfo {
   type: "socks" | "direct";
   host?: string;
@@ -25,244 +31,114 @@ export interface FirefoxProxyInfo {
   proxyDNS?: boolean;
 }
 
-type FirefoxProxyResult = FirefoxProxyInfo | Promise<FirefoxProxyInfo>;
-
 declare const browser: {
   proxy: {
     onRequest: {
       addListener(
-        listener: (details: { url: string }) => FirefoxProxyResult,
+        listener: (details: { url: string }) => unknown,
         filter: { urls: string[] },
       ): void;
-      removeListener(
-        listener: (details: { url: string }) => FirefoxProxyResult,
-      ): void;
-      hasListener(
-        listener: (details: { url: string }) => FirefoxProxyResult,
-      ): boolean;
+      hasListener(listener: (details: { url: string }) => unknown): boolean;
     };
-  };
-  storage: {
-    session: {
-      get(key: string): Promise<Record<string, unknown>>;
-      set(items: Record<string, unknown>): Promise<void>;
-      remove(key: string): Promise<void>;
-    };
+    onError: { addListener(listener: () => void): void };
   };
 };
 
-const STORAGE_KEY = "proxyConfig";
-
-// Upper bound on how long held requests wait for the helper to come back.
-// Reconnection retries forever (1s base backoff), so without a deadline a
-// helper that is gone for good would hold every browser request until the
-// user disables the extension. Past the deadline the gate fails open and
-// requests go direct, matching the authoritative stopped state.
-export const RECONNECT_GATE_TIMEOUT_MS = 10_000;
-
-interface StoredProxyConfig {
-  proxyPort: number;
-  magicDNSSuffix: string;
-  exitNodeActive: boolean;
-  subnetRanges: Array<{ network: number; mask: number }>;
-  splitMode: DomainSplitMode;
-  splitDomains: string[];
-}
-
 export class FirefoxProxyManager {
-  private proxyPort = 0;
+  private proxyPort = BLOCKED_PROXY_PORT;
   private magicDNSSuffix = "";
-  private exitNodeActive = false;
+  private exitNodeActive = true;
   private subnetRanges: Array<{ network: number; mask: number }> = [];
   private splitMode: DomainSplitMode = "bypass";
   private splitDomains: string[] = [];
-  private restorePromise: Promise<void> | null = null;
-  private reconnectPromise: Promise<void> | null = null;
-  private reconnectResolve: (() => void) | null = null;
-  private restoreGeneration = 0;
-  private restoreInFlight = false;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private mode: "active" | "blocked" | "direct" = "blocked";
+  private failedKey = "";
+  private policyKey = "";
+  private healthListener: ((health: RoutingHealth) => void) | null = null;
 
-  readonly listener = (
-    details: { url: string },
-  ): FirefoxProxyInfo | Promise<FirefoxProxyInfo> => {
-    if (this.proxyPort === 0 && this.restorePromise) {
-      return this.restorePromise.then(() => {
-        if (this.reconnectPromise) {
-          return this.reconnectPromise.then(() =>
-            this.resolveProxy(details.url),
-          );
-        }
-        return this.resolveProxy(details.url);
+  constructor() {
+    browser.proxy.onError.addListener(() => {
+      this.failedKey = this.policyKey;
+      this.healthListener?.({
+        status: "unavailable",
+        message: "Firefox could not apply the routing settings.",
       });
-    }
+    });
+  }
 
-    if (this.reconnectPromise) {
-      return this.reconnectPromise.then(() => this.resolveProxy(details.url));
-    }
+  readonly listener = (details: {
+    url: string;
+  }): FirefoxProxyInfo | [FirefoxProxyInfo, null] =>
+    this.resolveProxy(details.url);
 
-    return this.resolveProxy(details.url);
-  };
+  setRoutingHealthListener(listener: (health: RoutingHealth) => void): void {
+    this.healthListener = listener;
+  }
 
   apply(state: TailscaleState): void {
-    if (!shouldProxyState(state)) {
-      const failureKind = state.helperFailure?.kind;
-      const authoritativeFailure =
-        failureKind === "helper-unavailable" ||
-        failureKind === "helper-not-allowed" ||
-        failureKind === "helper-reported-error" ||
-        failureKind === "helper-incompatible";
-      const transient =
-        !authoritativeFailure &&
-        (!state.hostConnected ||
-          state.backendState === "NoState" ||
-          state.backendState === "Starting");
-
-      if (transient) {
-        // During startup/reconnect, preserve the last known configuration and
-        // hold requests until Running, an authoritative stopped/login state,
-        // or the gate deadline.
-        if (
-          this.restoreInFlight ||
-          this.reconnectPromise ||
-          this.proxyPort !== 0 ||
-          this.magicDNSSuffix !== ""
-        ) {
-          this.proxyPort = 0;
-          this.beginReconnectGate();
-        }
-        return;
-      }
-
-      this.restoreGeneration += 1;
-      this.clear();
-      void browser.storage.session.remove(STORAGE_KEY);
-      return;
-    }
-
-    this.restoreGeneration += 1;
-    this.proxyPort = state.proxyPort!;
-    this.exitNodeActive = state.exitNode !== null;
-    this.magicDNSSuffix = sanitizeMagicDNSSuffix(state.magicDNSSuffix);
-    this.subnetRanges = collectSubnetCIDRs(state.peers)
+    const policy = policyFromState(state);
+    const nextKey = JSON.stringify(policy);
+    if (nextKey !== this.policyKey) this.failedKey = "";
+    this.policyKey = nextKey;
+    if (this.failedKey === this.policyKey) return;
+    this.mode = policy.mode;
+    this.proxyPort = policy.proxyPort ?? BLOCKED_PROXY_PORT;
+    this.exitNodeActive =
+      policy.blockAll === true || policy.selectedExitNodeID !== null;
+    this.magicDNSSuffix = sanitizeMagicDNSSuffix(policy.magicDNSSuffix);
+    this.subnetRanges = policy.subnetCIDRs
       .map((cidr) => parseCIDR(cidr))
       .filter((r): r is { network: number; mask: number } => r !== null);
-    this.splitMode = state.domainSplit.mode;
-    this.splitDomains = sanitizeSplitDomains(state.domainSplit);
-    this.releaseReconnectGate();
-
-    if (!browser.proxy.onRequest.hasListener(this.listener)) {
-      browser.proxy.onRequest.addListener(this.listener, {
-        urls: ["<all_urls>"],
+    this.splitMode = policy.domainSplit.mode;
+    this.splitDomains = sanitizeSplitDomains(policy.domainSplit);
+    try {
+      if (!browser.proxy.onRequest.hasListener(this.listener)) {
+        browser.proxy.onRequest.addListener(this.listener, {
+          urls: ["<all_urls>"],
+        });
+      }
+      this.healthListener?.(
+        this.mode === "blocked"
+          ? {
+              status: "blocked",
+              message: this.exitNodeActive
+                ? "Exit node unavailable — protected browsing is blocked."
+                : "Connection unavailable — tailnet browsing is blocked.",
+            }
+          : {
+              status: this.mode === "active" ? "active" : "inactive",
+              message: "",
+            },
+      );
+    } catch {
+      this.healthListener?.({
+        status: "unavailable",
+        message: "Firefox could not apply the routing settings.",
       });
     }
-
-    void this.persistToStorage();
   }
 
   clear(): void {
-    this.proxyPort = 0;
-    this.magicDNSSuffix = "";
-    this.exitNodeActive = false;
-    this.subnetRanges = [];
-    this.splitMode = "bypass";
-    this.splitDomains = [];
-    this.releaseReconnectGate();
+    this.mode = "direct";
+    this.healthListener?.({ status: "inactive", message: "" });
   }
 
-  restoreFromStorage(): Promise<boolean> {
-    const generation = this.restoreGeneration;
-    this.restoreInFlight = true;
-    const restore = async (): Promise<boolean> => {
-      const result = await browser.storage.session.get(STORAGE_KEY);
-      if (generation !== this.restoreGeneration) {
-        return false;
-      }
-      const config = result[STORAGE_KEY] as StoredProxyConfig | undefined;
-      if (!config || !config.proxyPort) {
-        return false;
-      }
-
-      this.magicDNSSuffix = config.magicDNSSuffix;
-      this.exitNodeActive = config.exitNodeActive;
-      this.subnetRanges = config.subnetRanges;
-      this.splitMode = config.splitMode ?? "bypass";
-      this.splitDomains = Array.isArray(config.splitDomains)
-        ? config.splitDomains
-        : [];
-      this.beginReconnectGate();
-      return true;
-    };
-
-    const promise = restore();
-    // Request listeners only need to wait until the attempt is finished. Keep
-    // restoration failures on the original promise so the startup logger owns
-    // them instead of creating a second unhandled rejection here.
-    this.restorePromise = promise.then(
-      () => {},
-      () => {},
-    );
-    void promise.then(
-      () => {
-        this.restoreInFlight = false;
-      },
-      () => {
-        this.restoreInFlight = false;
-      },
-    );
-    return promise;
-  }
-
-  private beginReconnectGate(): void {
-    if (this.reconnectPromise) return;
-    this.reconnectPromise = new Promise<void>((resolve) => {
-      this.reconnectResolve = resolve;
-    });
-    // The gate and its held promises are in-memory, so they cannot outlive
-    // the event page — a plain timer is enough, no alarm needed.
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.restoreGeneration += 1;
-      this.clear();
-      void browser.storage.session.remove(STORAGE_KEY);
-    }, RECONNECT_GATE_TIMEOUT_MS);
-  }
-
-  private releaseReconnectGate(): void {
-    if (this.reconnectTimer !== null) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    if (this.reconnectResolve) {
-      this.reconnectResolve();
-      this.reconnectResolve = null;
-    }
-    this.reconnectPromise = null;
-  }
-
-  private async persistToStorage(): Promise<void> {
-    const config: StoredProxyConfig = {
-      proxyPort: this.proxyPort,
-      magicDNSSuffix: this.magicDNSSuffix,
-      exitNodeActive: this.exitNodeActive,
-      subnetRanges: this.subnetRanges,
-      splitMode: this.splitMode,
-      splitDomains: this.splitDomains,
-    };
-    await browser.storage.session.set({ [STORAGE_KEY]: config });
-  }
-
-  private resolveProxy(url: string): FirefoxProxyInfo {
+  private resolveProxy(
+    url: string,
+  ): FirefoxProxyInfo | [FirefoxProxyInfo, null] {
     const direct: FirefoxProxyInfo = { type: "direct" };
 
-    if (this.proxyPort === 0) return direct;
+    if (this.mode === "direct") return direct;
 
-    const proxy: FirefoxProxyInfo = {
-      type: "socks",
-      host: "127.0.0.1",
-      port: this.proxyPort,
-      proxyDNS: true,
-    };
+    const proxy: [FirefoxProxyInfo, null] = [
+      {
+        type: "socks",
+        host: "127.0.0.1",
+        port: this.mode === "blocked" ? BLOCKED_PROXY_PORT : this.proxyPort,
+        proxyDNS: true,
+      },
+      null,
+    ];
 
     let host: string;
     try {
@@ -284,8 +160,7 @@ export class FirefoxProxyManager {
 
     if (
       this.magicDNSSuffix &&
-      (host === this.magicDNSSuffix ||
-        host.endsWith(`.${this.magicDNSSuffix}`))
+      (host === this.magicDNSSuffix || host.endsWith(`.${this.magicDNSSuffix}`))
     ) {
       return proxy;
     }
