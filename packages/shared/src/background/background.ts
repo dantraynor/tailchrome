@@ -73,6 +73,7 @@ export interface InitBackgroundOptions {
 
 const LOGIN_OPEN_TIMEOUT_MS = 30_000;
 const LOGIN_OPEN_TIMEOUT_NAME = "login-open-timeout";
+const LOGIN_ROUTING_TIMEOUT_NAME = "login-routing-timeout";
 
 // How long the update corrector waits for onStartup before trusting that an
 // onInstalled("update") happened mid-session. Both events of one service-worker
@@ -527,6 +528,7 @@ export function initBackground(
       console.warn("[Background] readAutoConnectPref failed:", err);
     });
   let pendingLoginOpen = false;
+  let pendingLoginRouting = false;
 
   function clearPendingLoginOpen(): void {
     pendingLoginOpen = false;
@@ -552,6 +554,18 @@ export function initBackground(
   proxyManager.setRoutingHealthListener?.((health) => {
     if (JSON.stringify(store.getState().routingHealth) !== JSON.stringify(health)) {
       store.update({ routingHealth: health });
+    }
+    if (
+      pendingLoginRouting &&
+      (!routing.isLoginPending() ||
+        (health.status === "inactive" &&
+          routing.decorate(store.getState()).routingPolicy?.mode === "direct"))
+    ) {
+      pendingLoginRouting = false;
+      timerService.clear(LOGIN_ROUTING_TIMEOUT_NAME);
+      if (routing.isLoginPending() && store.getState().backendState === "NeedsLogin") {
+        requestLogin();
+      }
     }
   });
   store.subscribe((state: TailscaleState) => {
@@ -1284,6 +1298,35 @@ export function initBackground(
     });
   });
 
+  function requestLogin(): void {
+    const state = store.getState();
+    // Logging in is an explicit request to bring the node online, and
+    // helpers that predate the wantRunning hint connect right after auth.
+    // Record the intent so a later host respawn or the auto-disconnect
+    // fallback doesn't yank a freshly logged-in user offline.
+    routing.reconnect();
+    recordIntent(true);
+    if (
+      state.browseToURL &&
+      isValidLoginURL(state.browseToURL, state.prefs?.controlURL ?? null)
+    ) {
+      chrome.tabs.create({ url: state.browseToURL });
+    } else if (!state.supportsLogin) {
+      sendToastToPopup(
+        "Please update the native helper to request a fresh Tailscale login URL.",
+        "error",
+      );
+    } else if (!nativeHost.send({ cmd: "login" })) {
+      clearPendingLoginOpen();
+      sendToastToPopup(
+        "Could not request a Tailscale login URL. Please check that the native host is installed.",
+        "error",
+      );
+    } else {
+      startPendingLoginOpen();
+    }
+  }
+
   function handlePopupMessage(msg: BackgroundMessage): void {
     const state = store.getState();
 
@@ -1328,35 +1371,27 @@ export function initBackground(
         break;
       }
 
+      case "disconnect-and-login":
       case "login": {
-        if (pendingLoginOpen) {
+        if (pendingLoginOpen || pendingLoginRouting) {
           sendToastToPopup("Still waiting for Tailscale to return a login URL.", "info");
           break;
         }
-        // Logging in is an explicit request to bring the node online, and
-        // helpers that predate the wantRunning hint connect right after auth.
-        // Record the intent so a later host respawn or the auto-disconnect
-        // fallback doesn't yank a freshly logged-in user offline.
-        routing.reconnect();
-        recordIntent(true);
-        if (
-          state.browseToURL &&
-          isValidLoginURL(state.browseToURL, state.prefs?.controlURL ?? null)
-        ) {
-          chrome.tabs.create({ url: state.browseToURL });
-        } else if (!state.supportsLogin) {
-          sendToastToPopup(
-            "Please update the native helper to request a fresh Tailscale login URL.",
-            "error",
-          );
-        } else if (!nativeHost.send({ cmd: "login" })) {
-          clearPendingLoginOpen();
-          sendToastToPopup(
-            "Could not request a Tailscale login URL. Please check that the native host is installed.",
-            "error",
-          );
+        if (msg.type === "disconnect-and-login") {
+          if (state.backendState !== "NeedsLogin") break;
+          routing.startLogin();
+          recordIntent(true);
+        }
+        if (routing.isLoginPending()) {
+          pendingLoginRouting = true;
+          timerService.setTimeout(LOGIN_ROUTING_TIMEOUT_NAME, () => {
+            pendingLoginRouting = false;
+            sendToastToPopup("Could not restore normal browsing. Check browser routing and try again.", "error");
+          }, 5_000);
+          // Chrome confirms the cleared settings before opening the login tab.
+          proxyManager.apply(routing.decorate(store.getState()));
         } else {
-          startPendingLoginOpen();
+          requestLogin();
         }
         break;
       }

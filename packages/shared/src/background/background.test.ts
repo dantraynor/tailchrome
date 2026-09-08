@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { ProxyManager, TailscaleState, NativeReply } from "../types";
+import type { ProxyManager, TailscaleState, NativeReply, RoutingHealth } from "../types";
 import {
   getHelperVersionNotice,
   initBackground,
@@ -1064,6 +1064,84 @@ describe("initBackground", () => {
         expect.objectContaining({ pendingExitNodeID: "" }),
       );
       expect(chrome.storage.local.remove).toHaveBeenCalledWith("lastExitNodeID");
+    });
+
+    it.each([true, false])("waits for normal routing before login (existing URL: %s)", async (existingURL) => {
+      let reportHealth!: (health: RoutingHealth) => void;
+      proxyManager.setRoutingHealthListener = (listener) => { reportHealth = listener; };
+      await setupBackground();
+      advertiseLoginSupport();
+      sendNativeMessage({ status: {
+        backendState: "NeedsLogin", running: false, tailnet: null,
+        magicDNSSuffix: "", selfNode: null, needsLogin: true,
+        browseToURL: existingURL ? "https://login.tailscale.com/auth/xyz" : "",
+        exitNode: null, peers: [], prefs: null, health: [], error: null,
+      } });
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      nativePort.postMessage.mockClear();
+      popupPort.onMessage._listeners[0]!({ type: "disconnect-and-login" });
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(expect.objectContaining({
+        routingPolicy: expect.objectContaining({ mode: "direct" }),
+      }));
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(nativePort.postMessage).not.toHaveBeenCalledWith({ cmd: "login" });
+      reportHealth({ status: "blocked", message: "Waiting for settings" });
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      reportHealth({ status: "inactive", message: "" });
+      if (existingURL) {
+        expect(chrome.tabs.create).toHaveBeenCalledExactlyOnceWith({ url: "https://login.tailscale.com/auth/xyz" });
+      } else {
+        expect(nativePort.postMessage).toHaveBeenCalledExactlyOnceWith({ cmd: "login" });
+      }
+    });
+
+    it("cancels a waiting login when the user disconnects", async () => {
+      let reportHealth!: (health: RoutingHealth) => void;
+      proxyManager.setRoutingHealthListener = (listener) => { reportHealth = listener; };
+      await setupBackground();
+      sendNativeMessage({ status: {
+        backendState: "NeedsLogin", running: false, tailnet: null,
+        magicDNSSuffix: "", selfNode: null, needsLogin: true,
+        browseToURL: "https://login.tailscale.com/auth/xyz",
+        exitNode: null, peers: [], prefs: null, health: [], error: null,
+      } });
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "disconnect-and-login" });
+      popupPort.onMessage._listeners[0]!({ type: "release-routing" });
+      reportHealth({ status: "inactive", message: "" });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({
+        type: "toast", message: "Could not restore normal browsing. Check browser routing and try again.",
+      }));
+    });
+
+    it("does not open login when restoring normal routing times out", async () => {
+      let reportHealth!: (health: RoutingHealth) => void;
+      proxyManager.setRoutingHealthListener = (listener) => { reportHealth = listener; };
+      await setupBackground();
+      sendNativeMessage({ status: {
+        backendState: "NeedsLogin", running: false, tailnet: null,
+        magicDNSSuffix: "", selfNode: null, needsLogin: true,
+        browseToURL: "https://login.tailscale.com/auth/xyz",
+        exitNode: null, peers: [], prefs: null, health: [], error: null,
+      } });
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "disconnect-and-login" });
+      reportHealth({ status: "unavailable", message: "Browser rejected settings" });
+      await vi.advanceTimersByTimeAsync(5_000);
+      reportHealth({ status: "inactive", message: "" });
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: "toast", message: "Could not restore normal browsing. Check browser routing and try again.",
+      }));
+      popupPort.onMessage._listeners[0]!({ type: "login" });
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      reportHealth({ status: "inactive", message: "" });
+      expect(chrome.tabs.create).toHaveBeenCalledExactlyOnceWith({ url: "https://login.tailscale.com/auth/xyz" });
     });
 
     it("handles login with valid URL", async () => {

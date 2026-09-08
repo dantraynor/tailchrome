@@ -115,6 +115,49 @@ describe("routing protection", () => {
       expect(routing.decorate(state).routingPolicy?.mode).toBe("blocked");
     }
   });
+  it("releases an explicit login until a complete Running status survives restart", async () => {
+    const routing = new RoutingProtection();
+    await routing.restore();
+    routing.confirmStatus(status(connected()), connected());
+    routing.switchProfile();
+    const needsLogin = connected({ backendState: "NeedsLogin", selfNode: null, prefs: null, exitNode: null });
+    routing.confirmStatus(status(needsLogin), needsLogin);
+    expect(routing.decorate(needsLogin).routingPolicy?.mode).toBe("blocked");
+    routing.startLogin();
+    await flush();
+
+    const restored = new RoutingProtection();
+    await restored.restore();
+    restored.reconnect();
+    for (const state of [
+      needsLogin,
+      connected({ backendState: "Starting" }),
+      connected({ selfNode: null }),
+      connected({ prefs: null }),
+    ]) {
+      restored.confirmStatus(status(state), state);
+      expect(restored.decorate(state).routingPolicy?.mode).toBe("direct");
+    }
+    const other = connected({
+      selfNode: { ...makePeer(), keyExpiry: null, id: "self2" },
+      prefs: { ...prefs, exitNodeID: "" },
+      exitNode: null,
+    });
+    restored.confirmStatus(status(other), other);
+    expect(restored.decorate(other).routingPolicy).toMatchObject({ mode: "active", selectedExitNodeID: null });
+    expect(restored.isLoginPending()).toBe(false);
+    restored.confirmStatus(status(connected()), connected());
+    expect(restored.decorate(connected()).selectedExitNodeID).toBe("exit1");
+  });
+  it("restores the same account's protected selection after explicit login", async () => {
+    const routing = new RoutingProtection();
+    await routing.restore();
+    routing.confirmStatus(status(connected()), connected());
+    routing.startLogin();
+    const returned = connected({ exitNode: null, prefs: { ...prefs, exitNodeID: "" } });
+    routing.confirmStatus(status(returned), returned);
+    expect(routing.decorate(returned).routingPolicy).toMatchObject({ mode: "blocked", selectedExitNodeID: "exit1" });
+  });
   it("does not apply one account's saved selection to another", async () => {
     const routing = new RoutingProtection();
     await routing.restore();

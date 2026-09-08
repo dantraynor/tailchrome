@@ -19,6 +19,7 @@ interface SavedRouting {
   transitioning?: boolean;
   pendingExit?: string | null;
   pendingDisconnect?: boolean;
+  pendingLogin?: boolean;
 }
 
 function strings(value: unknown, valid: (s: string) => boolean): string[] {
@@ -132,6 +133,7 @@ export class RoutingProtection {
   private transitioning = false;
   private pendingExit: string | null = null;
   private pendingDisconnect = false;
+  private pendingLogin = false;
   private writeChain = Promise.resolve();
   private savedKey = "";
   private revision = 0;
@@ -147,6 +149,7 @@ export class RoutingProtection {
       const saved = result[ROUTING_STORAGE_KEY] as SavedRouting | undefined;
       if (saved) {
         this.released = saved.released === true;
+        this.pendingLogin = this.released && saved.pendingLogin === true;
         this.transitioning = saved.transitioning === true;
         this.active = snapshot(saved.active);
         if (this.active) {
@@ -185,26 +188,46 @@ export class RoutingProtection {
     this.save();
   }
   reconnect(): void {
-    this.released = false;
+    if (!this.pendingLogin) this.released = false;
+  }
+  startLogin(): void {
+    this.releaseRouting(true);
+  }
+  isLoginPending(): boolean {
+    return this.pendingLogin;
   }
   switchProfile(): void {
     this.released = false;
+    this.pendingLogin = false;
     this.pendingExit = null;
     this.pendingDisconnect = false;
     this.transitioning = true;
     this.save();
   }
   release(): void {
+    this.releaseRouting(false);
+  }
+  private releaseRouting(pendingLogin: boolean): void {
     this.revision += 1;
     this.transitioning = false;
     this.uncertain = false;
     this.pendingExit = null;
     this.pendingDisconnect = false;
+    this.pendingLogin = pendingLogin;
     this.released = true;
     this.save();
   }
 
   confirmStatus(status: StatusUpdate, state: TailscaleState): void {
+    if (
+      this.pendingLogin &&
+      status.backendState === "Running" &&
+      status.selfNode?.id &&
+      status.prefs
+    ) {
+      this.pendingLogin = false;
+      this.released = false;
+    }
     const incomingScope =
       status.selfNode?.id && status.prefs
         ? JSON.stringify([status.prefs.controlURL || "", status.selfNode.id])
@@ -317,6 +340,7 @@ export class RoutingProtection {
       transitioning: this.transitioning,
       pendingExit: this.pendingExit,
       pendingDisconnect: this.pendingDisconnect,
+      pendingLogin: this.pendingLogin,
       profiles: [...this.profiles.values()].slice(-32),
     };
     const key = JSON.stringify(value);

@@ -95,6 +95,43 @@ export async function run({ browser, openPopup }) {
     await waitForRouting(popup, "active");
     await navigate(browser, network, "/recovered-through-proxy", { proxied: true });
 
+    await popup.evaluate(() => window.routingTestPort.postMessage({ type: "new-profile" }));
+    await waitForRouting(popup, "blocked");
+    const loginURL = network.baseURL + "/login";
+    const needsLogin = {
+      ...running, backendState: "NeedsLogin", running: false, needsLogin: true,
+      selfNode: null, exitNode: null, browseToURL: loginURL,
+      prefs: { ...running.prefs, controlURL: network.baseURL },
+    };
+    await nativeUpdate(popup, { control: { status: needsLogin }, reply: { status: needsLogin } });
+    await waitForRouting(popup, "blocked");
+    await navigate(browser, network, "/before-explicit-login", { blocked: true });
+    await popup.waitForFunction(() => [...document.querySelectorAll("button")]
+      .some((button) => button.textContent === "Disconnect and log in"));
+    const loginTarget = browser.waitForTarget((target) => target.url() === loginURL, { timeout: 10_000 });
+    await popup.evaluate(() => [...document.querySelectorAll("button")]
+      .find((button) => button.textContent === "Disconnect and log in").click());
+    const loginPage = await (await loginTarget).page();
+    await loginPage.waitForFunction(() => document.body?.textContent.includes("routing origin reached"));
+    await loginPage.close();
+    await waitForRouting(popup, "direct");
+    const loginHits = network.hits.filter((hit) => hit.path === "/login");
+    assert.ok(loginHits.length > 0 && loginHits.every((hit) => !hit.proxied), "Login did not use normal routing");
+
+    const newAccount = {
+      ...running, selfNode: { ...running.selfNode, id: "new-account" },
+      prefs: { ...running.prefs, controlURL: network.baseURL },
+    };
+    await nativeUpdate(popup, { control: { status: newAccount }, reply: { status: newAccount } });
+    await waitForRouting(popup, "active");
+    assert.equal(await popup.evaluate(() => window.routingTestState.selectedExitNodeID), null);
+    await navigate(browser, network, "/new-account-direct");
+    await popup.evaluate(() => window.routingTestPort.postMessage({ type: "switch-profile", profileID: "original-account" }));
+    await nativeUpdate(popup, { control: { status: recovered }, reply: { status: recovered } });
+    await waitForRouting(popup, "active");
+    assert.equal(await popup.evaluate(() => window.routingTestState.selectedExitNodeID), exit.id);
+    await navigate(browser, network, "/original-account-restored", { proxied: true });
+
     await nativeUpdate(popup, { control: { nativeFailure: "unavailable" }, disconnect: true });
     await waitForRouting(popup, "blocked");
     await navigate(browser, network, "/helper-disconnected", { blocked: true });
@@ -105,7 +142,7 @@ export async function run({ browser, openPopup }) {
     await waitForRouting(popup, "blocked", routingTestHost);
     await navigate(browser, network, "/requested-bypass");
 
-    assert.equal(network.hits.filter((hit) => ["/missing-exit", "/offline-exit", "/helper-disconnected"].includes(hit.path)).length, 0);
+    assert.equal(network.hits.filter((hit) => ["/missing-exit", "/offline-exit", "/before-explicit-login", "/helper-disconnected"].includes(hit.path)).length, 0);
   } finally {
     await popup?.close();
     await network.close();

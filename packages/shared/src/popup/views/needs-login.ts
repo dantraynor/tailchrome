@@ -35,17 +35,20 @@ export function renderNeedsLogin(root: HTMLElement, state: TailscaleState): void
   title.className = "centered-view-title";
   title.textContent = "Log in to Tailscale";
 
+  const protectedRouting =
+    state.routingPolicy != null && state.routingPolicy.mode !== "direct";
   const description = document.createElement("p");
   description.className = "centered-view-text";
-  description.textContent =
-    "You need to authenticate to connect this browser to your tailnet.";
+  description.textContent = protectedRouting
+    ? "Disconnect protected browsing to sign in using your normal connection."
+    : "You need to authenticate to connect this browser to your tailnet.";
 
   const loginBtn = document.createElement("button");
   loginBtn.className = "btn btn-primary btn-lg";
-  loginBtn.textContent = "Log In";
+  loginBtn.textContent = protectedRouting ? "Disconnect and log in" : "Log In";
   loginBtn.addEventListener("click", () => {
     // Notify background to open the validated login URL
-    sendMessage({ type: "login" });
+    sendMessage({ type: protectedRouting ? "disconnect-and-login" : "login" });
   });
 
   content.appendChild(icon);

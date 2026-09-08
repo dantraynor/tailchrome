@@ -296,6 +296,7 @@ export type BackgroundMessage =
   | { type: "release-routing" }
   | { type: "toggle" }
   | { type: "login" }
+  | { type: "disconnect-and-login" }
   | { type: "logout" }
   | {
       type: "retry-native-host";
