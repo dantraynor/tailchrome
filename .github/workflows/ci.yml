@@ -268,9 +268,10 @@ jobs:
           bash -n \
             packaging/macos/TailchromeHelper.app/Contents/MacOS/tailchrome-helper \
             packaging/macos/build-pkg.sh \
+            packaging/macos/test-user-app.sh \
             packaging/macos/scripts/postinstall
           test -x packaging/macos/TailchromeHelper.app/Contents/MacOS/tailchrome-helper
-      - name: Build and inspect unsigned package
+      - name: Build and inspect unsigned installers
         run: |
           set -euo pipefail
           VERSION=0.0.0 ./packaging/macos/build-pkg.sh
@@ -280,6 +281,7 @@ jobs:
           test -f "$app/Contents/Info.plist"
           test -x "$app/Contents/MacOS/tailchrome-helper"
           test -x "$expanded/Payload/Library/Application Support/Tailscale/BrowserExt/tailscale-browser-ext"
+          ./packaging/macos/test-user-app.sh
 
   windows-signature-verifier:
     needs: changes
@@ -340,4 +342,5 @@ jobs:
             scripts/install.test.sh \
             packaging/linux/build-packages.sh \
             packaging/macos/build-pkg.sh \
+            packaging/macos/test-user-app.sh \
             packaging/macos/scripts/postinstall

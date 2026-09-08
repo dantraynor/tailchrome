@@ -256,6 +256,52 @@ describe("renderInstallFlow", () => {
     expect(root.textContent).toContain("sudo dnf install");
   });
 
+  it("offers a visible per-user Linux amd64 installer before system packages", async () => {
+    chrome.runtime.getPlatformInfo = vi.fn().mockResolvedValue({
+      os: "linux", arch: "x86-64",
+    }) as typeof chrome.runtime.getPlatformInfo;
+    const root = document.createElement("div");
+    await renderInstallFlow(root, {
+      mode: "install", state: baseState({ hostConnected: false }),
+    });
+
+    const section = root.querySelector<HTMLElement>(".install-advanced-section")!;
+    expect(section.classList.contains("hidden")).toBe(false);
+    expect(section.textContent).toContain("Install for this user — no administrator access required");
+    expect(section.textContent).toContain("sha256sum --check");
+    expect(section.textContent).toContain("tailscale-browser-ext-linux-amd64");
+    expect(root.querySelector(".install-advanced-toggle")).toBeNull();
+    expect(root.textContent!.indexOf("Install for this user")).toBeLessThan(
+      root.textContent!.indexOf("Or install for all users"),
+    );
+    section.querySelector<HTMLAnchorElement>("a")!.click();
+    expect(sendMessage).toHaveBeenCalledWith({ type: "retry-native-host", source: "fallback" });
+  });
+
+  it.each(["x86-64", "arm64"])("offers the per-user macOS app on %s before the system package", async (arch) => {
+    chrome.runtime.getPlatformInfo = vi.fn().mockResolvedValue({
+      os: "mac", arch,
+    }) as typeof chrome.runtime.getPlatformInfo;
+    const root = document.createElement("div");
+    await renderInstallFlow(root, {
+      mode: "install", state: baseState({ hostConnected: false }),
+    });
+
+    const link = root.querySelector<HTMLAnchorElement>(".install-per-user a")!;
+    expect(link.href).toBe("https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-helper-macos-user.zip");
+    expect(link.closest(".hidden")).toBeNull();
+    expect(root.textContent).toContain("Install for this user — no administrator access required");
+    expect(root.textContent).toContain("Open the downloaded ZIP");
+    expect(root.textContent).toContain("browser policy may still block");
+    expect(root.querySelector('a[href$="/tailchrome-helper-macos.pkg"]')).not.toBeNull();
+    expect(root.textContent!.indexOf("Install for this user")).toBeLessThan(
+      root.textContent!.indexOf("Or install for all users"),
+    );
+    link.click();
+    expect(sendMessage).toHaveBeenCalledWith({ type: "retry-native-host", source: "package" });
+    expect(chrome.tabs.create).toHaveBeenCalledWith({ url: link.href });
+  });
+
   it.each(["arm64", "aarch64"])(
     "uses the verified Linux ARM64 path for runtime arch %s",
     async (arch) => {
@@ -278,6 +324,7 @@ describe("renderInstallFlow", () => {
         "https://github.com/dantraynor/tailchrome/releases/download/v0.1.13/tailchrome-install.sh",
       ]);
       expect(root.textContent).toContain("Linux ARM64");
+      expect(root.textContent).toContain("Install for this user — no administrator access required");
       expect(root.textContent).toContain("tailscale-browser-ext-linux-arm64");
       expect(root.textContent).not.toContain("sudo apt install");
       expect(root.textContent).not.toContain("sudo dnf install");
@@ -451,6 +498,7 @@ describe("renderInstallFlow", () => {
     });
 
     expect(root.textContent).toContain("x64 emulation");
+    expect(root.textContent).toContain("Install for this user — no administrator access required");
   });
 
   it("falls back to release information on unsupported Windows architectures", async () => {
@@ -513,6 +561,8 @@ describe("renderInstallFlow", () => {
       expect(root.textContent).not.toContain("complete the installer");
       expect(root.textContent).not.toContain("retry automatically");
       expect(root.querySelector(".install-advanced-toggle")).toBeNull();
+      expect(root.querySelector(".install-per-user")).toBeNull();
+      expect(root.textContent).not.toContain("no administrator access required");
     },
   );
 

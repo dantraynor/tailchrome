@@ -34,7 +34,7 @@ host-all:
 	cd host && GOOS=linux   GOARCH=arm64 CGO_ENABLED=0 go build $(LDFLAGS) -o ../dist/tailscale-browser-ext-linux-arm64 .
 	cd host && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build $(LDFLAGS) -o ../dist/tailscale-browser-ext-windows-amd64.exe .
 
-# macOS only: universal .pkg installer (requires lipo, pkgbuild)
+# macOS only: universal system package and per-user app (requires Xcode tools)
 macos-pkg:
 	./packaging/macos/build-pkg.sh
 

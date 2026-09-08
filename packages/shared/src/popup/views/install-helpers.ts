@@ -301,6 +301,20 @@ export async function renderInstallFlow(
     );
   }
 
+  if (platform === "macos" && !unsupported) {
+    content.appendChild(createPerUserMacInstall());
+  } else if (platform === "linux" && architecture === "amd64" && !repairProminent) {
+    content.appendChild(createVerifiedRepairFallback(platform, architecture, true, true));
+  }
+
+  if (!unsupported) {
+    const policy = document.createElement("p");
+    policy.className = "install-step-hint";
+    policy.textContent =
+      "Your organization’s browser policy may still block extensions or native messaging.";
+    content.appendChild(policy);
+  }
+
   const steps = document.createElement("div");
   steps.className = "install-steps";
   const showPackageInstall =
@@ -313,7 +327,9 @@ export async function renderInstallFlow(
       ? "Or reinstall the release package"
       : unsupported
         ? "Open release information"
-        : "Download the helper installer";
+        : platform === "macos" || (platform === "linux" && architecture === "amd64")
+          ? "Or install for all users (administrator access required)"
+          : "Install for this user — no administrator access required";
 
     const cta = document.createElement("div");
     cta.className = "install-pkg-cta";
@@ -360,7 +376,7 @@ export async function renderInstallFlow(
   if (
     !repairProminent &&
     repairActionAvailable &&
-    !(platform === "linux" && architecture === "arm64")
+    platform === "windows"
   ) {
     content.appendChild(
       createVerifiedRepairFallback(platform, architecture, false),
@@ -374,6 +390,27 @@ export async function renderInstallFlow(
   view.appendChild(content);
   renderUiSurfaceFooter(view);
   root.appendChild(view);
+}
+
+function createPerUserMacInstall(): HTMLElement {
+  const section = document.createElement("div");
+  section.className = "install-per-user install-advanced-section";
+  const heading = document.createElement("strong");
+  heading.textContent = "Install for this user — no administrator access required";
+  const body = document.createElement("p");
+  body.className = "install-step-body";
+  body.textContent =
+    "Open the downloaded ZIP, then open Tailchrome Helper. It installs and registers the helper for your account.";
+  section.append(
+    heading,
+    createDownloadButton({
+      filename: "tailchrome-helper-macos-user.zip",
+      label: "Download macOS helper app (.zip)",
+      url: releaseAssetURL("tailchrome-helper-macos-user.zip"),
+    }, "package"),
+    body,
+  );
+  return section;
 }
 
 function createDownloadButton(
@@ -444,7 +481,7 @@ function createInstallInstructions(
     strong.textContent = filename ?? "the downloaded installer";
     body.appendChild(strong);
     body.appendChild(
-      document.createTextNode(" in your Downloads folder and double-click it."),
+      document.createTextNode(" in your Downloads folder and double-click it. It installs for your account."),
     );
     if (architecture === "arm64") {
       body.appendChild(
@@ -554,6 +591,7 @@ function createVerifiedRepairFallback(
   platform: Platform,
   architecture: InstallerArchitecture,
   prominent: boolean,
+  installForUser = false,
 ): HTMLElement {
   const container = document.createElement("div");
 
@@ -568,7 +606,7 @@ function createVerifiedRepairFallback(
     const explanation = document.createElement("p");
     explanation.className = "install-step-body";
     explanation.textContent =
-      "Open /Applications/Tailchrome Helper.app to restore current-user registration, then retry discovery.";
+      "Open Tailchrome Helper where you saved it. For a package install, open /Applications/Tailchrome Helper.app. Then retry discovery.";
     advancedSection.append(heading, explanation);
     advancedSection.appendChild(
       createCodeBlock('open "/Applications/Tailchrome Helper.app"'),
@@ -596,7 +634,7 @@ function createVerifiedRepairFallback(
   download.textContent =
     platform === "windows"
       ? "Download signed installer for repair"
-      : "Download repair installer";
+      : installForUser ? "Download verified per-user installer" : "Download repair installer";
   download.addEventListener("click", (e) => {
     e.preventDefault();
     requestNativeHostRetries("fallback");
@@ -604,7 +642,9 @@ function createVerifiedRepairFallback(
   });
 
   const heading = document.createElement("strong");
-  heading.textContent = "Verify, inspect, then run";
+  heading.textContent = installForUser
+    ? "Install for this user — no administrator access required"
+    : "Verify, inspect, then run";
   advancedSection.appendChild(heading);
   advancedSection.appendChild(download);
 
@@ -614,7 +654,9 @@ function createVerifiedRepairFallback(
       const explanation = document.createElement("p");
       explanation.className = "install-step-body";
       explanation.textContent =
-        `The pinned installer downloads and verifies ${expectedAsset}, then restores current-user registration.`;
+        installForUser
+          ? `Verify and inspect the script, then run it to install ${expectedAsset} for your account.`
+          : `The pinned installer downloads and verifies ${expectedAsset}, then restores current-user registration.`;
       advancedSection.appendChild(explanation);
     }
     appendRepairScriptVerification(
