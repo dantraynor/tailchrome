@@ -1,6 +1,6 @@
 # Tailchrome Privacy Policy
 
-Last updated: 2026-07-26
+Last updated: 2026-09-08
 
 ## Summary
 
@@ -39,6 +39,9 @@ Tailchrome sends this data only to:
 - the local native helper on the same machine,
 - the user's tailnet and configured coordination plane (Tailscale by default), and
 - the sites or services the user chooses to access through Tailchrome.
+
+For information about how Tailscale handles data, see the
+[Tailscale Privacy Policy](https://tailscale.com/privacy-policy).
 
 ## Data Tailchrome Does Not Collect
 
