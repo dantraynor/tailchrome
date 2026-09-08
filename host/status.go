@@ -43,7 +43,7 @@ func (h *Host) watchIPNBus(ctx context.Context, lc *local.Client, generation uin
 }
 
 func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generation uint64) error {
-	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialPrefs|ipn.NotifyInitialNetMap)
+	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialPrefs|ipn.NotifyInitialNetMap|ipn.NotifyPeerChanges)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,25 @@ func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generat
 		prefsChanged := n.Prefs != nil && n.Prefs.Valid()
 		browseURLChanged := n.BrowseToURL != nil
 		healthChanged := n.Health != nil
-		changed := stateChanged || prefsChanged || browseURLChanged || n.NetMap != nil || healthChanged
+		netMapChanged := n.NetMap != nil || n.SelfChange != nil
+		peersChanged := n.PeersChanged != nil || n.PeersRemoved != nil
+		changed := stateChanged || prefsChanged || browseURLChanged || netMapChanged || peersChanged || healthChanged
+		var dnsDomains []string
+		if n.NetMap != nil {
+			dnsDomains = configuredSplitDNSDomains(&n.NetMap.DNS)
+		} else if n.SelfChange != nil {
+			// Runtime netmaps are only sent on Windows. Other platforms signal
+			// DNS changes via SelfChange, so fetch the current configuration.
+			dnsCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			config, err := lc.DNSConfig(dnsCtx)
+			cancel()
+			if err != nil {
+				// Reconnect the watcher to recover a complete initial snapshot
+				// rather than leave this configuration change unprocessed.
+				return fmt.Errorf("failed to refresh DNS configuration: %w", err)
+			}
+			dnsDomains = configuredSplitDNSDomains(config)
+		}
 		var prefs *PrefsView
 		if prefsChanged {
 			prefs = prefsViewFromIPN(*n.Prefs)
@@ -147,12 +165,13 @@ func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generat
 			if healthChanged {
 				h.lastHealth = health
 			}
-			if n.NetMap != nil {
+			if netMapChanged {
 				// Replace the domain list so removed routes disappear too.
-				h.lastSplitDNSDomains = configuredSplitDNSDomains(&n.NetMap.DNS)
-			} else if stateChanged && (*n.State == ipn.NoState || *n.State == ipn.NeedsLogin) {
-				// Profile changes and logout clear the backend's netmap, but a
-				// nil NetMap is omitted from the notification stream.
+				h.lastSplitDNSDomains = dnsDomains
+			} else if n.SessionID != "" || (stateChanged && (*n.State == ipn.NoState || *n.State == ipn.NeedsLogin)) {
+				// An initial snapshot without a netmap replaces any old routes.
+				// Profile changes and logout also clear the backend's netmap,
+				// but a nil NetMap is omitted from the notification stream.
 				h.lastSplitDNSDomains = nil
 			}
 			h.stateMu.Unlock()

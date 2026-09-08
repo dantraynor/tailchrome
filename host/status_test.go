@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -121,10 +123,16 @@ func TestWatchIPNBusPublishesSplitDNSChanges(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	notifications := make(chan ipn.Notify)
+	var dnsConfig atomic.Pointer[tailcfg.DNSConfig]
+	var dnsUnavailable atomic.Bool
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/localapi/v0/watch-ipn-bus":
+			mask, err := strconv.ParseUint(r.URL.Query().Get("mask"), 10, 64)
+			if err != nil || ipn.NotifyWatchOpt(mask)&ipn.NotifyPeerChanges == 0 {
+				t.Error("watcher must subscribe to peer changes")
+			}
 			w.WriteHeader(http.StatusOK)
 			w.(http.Flusher).Flush()
 			for {
@@ -140,6 +148,12 @@ func TestWatchIPNBusPublishesSplitDNSChanges(t *testing.T) {
 			}
 		case "/localapi/v0/status":
 			json.NewEncoder(w).Encode(&ipnstate.Status{BackendState: "Running"})
+		case "/localapi/v0/dns-config":
+			if dnsUnavailable.Load() {
+				http.Error(w, "DNS configuration unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			json.NewEncoder(w).Encode(dnsConfig.Load())
 		default:
 			http.NotFound(w, r)
 		}
@@ -154,7 +168,10 @@ func TestWatchIPNBusPublishesSplitDNSChanges(t *testing.T) {
 	h := newHost(nil, writer)
 	h.lc = lc
 	done := make(chan error, 1)
-	go func() { done <- h.watchIPNBusSession(ctx, lc, 0) }()
+	go func() {
+		defer close(done)
+		done <- h.watchIPNBusSession(ctx, lc, 0)
+	}()
 	defer func() {
 		cancel()
 		select {
@@ -180,21 +197,59 @@ func TestWatchIPNBusPublishesSplitDNSChanges(t *testing.T) {
 		}
 	}
 	prefs := (&ipn.Prefs{CorpDNS: true}).View()
+	// Login can complete after an initial snapshot with no netmap.
+	update(ipn.Notify{SessionID: "initial", Prefs: &prefs, State: new(ipn.NeedsLogin)}, nil)
+	dnsConfig.Store(&tailcfg.DNSConfig{
+		Routes: map[string][]*dnstype.Resolver{"login.example.com": nil},
+	})
+	update(ipn.Notify{SelfChange: &tailcfg.Node{}}, []string{"login.example.com"})
+	// Initial snapshots and Windows still supply a complete netmap.
 	update(ipn.Notify{Prefs: &prefs, NetMap: &netmap.NetworkMap{DNS: tailcfg.DNSConfig{
 		Routes: map[string][]*dnstype.Resolver{"internal.example.com": {{Addr: "192.168.1.53"}}},
 	}}}, []string{"internal.example.com"})
 	update(ipn.Notify{NetMap: &netmap.NetworkMap{DNS: tailcfg.DNSConfig{
 		Routes: map[string][]*dnstype.Resolver{"new.example.com": nil},
 	}}}, []string{"new.example.com"})
+	// macOS/Linux announce DNS-only updates with SelfChange.
+	dnsConfig.Store(&tailcfg.DNSConfig{
+		Routes: map[string][]*dnstype.Resolver{"replacement.example.com": nil},
+	})
+	update(ipn.Notify{SelfChange: &tailcfg.Node{}}, []string{"replacement.example.com"})
+	update(ipn.Notify{PeersChanged: []*tailcfg.Node{{ID: 1}}}, []string{"replacement.example.com"})
+	update(ipn.Notify{PeersRemoved: []tailcfg.NodeID{1}}, []string{"replacement.example.com"})
 	disabled := (&ipn.Prefs{CorpDNS: false}).View()
 	update(ipn.Notify{Prefs: &disabled}, nil)
-	update(ipn.Notify{Prefs: &prefs}, []string{"new.example.com"})
+	update(ipn.Notify{Prefs: &prefs}, []string{"replacement.example.com"})
+	dnsConfig.Store(&tailcfg.DNSConfig{})
+	update(ipn.Notify{SelfChange: &tailcfg.Node{}}, nil)
 	update(ipn.Notify{NetMap: &netmap.NetworkMap{}}, nil)
 	for _, state := range []ipn.State{ipn.NoState, ipn.NeedsLogin} {
 		update(ipn.Notify{NetMap: &netmap.NetworkMap{DNS: tailcfg.DNSConfig{
 			Routes: map[string][]*dnstype.Resolver{"old-profile.example.com": nil},
 		}}}, []string{"old-profile.example.com"})
 		update(ipn.Notify{State: &state}, nil)
+	}
+	update(ipn.Notify{NetMap: &netmap.NetworkMap{DNS: tailcfg.DNSConfig{
+		Routes: map[string][]*dnstype.Resolver{"old-profile.example.com": nil},
+	}}}, []string{"old-profile.example.com"})
+	// A reconnect during a profile transition can start with no netmap even
+	// when the state is Starting rather than NeedsLogin.
+	update(ipn.Notify{SessionID: "reconnected", State: new(ipn.Starting)}, nil)
+	// A failed fetch must restart the watcher so its next initial snapshot
+	// recovers the configuration without waiting for another DNS change.
+	dnsUnavailable.Store(true)
+	select {
+	case notifications <- ipn.Notify{SelfChange: &tailcfg.Node{}}:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "failed to refresh DNS configuration") {
+			t.Fatalf("watcher error = %v, want DNS refresh failure", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("watcher did not restart after a failed DNS fetch")
 	}
 }
 
