@@ -194,10 +194,6 @@ export class RoutingProtection {
     this.transitioning = true;
     this.save();
   }
-  cancelTransition(): void {
-    this.transitioning = false;
-    this.save();
-  }
   release(): void {
     this.revision += 1;
     this.transitioning = false;
@@ -221,7 +217,10 @@ export class RoutingProtection {
       this.pendingExit = null;
       this.pendingDisconnect = false;
     }
-    if (this.pendingDisconnect && status.backendState === "Stopped") {
+    if (
+      this.pendingDisconnect &&
+      (status.backendState === "Stopped" || status.backendState === "NeedsLogin")
+    ) {
       this.release();
       return;
     }

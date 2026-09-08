@@ -3088,6 +3088,26 @@ describe("initBackground", () => {
         );
       });
 
+      it("blocks while deleting the current profile and ignores unrelated command errors", async () => {
+        await setupBackground();
+        sendNativeMessage({
+          profiles: {
+            current: { id: "p1", name: "A" },
+            profiles: [{ id: "p1", name: "A" }],
+          },
+        });
+        const popupPort = createPopupPort();
+        connectListeners[0]!(popupPort);
+        popupPort.onMessage._listeners[0]!({ type: "delete-profile", profileID: "p1" });
+        expect(proxyManager.apply).toHaveBeenLastCalledWith(expect.objectContaining({
+          routingPolicy: expect.objectContaining({ mode: "blocked", blockAll: true }),
+        }));
+        sendNativeMessage({ error: { cmd: "set-prefs", message: "Earlier preference update failed" } });
+        expect(proxyManager.apply).toHaveBeenLastCalledWith(expect.objectContaining({
+          routingPolicy: expect.objectContaining({ mode: "blocked", blockAll: true }),
+        }));
+      });
+
       it("keeps the stay-down intent when deleting a non-current profile", async () => {
         (chrome.storage.session.get as ReturnType<typeof vi.fn>).mockResolvedValue({
           desiredWantRunning: false,

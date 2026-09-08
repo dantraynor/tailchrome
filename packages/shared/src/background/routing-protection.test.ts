@@ -179,12 +179,12 @@ describe("routing protection", () => {
       domainSplit: { mode: "only", domains: ["work.example"] },
     });
   });
-  it("releases protection after a confirmed manual disconnect", async () => {
+  it.each(["Stopped", "NeedsLogin"] as const)("releases a requested disconnect after %s is confirmed", async (backendState) => {
     const routing = new RoutingProtection();
     await routing.restore();
     routing.confirmStatus(status(connected()), connected());
     routing.requestDisconnect();
-    const stopped = connected({ backendState: "Stopped" });
+    const stopped = connected({ backendState });
     routing.confirmStatus(status(stopped), stopped);
     expect(routing.decorate(stopped).routingPolicy?.mode).toBe("direct");
   });

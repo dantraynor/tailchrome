@@ -3,7 +3,7 @@ import { waitForPopup } from "../assertions.mjs";
 import { makeControl, makeExitNodePeer, makeRunningState, expectedHostVersion } from "../fixtures.mjs";
 import { createRoutingNetwork, routingTestHost, proxyCredentials } from "../network-fixture.mjs";
 
-export const suite = "full";
+export const suite = "smoke";
 export const browsers = ["chrome", "firefox"];
 export const launchOptions = {
   chromeArgs: [`--host-resolver-rules=MAP ${routingTestHost} 127.0.0.1`],

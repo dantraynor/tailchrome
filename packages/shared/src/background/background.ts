@@ -805,7 +805,8 @@ export function initBackground(
 
     // Error from native host
     if (msg.error) {
-      if (["switch-profile", "new-profile", "set-prefs"].includes(msg.error.cmd)) routing.cancelTransition();
+      // Errors carry no request ID, so an older failure must not release a
+      // newer account transition. Wait for a confirmed account or user release.
       const safeCommand = /^[a-z][a-z0-9-]{0,48}$/.test(msg.error.cmd)
         ? msg.error.cmd
         : "unknown";
@@ -1361,6 +1362,8 @@ export function initBackground(
       }
 
       case "logout": {
+        routing.requestDisconnect();
+        recordIntent(false);
         nativeHost.send({ cmd: "logout" });
         break;
       }
@@ -1454,6 +1457,9 @@ export function initBackground(
         // Deleting the current profile implicitly switches profiles; deleting
         // another profile leaves the current decision in force.
         if (state.currentProfile?.id === msg.profileID) {
+          exitNodeRestoreAttempted = false;
+          routing.switchProfile();
+          store.update({ routingHealth: { status: "blocked", message: "Switching accounts — browsing is blocked." } });
           clearIntent();
         }
         nativeHost.send({
