@@ -2293,6 +2293,68 @@ describe("initBackground", () => {
       expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "new-profile" });
     });
 
+    it("does not duplicate the initial profile request when Running arrives first", async () => {
+      await setupBackground();
+      sendNativeMessage({ init: {} });
+      expect(nativePort.postMessage).toHaveBeenCalledWith({
+        cmd: "list-profiles",
+      });
+      nativePort.postMessage.mockClear();
+
+      sendNativeMessage({
+        status: {
+          backendState: "Running",
+          running: true,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: false,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+
+      expect(nativePort.postMessage).not.toHaveBeenCalledWith({
+        cmd: "list-profiles",
+      });
+    });
+
+    it("retries the initial profile request after a host error", async () => {
+      await setupBackground();
+      sendNativeMessage({ init: {} });
+      sendNativeMessage({
+        error: { cmd: "list-profiles", message: "temporary failure" },
+      });
+      nativePort.postMessage.mockClear();
+
+      sendNativeMessage({
+        status: {
+          backendState: "Running",
+          running: true,
+          tailnet: null,
+          magicDNSSuffix: "",
+          selfNode: null,
+          needsLogin: false,
+          browseToURL: "",
+          exitNode: null,
+          peers: [],
+          prefs: null,
+          health: [],
+          error: null,
+        },
+      });
+
+      expect(
+        nativePort.postMessage.mock.calls.filter(
+          ([message]) => (message as { cmd?: string }).cmd === "list-profiles",
+        ),
+      ).toHaveLength(1);
+    });
+
     it("refreshes an empty profile after its login reaches Running", async () => {
       await setupBackground();
       const popupPort = createPopupPort();

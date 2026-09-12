@@ -855,11 +855,6 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
         if (profileTextNode.textContent !== newProfileName) {
           profileTextNode.textContent = newProfileName;
         }
-      } else {
-        profileValueEl.insertBefore(
-          document.createTextNode(newProfileName),
-          profileTextNode,
-        );
       }
     }
 

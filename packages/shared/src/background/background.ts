@@ -721,7 +721,7 @@ export function initBackground(
         maybeCompleteHelperRecovery();
         // Request initial status and profile list
         nativeHost.send({ cmd: "get-status" });
-        nativeHost.send({ cmd: "list-profiles" });
+        profileRefreshInFlight = nativeHost.send({ cmd: "list-profiles" });
       }
     }
 
@@ -923,6 +923,7 @@ export function initBackground(
     autoDisconnectAttempted = false;
     sawHealthyProcRunning = false;
     sawHealthyInit = false;
+    profileRefreshInFlight = false;
     clearPendingLoginOpen();
 
     const currentState = store.getState();

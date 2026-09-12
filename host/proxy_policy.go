@@ -338,9 +338,9 @@ func sameProxyPrefs(a, b *ipn.Prefs) bool {
 	return a.WantRunning == b.WantRunning && a.RouteAll == b.RouteAll && a.ExitNodeID == b.ExitNodeID && a.ExitNodeAllowLANAccess == b.ExitNodeAllowLANAccess && a.CorpDNS == b.CorpDNS && a.ControlURL == b.ControlURL
 }
 
-// Profile changes reuse tsnet. Advance the session generation before switching
-// and restart the watcher afterwards so neither cached maps nor in-flight DNS
-// results can authorize connections under another profile.
+// Profile changes reuse tsnet. Advance the session generation and discard
+// profile-scoped caches before switching, then restart the watcher afterwards
+// so no state from the previous profile remains reachable.
 func (h *Host) beginProxyProfileChange(lc *local.Client) func() {
 	h.sessionMu.Lock()
 	if h.lc != lc {
@@ -353,6 +353,7 @@ func (h *Host) beginProxyProfileChange(lc *local.Client) func() {
 	generation := h.sessionGeneration
 	h.clearCachedStatus(nil)
 	h.sessionMu.Unlock()
+	h.clearWebServer()
 	if oldCancel != nil {
 		oldCancel()
 	}

@@ -117,4 +117,12 @@ func TestHTTPProxyServesAuthenticatedWebClient(t *testing.T) {
 	if !waitAuth.Complete {
 		t.Fatalf("wait auth response = %+v, want complete", waitAuth)
 	}
+
+	if h.webCache == nil {
+		t.Fatal("web server was not cached")
+	}
+	h.beginProxyProfileChange(lc)
+	if h.webCache != nil {
+		t.Fatal("profile change retained the previous profile's web server")
+	}
 }

@@ -11,7 +11,34 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"tailscale.com/client/local"
+	"tailscale.com/tailcfg"
 )
+
+func TestWebClientAuthRequestReportsInvalidIdentityAndSession(t *testing.T) {
+	lc := new(local.Client)
+	h := newHost(nil, nil)
+	h.lc = lc
+	h.sessionGeneration = 2
+
+	for _, tc := range []struct {
+		name       string
+		generation uint64
+		source     uint64
+		want       string
+	}{
+		{name: "missing source identity", generation: 2, want: "source identity is unavailable"},
+		{name: "stale session", generation: 1, source: 1, want: "session changed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.webClientAuthRequest(t.Context(), nil, lc, tc.generation, "", tailcfg.NodeID(tc.source))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want text %q", err, tc.want)
+			}
+		})
+	}
+}
 
 func TestHTTPProxyDoesNotFallThroughForUninitializedWebClient(t *testing.T) {
 	h := newHost(nil, nil)

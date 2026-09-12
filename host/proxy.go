@@ -216,15 +216,21 @@ func (h *Host) webClientAuthRequest(
 	id string,
 	src tailcfg.NodeID,
 ) (*tailcfg.WebClientAuthResponse, error) {
-	if src == 0 || !h.isCurrentSession(lc, generation) {
+	if src == 0 {
+		return nil, fmt.Errorf("Tailscale web client source identity is unavailable")
+	}
+	if !h.isCurrentSession(lc, generation) {
 		return nil, fmt.Errorf("Tailscale web client session changed")
 	}
 	status, err := lc.StatusWithoutPeers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the local Tailscale identity: %w", err)
 	}
-	if status.Self == nil || status.Self.NodeID == 0 || !h.isCurrentSession(lc, generation) {
+	if status.Self == nil || status.Self.NodeID == 0 {
 		return nil, fmt.Errorf("local Tailscale identity is unavailable")
+	}
+	if !h.isCurrentSession(lc, generation) {
+		return nil, fmt.Errorf("Tailscale web client session changed")
 	}
 
 	path := fmt.Sprintf("/machine/webclient/init/%d/to/%d", src, status.Self.NodeID)
