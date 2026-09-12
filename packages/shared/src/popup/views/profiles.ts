@@ -56,6 +56,9 @@ export function renderProfiles(
   addBtn.textContent = "+ Add Profile";
   addBtn.addEventListener("click", () => {
     sendMessage({ type: "new-profile" });
+    // A new profile has no identity until the user signs in, so leave the
+    // switcher and let the pending NeedsLogin state render the login view.
+    onBack();
   });
   addRow.appendChild(addBtn);
   view.appendChild(addRow);

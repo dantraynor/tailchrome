@@ -6,7 +6,7 @@ import {
   waitForPopup,
   waitForRequest,
 } from "../assertions.mjs";
-import { makeControl, makeProfiles } from "../fixtures.mjs";
+import { makeControl, makeNeedsLoginState, makeProfiles } from "../fixtures.mjs";
 
 export const suite = "full";
 export const browsers = ["chrome", "firefox"];
@@ -18,6 +18,10 @@ export const control = () =>
         profiles: makeProfiles({
           current: { id: "profile-personal", name: "Personal" },
         }),
+      },
+      "new-profile": {
+        status: makeNeedsLoginState(),
+        profiles: makeProfiles({ current: { id: "", name: "" } }),
       },
     },
   });
@@ -65,6 +69,11 @@ export async function run({ openPopup, nativeHost }) {
       const row = document.querySelector(".setting-row-profile");
       return row?.textContent?.includes("Personal");
     });
+
+    await clickText(page, "Personal", ".setting-row-profile");
+    await clickText(page, "Add Profile", "button");
+    await waitForRequest(nativeHost, "new-profile");
+    await expectText(page, "Log in to Tailscale");
   } finally {
     await page.close();
   }
