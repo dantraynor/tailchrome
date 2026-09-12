@@ -391,6 +391,7 @@ func (h *Host) handleInit(req Request) {
 	h.sessionMu.Unlock()
 
 	h.cancelStartupCorrection()
+	h.clearWebServer()
 	if oldWatchCancel != nil {
 		oldWatchCancel()
 	}
@@ -1049,6 +1050,7 @@ func (h *Host) shutdownSession() {
 	h.sessionGeneration++
 	h.sessionMu.Unlock()
 
+	h.clearWebServer()
 	if cancelWatch != nil {
 		cancelWatch()
 	}
