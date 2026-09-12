@@ -35,6 +35,32 @@ describe("connected view", () => {
     );
   });
 
+  it("replaces an empty pre-login profile with the authenticated account", () => {
+    const root = document.createElement("div");
+    const pending = baseState({
+      currentProfile: { id: "", name: "" },
+      profiles: [{ id: "personal", name: "Personal" }],
+    });
+    renderConnected(root, pending);
+
+    expect(
+      root.querySelector(".setting-value-profile")?.textContent,
+    ).toContain("Default");
+
+    updateConnected(root, {
+      ...pending,
+      currentProfile: { id: "work", name: "Work" },
+      profiles: [
+        { id: "personal", name: "Personal" },
+        { id: "work", name: "Work" },
+      ],
+    });
+
+    expect(
+      root.querySelector(".setting-value-profile")?.textContent,
+    ).toContain("Work");
+  });
+
   it("preserves focused split-tunneling edits across status updates", () => {
     const root = document.createElement("div");
     const state = baseState({

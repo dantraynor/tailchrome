@@ -368,7 +368,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
     const profileValue = document.createElement("span");
     profileValue.className = "setting-value setting-value-profile";
-    profileValue.textContent = state.currentProfile?.name ?? "Default";
+    profileValue.textContent = state.currentProfile?.name || "Default";
 
     const profileChevron = document.createElement("span");
     profileChevron.className = "setting-value-chevron";
@@ -849,12 +849,17 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
       ".setting-value-profile",
     );
     if (state.profiles.length > 0 && profileValueEl) {
-      const newProfileName = state.currentProfile?.name ?? "Default";
+      const newProfileName = state.currentProfile?.name || "Default";
       const profileTextNode = profileValueEl.firstChild;
       if (profileTextNode && profileTextNode.nodeType === Node.TEXT_NODE) {
         if (profileTextNode.textContent !== newProfileName) {
           profileTextNode.textContent = newProfileName;
         }
+      } else {
+        profileValueEl.insertBefore(
+          document.createTextNode(newProfileName),
+          profileTextNode,
+        );
       }
     }
 

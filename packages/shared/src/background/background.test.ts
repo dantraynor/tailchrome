@@ -2293,6 +2293,62 @@ describe("initBackground", () => {
       expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "new-profile" });
     });
 
+    it("refreshes an empty profile after its login reaches Running", async () => {
+      await setupBackground();
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      popupPort.onMessage._listeners[0]!({ type: "new-profile" });
+
+      sendNativeMessage({
+        profiles: {
+          current: { id: "", name: "" },
+          profiles: [{ id: "old", name: "Old account" }],
+        },
+      });
+      nativePort.postMessage.mockClear();
+
+      const status = (
+        backendState: TailscaleState["backendState"],
+      ): NonNullable<NativeReply["status"]> => ({
+        backendState,
+        running: backendState === "Running",
+        tailnet: null,
+        magicDNSSuffix: "",
+        selfNode: null,
+        needsLogin: backendState === "NeedsLogin",
+        browseToURL: "",
+        exitNode: null,
+        peers: [],
+        prefs: null,
+        health: [],
+        error: null,
+      });
+      const profileRefreshes = () =>
+        nativePort.postMessage.mock.calls.filter(
+          ([message]) => (message as { cmd?: string }).cmd === "list-profiles",
+        );
+
+      sendNativeMessage({ status: status("NeedsLogin") });
+      expect(profileRefreshes()).toHaveLength(0);
+
+      sendNativeMessage({ status: status("Running") });
+      sendNativeMessage({ status: status("Running") });
+      expect(profileRefreshes()).toHaveLength(1);
+
+      sendNativeMessage({
+        profiles: {
+          current: { id: "new", name: "New account" },
+          profiles: [
+            { id: "old", name: "Old account" },
+            { id: "new", name: "New account" },
+          ],
+        },
+      });
+      nativePort.postMessage.mockClear();
+      sendNativeMessage({ status: status("Running") });
+      expect(profileRefreshes()).toHaveLength(0);
+    });
+
     it("handles delete-profile message", async () => {
       await setupBackground();
       nativePort.postMessage.mockClear();

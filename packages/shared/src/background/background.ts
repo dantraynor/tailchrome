@@ -506,6 +506,11 @@ export function initBackground(
   // Track whether we've attempted to restore exit node for this connection
   let exitNodeRestoreAttempted = false;
   let latestBackendState: TailscaleState["backendState"] | null = null;
+  // Empty profiles are assigned their durable ID and display name only after
+  // login succeeds. Refresh once the node reaches Running so the profile
+  // switcher does not retain the pre-login empty snapshot.
+  let profileRefreshNeeded = false;
+  let profileRefreshInFlight = false;
   let sawHealthyProcRunning = false;
   let sawHealthyInit = false;
   let helperRetryRecord: HelperRetryRecord | null = null;
@@ -731,6 +736,14 @@ export function initBackground(
       routing.confirmStatus(msg.status, store.getState());
       store.applyStatusUpdate(msg.status);
 
+      if (
+        msg.status.backendState === "Running" &&
+        (profileRefreshNeeded || !store.getState().currentProfile?.id) &&
+        !profileRefreshInFlight
+      ) {
+        profileRefreshInFlight = nativeHost.send({ cmd: "list-profiles" });
+      }
+
       // Drop the saved exit node once the host confirms a real coordination
       // server change (a node from the old tailnet won't exist on the new one).
       // Reacting to the confirmed prefs — rather than the optimistic set-pref
@@ -789,6 +802,8 @@ export function initBackground(
 
     // Profiles result
     if (msg.profiles) {
+      profileRefreshNeeded = msg.profiles.current.id === "";
+      profileRefreshInFlight = false;
       store.update({
         currentProfile: msg.profiles.current,
         profiles: msg.profiles.profiles,
@@ -835,6 +850,11 @@ export function initBackground(
 
     // Error from native host
     if (msg.error) {
+      if (msg.error.cmd === "list-profiles") {
+        profileRefreshInFlight = false;
+      } else if (msg.error.cmd === "new-profile") {
+        profileRefreshNeeded = false;
+      }
       // Errors carry no request ID, so an older failure must not release a
       // newer account transition. Wait for a confirmed account or user release.
       const safeCommand = /^[a-z][a-z0-9-]{0,48}$/.test(msg.error.cmd)
@@ -1488,6 +1508,8 @@ export function initBackground(
 
       case "switch-profile": {
         if (msg.profileID === state.currentProfile?.id) break;
+        profileRefreshNeeded = false;
+        profileRefreshInFlight = false;
         exitNodeRestoreAttempted = false;
         routing.switchProfile();
         store.update({ routingHealth: { status: "blocked", message: "Switching accounts — browsing is blocked." } });
@@ -1497,6 +1519,8 @@ export function initBackground(
       }
 
       case "new-profile": {
+        profileRefreshNeeded = true;
+        profileRefreshInFlight = false;
         exitNodeRestoreAttempted = false;
         routing.switchProfile();
         store.update({ routingHealth: { status: "blocked", message: "Switching accounts — browsing is blocked." } });
