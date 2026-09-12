@@ -39,10 +39,11 @@
       "brace-expansion@5": "^5.0.9",
       "undici": "^7.29.0",
       "esbuild": "^0.28.1",
-      "js-yaml": "^4.3.1",
+      "js-yaml": "^4.3.2",
       "nanoid@3": "^3.3.17",
       "shell-quote": "^1.8.4",
-      "adm-zip": "^0.6.0",
+      "adm-zip": "^0.6.1",
+      "@humanfs/node": "^0.16.8",
       "node-notifier>uuid": "^11.1.1",
       "addons-linter>image-size": "-"
     },

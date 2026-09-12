@@ -1,5 +1,6 @@
 import {
   clickText,
+  clickToggleForLabel,
   expectNoText,
   expectText,
   setInputValue,
@@ -32,7 +33,7 @@ export async function run({ openPopup, nativeHost }) {
     await clickText(page, "Tokyo", ".exit-node-row");
     await waitForRequest(nativeHost, "set-exit-node", (msg) => msg.nodeID === "peer-exit-tokyo");
 
-    await page.click("#allow-lan");
+    await clickToggleForLabel(page, "Allow LAN access");
     await waitForRequest(nativeHost, "set-prefs", (msg) => msg.prefs.exitNodeAllowLANAccess === true);
 
     await setInputValue(page, ".peer-search", "mullvad");
