@@ -15,7 +15,7 @@ export const control = () => makeControl({
   commandReplies: { up: { status: makeRunningState() } },
 });
 
-export async function run({ openPopup, nativeHost }) {
+export async function run({ openPopup, nativeHost, control }) {
   const page = await openPopup();
   try {
     await waitForPopup(page);
@@ -25,17 +25,19 @@ export async function run({ openPopup, nativeHost }) {
     await waitForRequest(nativeHost, "up");
     await expectText(page, "example.ts.net");
     await page.waitForFunction(
-      () => new Promise((resolve, reject) => {
+      (port) => new Promise((resolve, reject) => {
         chrome.proxy.settings.get({ incognito: false }, (details) => {
           const error = chrome.runtime.lastError;
           if (error) reject(new Error(error.message));
           else resolve(
             details.value.mode === "pac_script" &&
-            details.value.pacScript?.data.includes("PROXY 127.0.0.1:1055"),
+            details.value.pacScript?.data.includes(`PROXY 127.0.0.1:${port}`) &&
+            !details.value.pacScript?.data.includes("tailchrome-proxy-auth.invalid"),
           );
         });
       }),
       { timeout: 5_000 },
+      control.proxyPort,
     );
     const proxyConfig = await getProxyConfig(page);
 
@@ -44,7 +46,7 @@ export async function run({ openPopup, nativeHost }) {
     }
     const data = proxyConfig.pacScript?.data ?? "";
     for (const expected of [
-      "PROXY 127.0.0.1:1055",
+      `PROXY 127.0.0.1:${control.proxyPort}`,
       "100.100.100.100",
       "100.64.0.0",
       "fd7a:115c:a1e0:",

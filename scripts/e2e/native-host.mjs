@@ -32,6 +32,12 @@ export function createNativeHost(browserName, control, { enabled = true } = {}) 
     root,
     async prepareExtension(extensionDir) {
       baseUrl = await startServer();
+      // UI scenarios still need a real HTTP authentication exchange. Reuse
+      // the fixture server for the default helper's local-only auth probe.
+      if (!control?.proxyPort || control.proxyPort === 1055) {
+        control ??= {};
+        control.proxyPort = server.address().port;
+      }
       const targetDir = join(root, "extension");
       cpSync(extensionDir, targetDir, { recursive: true });
       patchBackground(targetDir, baseUrl, control ?? {});
@@ -55,6 +61,16 @@ export function createNativeHost(browserName, control, { enabled = true } = {}) 
   function startServer() {
     return new Promise((resolve, reject) => {
       server = createServer(async (req, res) => {
+        if (req.url === "http://tailchrome-proxy-auth.invalid/") {
+          const auth = control?.proxyAuth ?? { username: "fixture", password: "fixture-credential-".repeat(3) };
+          const basic = `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString("base64")}`;
+          if (req.headers["proxy-authorization"] !== basic) {
+            res.writeHead(407, { "Proxy-Authenticate": 'Basic realm="Tailchrome"' }).end();
+          } else {
+            res.writeHead(204, { "Cache-Control": "no-store" }).end();
+          }
+          return;
+        }
         res.setHeader("Access-Control-Allow-Origin", "*");
         res.setHeader("Access-Control-Allow-Headers", "content-type");
         if (req.method === "OPTIONS") {

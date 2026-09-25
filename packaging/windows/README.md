@@ -56,6 +56,10 @@ including its configured provider and exact publisher subject. The policy
 also permits a separately selected unsigned release mode; failed signing never
 silently selects that mode.
 
+Both modes require clean Defender evidence for the exact final EXEs and MSI.
+`-AllowUnsigned` does not bypass Windows Security detections; see
+[blocked helper troubleshooting](../../docs/helper-installation.md#windows-security-blocks-the-helper).
+
 The release order is:
 
 1. Sign and timestamp both `tailscale-browser-ext-windows-amd64.exe` and `tailscale-browser-ext-windows-arm64.exe`.

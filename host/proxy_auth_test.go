@@ -18,7 +18,7 @@ func proxyAuthorization(h *Host) string {
 }
 
 func TestProxyAuthenticatesAllHTTPPaths(t *testing.T) {
-	for _, tc := range []struct{ method, target string }{{"GET", "http://100.64.0.2/"}, {"CONNECT", "http://100.64.0.2:443"}, {"GET", "http://100.100.100.100/"}} {
+	for _, tc := range []struct{ method, target string }{{"GET", "http://100.64.0.2/"}, {"CONNECT", "http://100.64.0.2:443"}, {"GET", "http://100.100.100.100/"}, {"HEAD", "http://tailchrome-proxy-auth.invalid/"}} {
 		t.Run(tc.method+tc.target, func(t *testing.T) {
 			h := newHost(nil, nil)
 			h.proxyAuth = &ProxyAuth{Version: 1, Username: "user", Password: "secret"}
@@ -150,5 +150,21 @@ func TestAuthenticatedConnectEstablishesTunnel(t *testing.T) {
 	}
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", response.StatusCode)
+	}
+}
+
+func TestProxyAuthProbeWorksBeforeTSNetStarts(t *testing.T) {
+	h := newHost(nil, nil)
+	h.proxyAuth = &ProxyAuth{Version: 1, Username: "user", Password: "secret"}
+	h.proxyDial = func(context.Context, string, string) (net.Conn, error) {
+		t.Error("authentication probe reached the network")
+		return nil, fmt.Errorf("unexpected dial")
+	}
+	req := httptest.NewRequest("HEAD", "http://tailchrome-proxy-auth.invalid/", nil)
+	req.Header.Set("Proxy-Authorization", proxyAuthorization(h))
+	res := httptest.NewRecorder()
+	h.httpProxyHandler().ServeHTTP(res, req)
+	if res.Code != http.StatusNoContent || res.Body.Len() != 0 || res.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("probe response: %d %q %v", res.Code, res.Body.String(), res.Header())
 	}
 }

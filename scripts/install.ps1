@@ -255,7 +255,13 @@ function Copy-VerifiedStage([string]$Source, [string]$Destination) {
 }
 
 function Invoke-InstalledHelper([string]$Path, [string[]]$Arguments) {
-  & $Path @Arguments | Out-Host
+  try {
+    & $Path @Arguments | Out-Host
+  } catch {
+    throw [System.InvalidOperationException]::new(
+      "Windows could not start the helper at '$Path'. Check Windows Security > Protection history for a detection. -AllowUnsigned only permits an absent signature; it does not override antivirus protection. See https://github.com/dantraynor/tailchrome/blob/main/docs/helper-installation.md#windows-security-blocks-the-helper . Original error: $($_.Exception.Message)",
+      $_.Exception)
+  }
   $exitCode = $LASTEXITCODE
   return [int]$exitCode
 }
@@ -376,6 +382,7 @@ $releaseBase = "$ReleaseBaseDefault/$Version"
   $removalCommand = Get-UninstallCommand $Version $targetDirectory $InstallerSourcePath
   Write-Output "Uninstall with (pinned to $Version): $removalCommand"
 } catch {
+  $installError = $_
   if ($activated) {
     try {
       if (-not $hadDestination -and (Test-Path -LiteralPath $destination)) {
@@ -402,7 +409,20 @@ $releaseBase = "$ReleaseBaseDefault/$Version"
       Write-Warning "Activation rollback failed; recovery copy was retained: $($_.Exception.Message)"
     }
   }
-  throw
+  # Defender can also quarantine a download or staging file before execution.
+  # Use Win32 error codes so this works with localized Windows installations.
+  $failure = $installError.Exception
+  while ($failure) {
+    $code = $failure.HResult -band 0xffff
+    if ($failure -is [System.ComponentModel.Win32Exception]) { $code = $failure.NativeErrorCode }
+    if ($code -eq 225 -or $code -eq 226) {
+      throw [System.InvalidOperationException]::new(
+        "Windows antivirus blocked or quarantined the Tailchrome helper. Check Windows Security > Protection history and report the detection with the release version and SHA-256 hash. -AllowUnsigned does not override antivirus protection. See https://github.com/dantraynor/tailchrome/blob/main/docs/helper-installation.md#windows-security-blocks-the-helper . Original error: $($installError.Exception.Message)",
+        $installError.Exception)
+    }
+    $failure = $failure.InnerException
+  }
+  throw $installError
 } finally {
   if ($destinationHandle) {
     $destinationHandle.Dispose()

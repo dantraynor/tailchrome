@@ -59,7 +59,7 @@ async function waitForPacWithoutDomain(page, unexpectedHost) {
   );
 }
 
-export async function run({ openPopup }) {
+export async function run({ openPopup, control }) {
   const page = await openPopup();
   try {
     await waitForPopup(page);
@@ -81,7 +81,7 @@ export async function run({ openPopup }) {
     if (!pac.includes('return "DIRECT"')) {
       throw new Error("Bypass branch missing from PAC");
     }
-    if (!pac.includes("PROXY 127.0.0.1:1055")) {
+    if (!pac.includes(`PROXY 127.0.0.1:${control.proxyPort}`)) {
       throw new Error("Proxy still expected for unlisted hosts");
     }
 

@@ -15,9 +15,9 @@ not apply.
 
 > **Unsigned Windows mode.** When the `WINDOWS_ALLOW_UNSIGNED_RELEASE`
 > repository variable is `true` (see the code-signing policy), the
-> signing-provider, `WINDOWS_EXPECTED_SIGNER_SUBJECT`, Defender-environment,
-> and controlled-runner items below do not apply, and the "Exact-hash Windows
-> security clearance" section is skipped. Candidate metadata must record
+> signing-provider and `WINDOWS_EXPECTED_SIGNER_SUBJECT` items below do not
+> apply. Defender-environment, controlled-runner, and exact-hash Windows
+> security clearance requirements still apply. Candidate metadata must record
 > `windowsSigning: unsigned`, the release notes must state that the Windows
 > binaries are unsigned, and every other item still applies.
 

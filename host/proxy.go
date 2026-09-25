@@ -157,6 +157,15 @@ func (h *Host) httpProxyHandler() http.Handler {
 			return
 		}
 		r.Header.Del("Proxy-Authorization")
+		// Chrome primes its proxy credential cache before routing requests from
+		// other extensions (whose auth challenges it cannot observe). Keep the
+		// probe local and independent of tsnet, exit nodes and RunWebClient.
+		if r.Method == http.MethodHead && r.URL.Scheme == "http" &&
+			r.Host == "tailchrome-proxy-auth.invalid" && r.URL.Path == "/" {
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		host := r.Host
 		if h, _, err := net.SplitHostPort(host); err == nil {
 			host = h

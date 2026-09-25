@@ -1,4 +1,5 @@
 import { createServer as createHTTPServer, request } from "node:http";
+import { createServer as createHTTPSServer } from "node:https";
 import { createServer, createConnection } from "node:net";
 
 export const routingTestHost = "routing.tailchrome.test";
@@ -17,7 +18,7 @@ function listen(server) {
 
 // Real local HTTP and proxy sockets make direct fallback observable. Only this
 // fixture's origin is accepted as a proxy destination.
-export async function createRoutingNetwork() {
+export async function createRoutingNetwork({ tls, probeStatus = 204 } = {}) {
   const hits = [];
   const sockets = new Set();
   const forwardedPorts = new Set();
@@ -27,17 +28,18 @@ export async function createRoutingNetwork() {
     socket.on("error", () => {});
     return socket;
   };
-  const origin = createHTTPServer((req, res) => {
+  const handleOrigin = (req, res) => {
     hits.push({
       path: req.url,
       proxied: forwardedPorts.has(req.socket.remotePort) || req.headers["x-tailchrome-test-proxy"] === "yes",
     });
     res.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" });
     res.end("routing origin reached");
-  });
+  };
+  const origin = tls ? createHTTPSServer(tls, handleOrigin) : createHTTPServer(handleOrigin);
   origin.on("connection", track);
   const originPort = await listen(origin);
-  const baseURL = `http://${routingTestHost}:${originPort}`;
+  const baseURL = `${tls ? "https" : "http"}://${routingTestHost}:${originPort}`;
   const allowedTarget = (host, port) => host === routingTestHost && Number(port) === originPort;
   const basic = `Basic ${Buffer.from(`${proxyCredentials.username}:${proxyCredentials.password}`).toString("base64")}`;
 
@@ -64,6 +66,10 @@ export async function createRoutingNetwork() {
     }
     let url;
     try { url = new URL(req.url); } catch { res.writeHead(400).end(); return; }
+    if (req.method === "HEAD" && url.hostname === "tailchrome-proxy-auth.invalid") {
+      res.writeHead(probeStatus, { "Cache-Control": "no-store" }).end();
+      return;
+    }
     if (!allowedTarget(url.hostname, url.port)) { res.writeHead(403).end(); return; }
     const upstream = request({
       hostname: "127.0.0.1", port: originPort, path: url.pathname + url.search,

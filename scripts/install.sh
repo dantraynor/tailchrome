@@ -8,7 +8,7 @@ readonly RELEASES_URL="https://github.com/$REPOSITORY/releases"
 readonly API_LATEST_URL="https://api.github.com/repos/$REPOSITORY/releases/latest"
 
 usage() {
-  printf 'Usage: %s [--version vX.Y.Z] [--bin-dir PATH] [--uninstall]\n' "${0##*/}" >&2
+  printf 'Usage: %s [--version vX.Y.Z] [--bin-dir PATH] [--user-data-dir PATH] [--uninstall]\n' "${0##*/}" >&2
 }
 
 die() {
@@ -19,6 +19,7 @@ die() {
 version=""
 uninstall=false
 bin_dir=""
+user_data_dir=""
 
 while (($# > 0)); do
   case "$1" in
@@ -35,6 +36,14 @@ while (($# > 0)); do
     --uninstall)
       uninstall=true
       shift
+      ;;
+    --user-data-dir)
+      (($# >= 2)) || { usage; die "--user-data-dir requires a value"; }
+      [[ "$2" == /* ]] || die "--user-data-dir must be absolute"
+      [[ "$2" != *$'\n'* && "$2" != *$'\r'* ]] || die "--user-data-dir contains a newline"
+      [[ ! -e "$2" || -d "$2" ]] || die "--user-data-dir is not a directory"
+      user_data_dir="$2"
+      shift 2
       ;;
     -h | --help)
       usage
@@ -102,6 +111,10 @@ else
   bin_dir="$user_home/.local/bin"
 fi
 final_path="$bin_dir/tailchrome"
+registration_args=(--binary-path "$final_path")
+if [[ -n "$user_data_dir" ]]; then
+  registration_args+=(--user-data-dir "$user_data_dir")
+fi
 
 if [[ ! -d "$bin_dir" ]]; then
   [[ "$uninstall" == false ]] || die "installed helper not found at $final_path"
@@ -176,7 +189,7 @@ if [[ "$uninstall" == true ]]; then
   if [[ ! -f "$final_path" || ! -x "$final_path" || -L "$final_path" ]]; then
     die "installed helper not found at $final_path"
   fi
-  if ! "$final_path" uninstall --binary-path "$final_path"; then
+  if ! "$final_path" uninstall "${registration_args[@]}"; then
     die "uninstall registration failed; leaving $final_path in place"
   fi
   # Never remove state directories. Remove only the stable executable after the
@@ -297,7 +310,7 @@ activated=true
 
 # The final path exists before registration. A failure exits through cleanup,
 # which restores the prior executable or removes this new file.
-if ! "$final_path" install --binary-path "$final_path"; then
+if ! "$final_path" install "${registration_args[@]}"; then
   die "install registration failed; previous helper was preserved"
 fi
 activated=false
@@ -311,6 +324,9 @@ else
   installer_url="$RELEASES_URL/download/$version/tailchrome-install.sh"
   [[ "$installer_url" == https://* ]] || die "installer removal URL must use HTTPS"
   removal_command="curl --disable --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --tlsv1.2 --output - $(shell_quote "$installer_url") | bash -s -- --version $quoted_version --bin-dir $quoted_bin_dir --uninstall"
+fi
+if [[ -n "$user_data_dir" ]]; then
+  removal_command+=" --user-data-dir $(shell_quote "$user_data_dir")"
 fi
 printf 'To remove this installation (pinned to %s), run:\n  %s\n' "$version" "$removal_command"
 exit 0

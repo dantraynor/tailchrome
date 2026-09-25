@@ -476,6 +476,39 @@ STUB
   fi
   unset TEST_SHASUM_ONLY
 }
+test_custom_user_data_dir() {
+  new_case
+  local data_dir="$case_dir/bot chrome/owner's Fork-4" output command
+  write_helper "$case_dir/artifact" '
+if [ "$#" != 5 ] || [ "$4" != --user-data-dir ] || [ "$5" != "$TEST_USER_DATA_DIR" ]; then exit 72; fi'
+  make_manifest
+  export TEST_USER_DATA_DIR="$data_dir"
+  if output="$(run_streamed_install --version v1.2.3 --user-data-dir "$data_dir" 2>&1)"; then
+    command="$(extract_removal_command "$output")"
+    if run_removal_command "$command" > /dev/null 2>&1 &&
+      [[ "$(tail -n 1 "$case_dir/exec.log")" == "uninstall --binary-path $case_dir/home/.local/bin/tailchrome --user-data-dir $data_dir" ]]; then
+      pass_test 'custom Chromium roots survive install and replayed removal as one quoted argument'
+    else
+      fail_test 'custom Chromium roots survive install and replayed removal as one quoted argument' "$output / $command"
+    fi
+  else
+    fail_test 'custom Chromium roots survive install and replayed removal as one quoted argument' "$output"
+  fi
+  unset TEST_USER_DATA_DIR
+  new_case
+  expect_failure 'rejects a relative Chromium root before downloading' --user-data-dir relative
+  expect_failure 'rejects an empty Chromium root' --user-data-dir ''
+  expect_failure 'rejects a missing Chromium root argument' --user-data-dir
+  expect_failure 'rejects newlines in a Chromium root' --user-data-dir $'/tmp/chrome\nprofile'
+  printf 'file' > "$case_dir/not-a-directory"
+  expect_failure 'rejects a file as Chromium root' --user-data-dir "$case_dir/not-a-directory"
+  if [[ -e "$case_dir/curl.log" ]]; then
+    fail_test 'invalid Chromium root inputs never trigger a download' 'download log exists'
+  else
+    pass_test 'invalid Chromium root inputs never trigger a download'
+  fi
+}
+test_custom_user_data_dir
 test_failures
 test_provenance_and_shasum
 test_latest_same_tag

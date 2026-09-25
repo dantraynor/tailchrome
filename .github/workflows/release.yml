@@ -29,10 +29,10 @@ concurrency:
 # and the exact WINDOWS_EXPECTED_SIGNER_SUBJECT repository variable are
 # recorded. The only alternative is the explicit unsigned mode: setting the
 # WINDOWS_ALLOW_UNSIGNED_RELEASE repository variable to "true" ships the raw
-# EXE and MSI without Authenticode signatures and without Defender evidence,
-# and records that choice in the candidate metadata. Unsigned mode refuses to
-# run while a signer subject is configured; there is no silent fallback
-# between the two modes.
+# EXE and MSI without Authenticode signatures, and records that choice in the
+# candidate metadata. Both signing modes require clean Defender evidence.
+# Unsigned mode refuses to run while a signer subject is configured; there
+# is no silent fallback between the two modes.
 #
 # Defender evidence runs on a controlled, single-use x64 Windows runner
 # carrying a run-specific tailchrome-defender-${run_id} label. That runner
@@ -396,7 +396,6 @@ jobs:
 
   validate-windows-defender-environment:
     needs: build
-    if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -607,7 +606,6 @@ jobs:
 
   scan-windows-defender:
     needs: [build, package-windows, validate-windows-defender-environment]
-    if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
     runs-on:
       [self-hosted, Windows, X64, "tailchrome-defender-${{ github.run_id }}"]
     environment: windows-defender-validation
@@ -667,7 +665,7 @@ jobs:
               $env:EXPECTED_RAW_SHA256 -notmatch '^[0-9a-f]{64}$' -or
               $env:EXPECTED_ARM64_SHA256 -notmatch '^[0-9a-f]{64}$' -or
               $env:EXPECTED_MSI_SHA256 -notmatch '^[0-9a-f]{64}$') {
-            throw "The signed Windows artifact provenance is incomplete."
+            throw "The Windows artifact provenance is incomplete."
           }
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -761,7 +759,7 @@ jobs:
 
           try {
             if ($env:DOWNLOAD_OUTCOME -cne "success") {
-              throw "The signed Windows artifact download did not complete successfully."
+              throw "The Windows artifact download did not complete successfully."
             }
             $expectedAllowlist = @(
               "tailchrome-helper-windows-x64.msi"
@@ -780,7 +778,7 @@ jobs:
                     -ReferenceObject $expectedAllowlist `
                     -DifferenceObject $actualAllowlist
                 ).Count -ne 0) {
-              throw "The signed Windows artifact does not match the exact file allowlist."
+              throw "The Windows artifact does not match the exact file allowlist."
             }
             $signatureSummary = (
               Get-Content -LiteralPath $signatureSummaryPath -Raw -ErrorAction Stop |
@@ -789,7 +787,7 @@ jobs:
             if ([string]$signatureSummary.rawExe.sha256 -cne $env:EXPECTED_RAW_SHA256 -or
                 [string]$signatureSummary.arm64Exe.sha256 -cne $env:EXPECTED_ARM64_SHA256 -or
                 [string]$signatureSummary.msi.sha256 -cne $env:EXPECTED_MSI_SHA256) {
-              throw "The signed Windows artifact hashes do not match their package outputs."
+              throw "The Windows artifact hashes do not match their package outputs."
             }
             foreach ($file in $expectedFiles) {
               if (-not (Test-Path -LiteralPath $file.path -PathType Leaf)) {
@@ -1274,8 +1272,6 @@ jobs:
   assemble-release-candidate:
     needs:
       [build, sign-macos, package-macos, package-linux, package-windows, scan-windows-defender, windows-arm64-native-smoke]
-    # scan-windows-defender is skipped (not failed) in unsigned mode; every
-    # other upstream job must still succeed.
     if: >-
       ${{ !cancelled() &&
           needs.build.result == 'success' &&
@@ -1284,9 +1280,7 @@ jobs:
           needs.package-linux.result == 'success' &&
           needs.package-windows.result == 'success' &&
           needs.windows-arm64-native-smoke.result == 'success' &&
-          (needs.scan-windows-defender.result == 'success' ||
-           (vars.WINDOWS_ALLOW_UNSIGNED_RELEASE == 'true' &&
-            needs.scan-windows-defender.result == 'skipped')) }}
+          needs.scan-windows-defender.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1334,7 +1328,6 @@ jobs:
           name: signed-windows
           path: signed-windows
       - name: Download automated Defender evidence
-        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
         uses: actions/download-artifact@v6
         with:
           name: windows-defender-evidence
@@ -1388,29 +1381,26 @@ jobs:
           signature_summary="candidate/evidence/windows-signature-verification.json"
           if [ "$WINDOWS_ALLOW_UNSIGNED_RELEASE" = "true" ]; then
             test "$(jq -r .mode "$signature_summary")" = "unsigned"
-          else
-            cp windows-defender-evidence/windows-defender-verification.json candidate/evidence/
+          fi
+          cp windows-defender-evidence/windows-defender-verification.json candidate/evidence/
 
-            defender_summary="candidate/evidence/windows-defender-verification.json"
-            test "$(jq -r .result "$defender_summary")" = "clean"
-            test "$(jq -r .repository "$defender_summary")" = "$GITHUB_REPOSITORY"
-            test "$(jq -r .runId "$defender_summary")" = "$GITHUB_RUN_ID"
-            test "$(jq -r .runAttempt "$defender_summary")" = "$GITHUB_RUN_ATTEMPT"
-            test "$(jq -r .sourceSha "$defender_summary")" = "$SOURCE_SHA"
-            test "$(jq -r .releaseTag "$defender_summary")" = "$RELEASE_TAG"
-            test "$(jq -r .releaseRef "$defender_summary")" = "refs/tags/$RELEASE_TAG"
-            test "$(jq -r .packageArtifactId "$defender_summary")" = "$PACKAGE_ARTIFACT_ID"
-            test "$(jq -r .packageArtifactDigest "$defender_summary")" = "$PACKAGE_ARTIFACT_DIGEST"
-            test "$(jq -r .packageDownloadOutcome "$defender_summary")" = "success"
-            jq -e '
-              (.controlledImageId | strings | length > 0) and
-              .observedControlledImageId == .controlledImageId
-            ' "$defender_summary" >/dev/null
-          fi
+          defender_summary="candidate/evidence/windows-defender-verification.json"
+          test "$(jq -r .result "$defender_summary")" = "clean"
+          test "$(jq -r .repository "$defender_summary")" = "$GITHUB_REPOSITORY"
+          test "$(jq -r .runId "$defender_summary")" = "$GITHUB_RUN_ID"
+          test "$(jq -r .runAttempt "$defender_summary")" = "$GITHUB_RUN_ATTEMPT"
+          test "$(jq -r .sourceSha "$defender_summary")" = "$SOURCE_SHA"
+          test "$(jq -r .releaseTag "$defender_summary")" = "$RELEASE_TAG"
+          test "$(jq -r .releaseRef "$defender_summary")" = "refs/tags/$RELEASE_TAG"
+          test "$(jq -r .packageArtifactId "$defender_summary")" = "$PACKAGE_ARTIFACT_ID"
+          test "$(jq -r .packageArtifactDigest "$defender_summary")" = "$PACKAGE_ARTIFACT_DIGEST"
+          test "$(jq -r .packageDownloadOutcome "$defender_summary")" = "success"
+          jq -e '
+            (.controlledImageId | strings | length > 0) and
+            .observedControlledImageId == .controlledImageId
+          ' "$defender_summary" >/dev/null
           test "$(jq -r .arm64Exe.sha256 "$signature_summary")" = "$EXPECTED_ARM64_SHA256"
-          if [ "$WINDOWS_ALLOW_UNSIGNED_RELEASE" != "true" ]; then
-            test "$(jq -r '.files[] | select(.name == "tailscale-browser-ext-windows-arm64.exe") | .sha256' "$defender_summary")" = "$EXPECTED_ARM64_SHA256"
-          fi
+          test "$(jq -r '.files[] | select(.name == "tailscale-browser-ext-windows-arm64.exe") | .sha256' "$defender_summary")" = "$EXPECTED_ARM64_SHA256"
           test "$(
             sha256sum signed-windows/tailscale-browser-ext-windows-amd64.exe |
               cut -d' ' -f1
@@ -1448,18 +1438,11 @@ jobs:
           diff -u candidate/expected-assets.txt candidate/actual-assets.txt
           find candidate/evidence -mindepth 1 -maxdepth 1 -type f -printf '%f\n' |
             sort > candidate/actual-evidence.txt
-          if [ "$WINDOWS_ALLOW_UNSIGNED_RELEASE" = "true" ]; then
-            printf '%s\n' \
-              windows-arm64-smoke.json \
-              windows-signature-verification.json \
-              > candidate/expected-evidence.txt
-          else
-            printf '%s\n' \
-              windows-arm64-smoke.json \
-              windows-defender-verification.json \
-              windows-signature-verification.json \
-              > candidate/expected-evidence.txt
-          fi
+          printf '%s\n' \
+            windows-arm64-smoke.json \
+            windows-defender-verification.json \
+            windows-signature-verification.json \
+            > candidate/expected-evidence.txt
           diff -u candidate/expected-evidence.txt candidate/actual-evidence.txt
       - name: Generate final checksum manifest
         id: manifest
@@ -1475,19 +1458,17 @@ jobs:
           digest="$(sha256sum candidate/release/SHA256SUMS.txt | cut -d' ' -f1)"
           if [ "$WINDOWS_ALLOW_UNSIGNED_RELEASE" = "true" ]; then
             windows_signing="unsigned"
-            defender_image_id=""
-            defender_evidence_sha256=""
           else
             windows_signing="signed"
-            defender_image_id="$(
-              jq -r .controlledImageId \
-                candidate/evidence/windows-defender-verification.json
-            )"
-            defender_evidence_sha256="$(
-              sha256sum candidate/evidence/windows-defender-verification.json |
-                cut -d' ' -f1
-            )"
           fi
+          defender_image_id="$(
+            jq -r .controlledImageId \
+              candidate/evidence/windows-defender-verification.json
+          )"
+          defender_evidence_sha256="$(
+            sha256sum candidate/evidence/windows-defender-verification.json |
+              cut -d' ' -f1
+          )"
           arm64_smoke_evidence_sha256="$(
             sha256sum candidate/evidence/windows-arm64-smoke.json |
               cut -d' ' -f1

@@ -42,6 +42,27 @@ For a release explicitly published in the repository's unsigned mode, inspect
 its release notes and use `-AllowUnsigned` to accept an absent signature.
 That option does not accept an invalid signature.
 
+### Windows Security blocks the helper
+
+`-AllowUnsigned` only accepts an absent Authenticode signature. It cannot
+override a Defender malware or potentially unwanted software detection, and
+a matching checksum does not establish that Defender will accept a file.
+
+If Windows blocks or quarantines the helper, stop installation and open
+**Windows Security → Virus & threat protection → Protection history**. Record
+the threat name, release version, affected path, and release artifact's SHA-256
+hash when reporting the problem. Do not disable protection or add exclusions.
+Maintainers should submit the exact detected release file through
+[Microsoft's file submission portal](https://www.microsoft.com/en-us/wdsi/filesubmission)
+for review, then verify the same artifact against updated security intelligence.
+Use a release whose detection has been resolved before retrying installation.
+The installer preserves the previous executable when rollback is possible;
+it cannot restore a file that antivirus has also quarantined.
+
+New release candidates require clean Defender evidence for both signed and
+explicitly unsigned Windows artifacts. This does not retroactively clear
+detections of the v0.1.14 binaries.
+
 Rerunning the same installer upgrades the helper and repairs registration. Close
 browsers using Tailchrome before Windows upgrades; an active executable is
 preserved and the installer reports that it is busy. Failed replacements keep
@@ -102,6 +123,33 @@ documented Chrome-specific configuration overrides. Firefox keeps its separate
 native-messaging location. Custom Chromium data directories use
 `--user-data-dir` and must be absolute. Pass the same directory when removing
 that registration.
+
+### Custom Chrome profiles and forks
+
+Chrome launched with `--user-data-dir` looks for the native messaging manifest
+inside that directory. In `chrome://version` (or `edge://version`), find
+**Profile Path** and use its parent directory, not the browser executable or
+the individual `Default` / `Profile 2` directory. For example, the profile
+`/home/box/chrome-profile/Fork-4/Profile 2` uses:
+
+```bash
+bash ./tailchrome-install.sh --user-data-dir '/home/box/chrome-profile/Fork-4'
+```
+
+For an already installed helper, including one installed through a package
+manager, register it without downloading again:
+
+```bash
+tailchrome install --browser Chrome --user-data-dir '/home/box/chrome-profile/Fork-4'
+```
+
+This writes `NativeMessagingHosts/com.tailscale.browserext.chrome.json` under
+the selected root without root privileges on Linux/macOS. Repeat registration
+for each separate fork's data root. Restart the browser afterward. The Unix
+script's printed removal command retains the selected root; when registering
+additional roots manually, unregister each with `tailchrome uninstall
+--user-data-dir /absolute/root` before removing the executable. Windows uses
+current-user registry registration instead of this directory lookup.
 
 Legacy `-install-now`, `--install C<id>`, `--install F<id>`, `-uninstall`, and
 `-version` remain available to existing callers. Legacy installation retains

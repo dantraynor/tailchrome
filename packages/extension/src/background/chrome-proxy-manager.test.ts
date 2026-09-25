@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { baseState, makePeer } from "@tailchrome/shared/__test__/fixtures";
 import type { TailscaleState } from "@tailchrome/shared/types";
 import { ChromeProxyManager } from "./chrome-proxy-manager";
+import { ChromeProxyAuth } from "./chrome-proxy-auth";
 
 function capturePAC(
   pm: ChromeProxyManager,
@@ -28,6 +29,9 @@ describe("ChromeProxyManager", () => {
   let pm: ChromeProxyManager;
 
   beforeEach(() => {
+    // Routing-policy tests start with an authenticated browser cache. The
+    // bootstrap tests below exercise the real pending/failed probe states.
+    vi.spyOn(ChromeProxyAuth.prototype, "isReadyFor").mockReturnValue(true);
     pm = new ChromeProxyManager();
     pm.setProxySession({ port: 1055, username: "fixture", password: "fixture-credential-".repeat(3) });
   });
@@ -698,3 +702,120 @@ function evalPAC(
   );
   return fn(isInNet, dnsDomainIs) as (url: string, host: string) => string;
 }
+
+
+describe("Chrome proxy authentication routing bootstrap", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  function currentRoute(host: string): string {
+    let config!: chrome.proxy.ProxyConfig;
+    chrome.proxy.settings.get({ incognito: false }, details => { config = details.value; });
+    if (config.mode === "system") return "SYSTEM";
+    return new Function("host", "isInNet", "dnsDomainIs", `${config.pacScript!.data}; return FindProxyForURL("http://" + host + "/", host);`)(host, () => false, (host: string, suffix: string) => host.endsWith(suffix));
+  }
+
+  function setup(state = baseState()) {
+    const responses: Array<(value: { status: number }) => void> = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => new Promise(resolve => { responses.push(resolve); })));
+    let onError!: (details: { error: string; details: string; fatal: boolean }) => void;
+    vi.spyOn(chrome.proxy.onProxyError, "addListener").mockImplementation(
+      listener => { onError = listener; },
+    );
+    const manager = new ChromeProxyManager();
+    manager.setProxySession({ port: 1055, username: "user", password: "secret" });
+    const report = vi.fn();
+    manager.setRoutingHealthListener(report);
+    manager.apply(state);
+    return { manager, report, responses, onError };
+  }
+
+  it("blocks protected routes until authentication completes, keeping ordinary traffic direct", async () => {
+    const { report, responses } = setup();
+    expect(currentRoute("tailchrome-proxy-auth.invalid")).toBe("PROXY 127.0.0.1:1055");
+    expect(currentRoute("100.100.100.100")).toBe("PROXY 127.0.0.1:1");
+    expect(currentRoute("example.com")).toBe("DIRECT");
+    expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: "blocked" }));
+    responses[0]!({ status: 204 });
+    await vi.waitFor(() => expect(report).toHaveBeenLastCalledWith({ status: "active", message: "" }));
+    expect(currentRoute("100.100.100.100")).toBe("PROXY 127.0.0.1:1055");
+    expect(currentRoute("tailchrome-proxy-auth.invalid")).toBe("DIRECT");
+  });
+
+  it("keeps protected routes blocked when authentication fails", async () => {
+    const { manager, report, responses, onError } = setup();
+    onError({ error: "net::ERR_PROXY_CONNECTION_FAILED", details: "", fatal: true });
+    responses[0]!({ status: 407 });
+    await vi.waitFor(() => expect(report).toHaveBeenLastCalledWith({ status: "unavailable", message: "Helper authentication failed — protected browsing is blocked." }));
+    manager.apply(baseState());
+    expect(currentRoute("100.100.100.100")).toBe("PROXY 127.0.0.1:1");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["tailnet", "exit node"])("recovers %s routing after a blocked request fails during authentication", async mode => {
+    const state = baseState(mode === "exit node" ? {
+      exitNode: { id: "exit", hostname: "exit", dnsName: "exit.example.ts.net", online: true, location: null },
+      domainSplit: { mode: "bypass", domains: [] },
+    } : {});
+    const { manager, report, responses, onError } = setup(state);
+    const connectionError = { error: "net::ERR_PROXY_CONNECTION_FAILED", details: "", fatal: true };
+    expect(currentRoute("100.100.100.100")).toBe("PROXY 127.0.0.1:1");
+    if (mode === "exit node") expect(currentRoute("example.com")).toBe("PROXY 127.0.0.1:1");
+
+    onError(connectionError);
+    const pendingHealth = report.mock.calls.at(-1)![0];
+    manager.apply(state);
+    responses[0]!({ status: 204 });
+
+    await vi.waitFor(() => expect(report).toHaveBeenLastCalledWith({ status: "active", message: "" }));
+    expect(pendingHealth).toEqual({ status: "blocked", message: "Preparing helper authentication — protected browsing is blocked." });
+    expect(currentRoute("100.100.100.100")).toBe("PROXY 127.0.0.1:1055");
+    expect(currentRoute("example.com")).toBe(mode === "exit node" ? "PROXY 127.0.0.1:1055" : "DIRECT");
+    manager.apply(state);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    // Once the real PAC is installed, connection errors must remain visible.
+    onError(connectionError);
+    manager.apply(state);
+    expect(report).toHaveBeenLastCalledWith({ status: "blocked", message: "The proxy is unavailable — protected browsing is blocked." });
+  });
+
+  it("ignores blocked requests after the probe succeeds until Chrome replaces the temporary PAC", async () => {
+    const { report, responses, onError } = setup();
+    const get = chrome.proxy.settings.get;
+    let resumeGet: (() => void) | undefined;
+    vi.spyOn(chrome.proxy.settings, "get").mockImplementationOnce((details, callback) => {
+      resumeGet = () => { get(details, callback); };
+      return Promise.resolve({});
+    });
+    responses[0]!({ status: 204 });
+    await vi.waitFor(() => expect(resumeGet).toBeTypeOf("function"));
+
+    expect(currentRoute("100.100.100.100")).toBe("PROXY 127.0.0.1:1");
+    onError({ error: "net::ERR_PROXY_CONNECTION_FAILED", details: "", fatal: true });
+    const pendingHealth = report.mock.calls.at(-1)![0];
+    resumeGet!();
+
+    await vi.waitFor(() => expect(report).toHaveBeenLastCalledWith({ status: "active", message: "" }));
+    expect(pendingHealth).toEqual({ status: "blocked", message: "Preparing helper authentication — protected browsing is blocked." });
+    expect(currentRoute("100.100.100.100")).toBe("PROXY 127.0.0.1:1055");
+  });
+
+  it("does not restore protected routing after the user switches off", async () => {
+    const { manager, report, responses } = setup();
+    manager.clear();
+    responses[0]!({ status: 204 });
+    await vi.waitFor(() => expect(report).toHaveBeenLastCalledWith({ status: "inactive", message: "" }));
+    expect(currentRoute("100.100.100.100")).toBe("SYSTEM");
+  });
+
+  it("restarts authentication when credentials rotate at the same port", async () => {
+    const { manager, report, responses } = setup();
+    manager.setProxySession({ port: 1055, username: "user", password: "replacement" });
+    manager.apply(baseState());
+    responses[0]!({ status: 204 });
+    await vi.waitFor(() => expect(responses).toHaveLength(2));
+    expect(currentRoute("100.100.100.100")).toBe("PROXY 127.0.0.1:1");
+    responses[1]!({ status: 204 });
+    await vi.waitFor(() => expect(report).toHaveBeenLastCalledWith({ status: "active", message: "" }));
+  });
+});

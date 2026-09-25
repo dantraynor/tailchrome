@@ -92,6 +92,8 @@ jobs:
         run: |
           mkdir -p "$TMPDIR"
           pnpm e2e:chrome 2>&1 | tee "$TMPDIR/output.log"
+      - name: Verify cross-extension HTTPS proxy authentication
+        run: node scripts/e2e/chrome-proxy-auth.mjs
       - name: Preserve failed Chrome E2E artifacts
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

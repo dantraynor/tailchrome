@@ -192,18 +192,11 @@ jobs:
           diff -u "$RUNNER_TEMP/expected-manifest-assets.txt" "$RUNNER_TEMP/manifest-assets.txt"
           (cd candidate/release && sha256sum --check SHA256SUMS.txt)
 
-          if [[ "$windows_signing" == "unsigned" ]]; then
-            printf '%s\n' \
-              windows-arm64-smoke.json \
-              windows-signature-verification.json \
-              > "$RUNNER_TEMP/expected-evidence.txt"
-          else
-            printf '%s\n' \
-              windows-arm64-smoke.json \
-              windows-defender-verification.json \
-              windows-signature-verification.json \
-              > "$RUNNER_TEMP/expected-evidence.txt"
-          fi
+          printf '%s\n' \
+            windows-arm64-smoke.json \
+            windows-defender-verification.json \
+            windows-signature-verification.json \
+            > "$RUNNER_TEMP/expected-evidence.txt"
           find candidate/evidence -mindepth 1 -maxdepth 1 -type f -printf '%f\n' |
             sort > "$RUNNER_TEMP/actual-evidence.txt"
           diff -u "$RUNNER_TEMP/expected-evidence.txt" "$RUNNER_TEMP/actual-evidence.txt"
@@ -238,14 +231,14 @@ jobs:
             test "$(jq -r .windowsRawSha256 "$metadata")" = "$raw_hash"
             test "$(jq -r .windowsArm64Sha256 "$metadata")" = "$arm64_hash"
             test "$(jq -r .windowsMsiSha256 "$metadata")" = "$msi_hash"
-            exit 0
+          else
+            test "$(jq -r .embeddedMatchesRaw "$signature_summary")" = "true"
+            test "$(jq -r .rawExe.sha256 "$signature_summary")" = "$raw_hash"
+            test "$(jq -r .arm64Exe.sha256 "$signature_summary")" = "$arm64_hash"
+            test "$(jq -r .embeddedExe.sha256 "$signature_summary")" = "$raw_hash"
+            test "$(jq -r .msi.sha256 "$signature_summary")" = "$msi_hash"
+            jq -e '.expectedSignerSubject | strings | length > 0' "$signature_summary" >/dev/null
           fi
-          test "$(jq -r .embeddedMatchesRaw "$signature_summary")" = "true"
-          test "$(jq -r .rawExe.sha256 "$signature_summary")" = "$raw_hash"
-          test "$(jq -r .arm64Exe.sha256 "$signature_summary")" = "$arm64_hash"
-          test "$(jq -r .embeddedExe.sha256 "$signature_summary")" = "$raw_hash"
-          test "$(jq -r .msi.sha256 "$signature_summary")" = "$msi_hash"
-          jq -e '.expectedSignerSubject | strings | length > 0' "$signature_summary" >/dev/null
 
           defender_summary="candidate/evidence/windows-defender-verification.json"
           defender_evidence_hash="$(

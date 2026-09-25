@@ -13,6 +13,7 @@ $Fixture = $null
 $TestArch = 'amd64'
 $SignatureStatus = 'NotSigned'
 $RegisterFail = $false
+$BlockedStage = ''
 $UnregisterCalls = 0
 $LastDownload = ''
 $WindowsTest = ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT)
@@ -35,6 +36,7 @@ function New-Fixture {
   $script:TestArch = 'amd64'
   $script:SignatureStatus = 'NotSigned'
   $script:RegisterFail = $false
+  $script:BlockedStage = ''
   $script:UnregisterCalls = 0
   $script:LastDownload = ''
   $env:LOCALAPPDATA = Join-Path $script:Fixture 'local'
@@ -50,6 +52,7 @@ function Assert-SupportedPlatform { }
 function Get-NativeArchitecture { return $script:TestArch }
 function Invoke-Download([string]$Uri, [string]$Path) {
   $script:LastDownload = $Uri
+  if ($script:BlockedStage -eq 'download' -and $Uri.EndsWith('.exe')) { throw [System.ComponentModel.Win32Exception]::new(225) }
   if ($Uri.EndsWith('/SHA256SUMS.txt')) {
     Copy-Item -LiteralPath (Join-Path $script:Fixture 'manifest') -Destination $Path
   } else {
@@ -64,6 +67,10 @@ function Invoke-InstalledHelper([string]$Path, [string[]]$Arguments) {
   if ($Arguments[0] -eq 'uninstall') {
     $script:UnregisterCalls++
     return 0
+  }
+  if ($script:BlockedStage -eq 'execute') {
+    Remove-Item -LiteralPath $Path -Force
+    throw [System.ComponentModel.Win32Exception]::new(226)
   }
   if ($script:RegisterFail) { return 9 }
   $script:LastHelperPath = $Path
@@ -249,6 +256,23 @@ if (-not $message -and (Test-Path -LiteralPath $destination) -and $script:LastHe
   Pass 'installs verified bytes at the stable path and invokes the CLI with that path'
 } else {
   FailTest 'installs verified bytes at the stable path and invokes the CLI with that path' ($message -or 'missing stable path/CLI evidence')
+}
+
+foreach ($stage in @('download', 'execute')) {
+  New-Fixture
+  $null = Invoke-Main -AllowUnsigned
+  $script:BlockedStage = $stage
+  Set-Content -LiteralPath (Join-Path $script:Fixture 'artifact') -Value 'new' -NoNewline
+  Set-Manifest
+  $message = Invoke-Main -AllowUnsigned
+  $destination = Join-Path $env:LOCALAPPDATA 'Tailchrome/tailchrome.exe'
+  if ($message -like '*antivirus blocked or quarantined*' -and
+      $message -like '*-AllowUnsigned does not override antivirus*' -and
+      (Get-Content -LiteralPath $destination -Raw) -eq 'old') {
+    Pass "reports antivirus block during $stage and preserves the previous helper"
+  } else {
+    FailTest "reports antivirus block during $stage and preserves the previous helper" $message
+  }
 }
 
 New-Fixture

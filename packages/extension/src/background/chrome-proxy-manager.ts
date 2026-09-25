@@ -1,4 +1,4 @@
-import { ChromeProxyAuth } from "./chrome-proxy-auth";
+import { ChromeProxyAuth, PROXY_AUTH_PROBE_HOST } from "./chrome-proxy-auth";
 import type {
   ProxySessionCredentials,
   DomainSplitConfig,
@@ -25,17 +25,25 @@ export class ChromeProxyManager {
   private readonly auth = new ChromeProxyAuth();
 
   setProxySession(session: ProxySessionCredentials | null): void {
-    this.auth.set(session);
+    if (this.auth.set(session)) {
+      this.sessionEpoch += 1;
+      this.appliedKey = "";
+      this.errorKey = "";
+    }
   }
 
   private desired: chrome.proxy.ProxyConfig | null = null;
+  private authPending: chrome.proxy.ProxyConfig | null = null;
   private desiredKey = "";
   private appliedKey = "";
   private inFlight = false;
+  private authRoutingPending = false;
   private errorKey = "";
   private changeEpoch = 0;
   private healthListener: ((health: RoutingHealth) => void) | null = null;
   private desiredHealth: RoutingHealth = { status: "inactive", message: "" };
+  private activePort = 0;
+  private sessionEpoch = 0;
 
   constructor() {
     chrome.proxy.settings.onChange.addListener((details) => {
@@ -63,6 +71,12 @@ export class ChromeProxyManager {
     });
     chrome.proxy.onProxyError.addListener((details) => {
       if (!this.desired) return;
+      if (this.authRoutingPending && details.fatal && details.error === "net::ERR_PROXY_CONNECTION_FAILED") {
+        // The temporary auth PAC deliberately sends protected requests to a
+        // closed port. Its failures must not latch against the desired PAC.
+        // The probe itself reports a real helper/authentication failure.
+        return;
+      }
       if (details.fatal && details.error === "net::ERR_TUNNEL_CONNECTION_FAILED") {
         // Chrome aborted one CONNECT request, not the installed proxy policy.
         // Browser-internal requests can be hidden from our auth listener. Keep
@@ -93,6 +107,7 @@ export class ChromeProxyManager {
     const authenticationMissing = !this.auth.hasSession(policy.proxyPort ?? 0);
     const blocked = policy.mode === "blocked" || authenticationMissing;
     const port = blocked ? BLOCKED_PROXY_PORT : policy.proxyPort!;
+    this.activePort = blocked ? 0 : port;
     this.desiredHealth = blocked
       ? {
           status: "blocked",
@@ -103,12 +118,12 @@ export class ChromeProxyManager {
             : "Connection unavailable — tailnet browsing is blocked.",
         }
       : { status: "active", message: "" };
-    this.desired = {
+    const config = (proxyPort: number, probePort?: number): chrome.proxy.ProxyConfig => ({
       mode: "pac_script",
       pacScript: {
         mandatory: true,
         data: this.generatePACScript(
-          port,
+          proxyPort,
           policy.magicDNSSuffix,
           policy.blockAll || policy.selectedExitNodeID !== null,
           policy.subnetCIDRs,
@@ -116,9 +131,12 @@ export class ChromeProxyManager {
           sanitizeSplitDomains(policy.domainSplit),
           policy.shortNames,
           policy.dnsRoutes,
+          probePort,
         ),
       },
-    };
+    });
+    this.desired = config(port);
+    this.authPending = blocked ? null : config(BLOCKED_PROXY_PORT, port);
     const nextKey = JSON.stringify(this.desired);
     if (nextKey !== this.desiredKey) this.errorKey = "";
     this.desiredKey = nextKey;
@@ -127,6 +145,7 @@ export class ChromeProxyManager {
 
   clear(): void {
     this.desired = null;
+    this.authPending = null;
     if (this.desiredKey !== "clear") this.errorKey = "";
     this.desiredKey = "clear";
     this.desiredHealth = { status: "inactive", message: "" };
@@ -146,7 +165,13 @@ export class ChromeProxyManager {
     }
     this.inFlight = true;
     const key = this.desiredKey;
-    const value = this.desired;
+    const sessionEpoch = this.sessionEpoch;
+    const port = this.activePort;
+    const warming = this.desiredHealth.status === "active" && !this.auth.isReadyFor(port);
+    if (warming) this.authRoutingPending = true;
+    // During authentication only our reserved probe destination reaches the
+    // helper. All other protected routes retain their fail-closed behavior.
+    const value = warming ? this.authPending : this.desired;
     const fail = (message: string, conflicted = false): void => {
       this.appliedKey = "";
       // Keep reentrant state notifications from immediately retrying a rejection.
@@ -205,6 +230,26 @@ export class ChromeProxyManager {
               );
               return;
             }
+            if (warming) {
+              if (key === this.desiredKey) this.report({ status: "blocked", message: "Preparing helper authentication — protected browsing is blocked." });
+              void this.auth.prepare(port).then(() => {
+                this.inFlight = false;
+                this.flush();
+              }, () => {
+                if (key !== this.desiredKey || sessionEpoch !== this.sessionEpoch) {
+                  this.inFlight = false;
+                  this.flush();
+                  return;
+                }
+                this.errorKey = key;
+                fail("Helper authentication failed — protected browsing is blocked.");
+              });
+              return;
+            }
+            // Keep ignoring the temporary route's connection failures until
+            // Chrome has confirmed its replacement, including after the probe
+            // succeeds while settings callbacks are still pending.
+            this.authRoutingPending = false;
             this.appliedKey = key;
             if (key === this.desiredKey) this.report(this.desiredHealth);
             this.inFlight = false;
@@ -227,6 +272,7 @@ export class ChromeProxyManager {
     splitDomains: string[],
     shortNames: string[],
     dnsRoutes: string[],
+    probePort?: number,
   ): string {
     const proxy = `PROXY 127.0.0.1:${port}`;
 
@@ -265,6 +311,7 @@ export class ChromeProxyManager {
     }
 
     return `function FindProxyForURL(url, host) {
+${probePort ? `  if (host === "${PROXY_AUTH_PROBE_HOST}") return "PROXY 127.0.0.1:${probePort}";` : ""}
   host = host.toLowerCase().replace(/\\.$/, "");
   var proxy = "${proxy}";
   var isIPv4 = /^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(host);

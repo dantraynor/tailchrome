@@ -15,7 +15,7 @@ unavailable.
 While provider onboarding is pending, the maintainer may explicitly ship
 unsigned Windows binaries by setting the `WINDOWS_ALLOW_UNSIGNED_RELEASE`
 repository variable to `true`. Unsigned mode is mutually exclusive with a
-configured signer subject, skips Defender clearance evidence, records
+configured signer subject, requires the same Defender clearance evidence, records
 `windowsSigning: unsigned` in the candidate metadata, and still requires the
 protected publication approval. Users installing these builds see the ordinary
 SmartScreen unknown-publisher warning. The variable must be removed as soon as
