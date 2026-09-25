@@ -132,6 +132,10 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm review:firefox
+      - name: Verify Firefox cross-extension HTTPS proxy authentication
+        env:
+          E2E_EXTENSION_DIR: packages/extension/.output/firefox-mv3
+        run: pnpm e2e:firefox --grep=cross-extension-proxy-auth
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: firefox-build

@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Tailchrome cross-extension request fixture",
+  "version": "1.0.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqksB3AZ3+UuCv1j0iyUWdtSkJR3nqXbrWxw2skMzmlS0sBwoG9qJXW0NSI9TG9VAflmF3iwWkqPL+C7ecWEoBTfHt/U01UsxuKMKC+r9awRD5oH9nn+Ovg3ARRbmxlmTxwWmatbnU5FfuRXn8NShFNkbyDxCULcB7afz8r9hBl6PCXQ9us75y09H8DxB6uXQNJ8funMo4ZUe1V9oZlQ6vXWCk5Dv83fy2eicIvHJa54HYy+yEVSScNiJMFwwIMZpnfiIjlTlbGpP7ww3+CWThMxM9v2x5x/YhlrcEbju6c2oeTtEtBKWdIfuBeqUivL7V2yA54Cf4PIQGWLYIq33KQIDAQAB",
+  "host_permissions": ["<all_urls>"],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "cross-extension-request@tailchrome.test"
+    }
+  }
+}

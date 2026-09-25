@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 // Cross-extension HTTPS regression for #134. Run after build:chrome.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import puppeteer from "puppeteer";
 import { createNativeHost } from "./native-host.mjs";
-import { createRoutingNetwork, proxyCredentials } from "./network-fixture.mjs";
+import { createRoutingNetwork, createRoutingTLS, proxyCredentials } from "./network-fixture.mjs";
 import { makeControl, makeRunningState, expectedHostVersion } from "./fixtures.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "tailchrome-cross-extension-auth-"));
@@ -15,8 +14,7 @@ let browser;
 let native;
 const networks = [];
 try {
-  execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=routing.tailchrome.test", "-keyout", join(root, "key.pem"), "-out", join(root, "cert.pem")], { stdio: "ignore" });
-  const tls = { key: readFileSync(join(root, "key.pem")), cert: readFileSync(join(root, "cert.pem")) };
+  const tls = createRoutingTLS();
   networks.push(await createRoutingNetwork({ tls }));
   native = createNativeHost("chrome", makeControl({
     allowRuntimeUpdates: true,

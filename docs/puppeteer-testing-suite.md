@@ -13,9 +13,13 @@ pnpm e2e:full:firefox       # All Firefox scenarios
 pnpm e2e:full               # Full Chrome, then full Firefox
 HEADLESS=false pnpm e2e     # Visible local browser
 pnpm e2e --grep=proxy       # Filter case names
+pnpm e2e:firefox --grep=cross-extension-proxy-auth  # Firefox HTTPS proxy auth
+pnpm e2e:proxy-auth:chrome  # Chrome HTTPS proxy auth and helper restart
 ```
 
 The default suite is `smoke`; pass `--suite=full` for the complete scenario set. Browser selection accepts `--browser=chrome`, `--browser=firefox`, `--chrome`, or `--firefox`.
+
+The cross-extension HTTPS tests require `openssl` on `PATH` to generate a temporary, self-signed certificate for the local origin.
 
 To test an unpacked release artifact without rebuilding it, set
 `E2E_EXTENSION_DIR` to its directory. Relative paths resolve from the repository
@@ -80,6 +84,7 @@ An array provides sequential replies for repeated commands. Every request is sti
 
 - `popup-loads`: packaged popup renders without page or console errors.
 - `proxy-routing`: Chrome installs a PAC containing service IP, IPv4/IPv6 tailnet ranges, MagicDNS, and subnet routes.
+- `cross-extension-proxy-auth`: a second Firefox extension's first HTTPS request traverses Tailchrome's authenticated SOCKS proxy with an exit node selected; adapted from Ender-Wang's [PR #136](https://github.com/dantraynor/tailchrome/pull/136).
 - `split-dns`: Chrome sends restricted-domain hostnames to a local authenticated HTTP proxy without an exit node; domain replacement and removal update routing.
 - `routing-failclosed-network`: real HTTP requests stay blocked when an exit node or helper disappears; recovery uses the proxy and an explicit bypass goes direct.
 - `dns-routing-network`: restricted domains use the proxy, missing updates retain routes, confirmed removals clear them, and helper loss blocks requests.
@@ -96,4 +101,4 @@ Scenarios run sequentially because extension builds and temporary browser state 
 
 ## CI
 
-Pull requests run `pnpm e2e:chrome`, which currently includes the Chrome smoke scenarios. The full cross-browser suite remains available for release or focused local verification. When a case fails, the runner prints the native request log and the retained artifact path when artifact retention is enabled.
+Pull requests run `pnpm e2e:chrome`, which currently includes the Chrome smoke scenarios, plus the standalone Chrome cross-extension HTTPS test. The Firefox review job runs the cross-extension HTTPS scenario against its packaged build. The full cross-browser suite remains available for release or focused local verification. When a case fails, the runner prints the native request log and the retained artifact path when artifact retention is enabled.

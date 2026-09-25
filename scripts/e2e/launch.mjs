@@ -129,12 +129,21 @@ async function launchChrome(extensionDir, { chromeArgs = [] } = {}) {
   };
 }
 
-async function launchFirefox(extensionDir, { firefoxPrefs = {} } = {}) {
+async function launchFirefox(
+  extensionDir,
+  {
+    firefoxPrefs = {},
+    additionalExtensionDirs = [],
+    additionalFirefoxExtensionUuids = {},
+    acceptInsecureCerts = false,
+  } = {},
+) {
   const executablePath = ensureFirefoxInstalled();
   const headless = process.env.HEADLESS !== "false";
   const userDataDir = mkdtempSync(resolve(tmpdir(), "tailchrome-firefox-profile-"));
   const browser = await puppeteer.launch({
     browser: "firefox",
+    acceptInsecureCerts,
     executablePath,
     headless,
     userDataDir,
@@ -146,11 +155,15 @@ async function launchFirefox(extensionDir, { firefoxPrefs = {} } = {}) {
       ...firefoxPrefs,
       "extensions.webextensions.uuids": JSON.stringify({
         [firefoxAddonId]: firefoxExtensionUuid,
+        ...additionalFirefoxExtensionUuids,
       }),
     },
   });
 
   await browser.installExtension(extensionDir);
+  for (const additionalExtensionDir of additionalExtensionDirs) {
+    await browser.installExtension(additionalExtensionDir);
+  }
 
   return {
     browser,

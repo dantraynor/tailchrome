@@ -1,6 +1,10 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer as createHTTPServer, request } from "node:http";
 import { createServer as createHTTPSServer } from "node:https";
 import { createServer, createConnection } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 export const routingTestHost = "routing.tailchrome.test";
 export const proxyCredentials = {
@@ -8,6 +12,24 @@ export const proxyCredentials = {
   username: "fixture",
   password: "fixture-credential-".repeat(3),
 };
+
+export function createRoutingTLS() {
+  const root = mkdtempSync(join(tmpdir(), "tailchrome-routing-tls-"));
+  try {
+    execFileSync("openssl", [
+      "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+      "-subj", `/CN=${routingTestHost}`,
+      "-addext", `subjectAltName=DNS:${routingTestHost}`,
+      "-keyout", join(root, "key.pem"), "-out", join(root, "cert.pem"),
+    ], { stdio: "ignore" });
+    return {
+      key: readFileSync(join(root, "key.pem")),
+      cert: readFileSync(join(root, "cert.pem")),
+    };
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
 
 function listen(server) {
   return new Promise((resolve, reject) => {
