@@ -41,7 +41,8 @@ jobs:
               - 'scripts/install.test.sh'
               - 'scripts/install.ps1'
               - 'scripts/install.test.ps1'
-              - 'scripts/initialize-windows-defender.ps1'
+              - 'scripts/initialize-windows-defender*.ps1'
+              - 'scripts/collect-windows-defender-evidence*.ps1'
               - 'scripts/verify-windows-signatures.ps1'
               - 'scripts/verify-windows-signatures.test.ps1'
               - 'Makefile'
@@ -200,6 +201,29 @@ jobs:
             -File .\scripts\install.test.ps1
           if ($LASTEXITCODE -ne 0) {
             throw "Stock Windows PowerShell 5.1 installer tests exited with $LASTEXITCODE."
+          }
+
+      - name: Test Defender initialization and diagnostic evidence
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          & pwsh -NoProfile -NonInteractive -File .\scripts\collect-windows-defender-evidence.test.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "PowerShell Core Defender diagnostic fixtures failed."
+          }
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+            -NoProfile -NonInteractive -File .\scripts\collect-windows-defender-evidence.test.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "Stock PowerShell Defender diagnostic fixtures failed."
+          }
+          & pwsh -NoProfile -NonInteractive -File .\scripts\initialize-windows-defender.test.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "PowerShell Core Defender initialization fixtures failed."
+          }
+          & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+            -NoProfile -NonInteractive -File .\scripts\initialize-windows-defender.test.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "Stock PowerShell Defender initialization fixtures failed."
           }
 
   windows-arm64-smoke:

@@ -63,6 +63,10 @@ New release candidates require clean Defender evidence for both signed and
 explicitly unsigned Windows artifacts. This does not retroactively clear
 detections of the v0.1.14 binaries.
 
+Maintainers can use the [Windows Defender investigation procedure](windows-defender-validation.md)
+to collect exact-file evidence, request Microsoft review, and prepare the
+controlled release runner while code-signing onboarding is pending.
+
 Rerunning the same installer upgrades the helper and repairs registration. Close
 browsers using Tailchrome before Windows upgrades; an active executable is
 preserved and the installer reports that it is busy. Failed replacements keep
