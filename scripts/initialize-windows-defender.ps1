@@ -120,6 +120,10 @@ function Assert-DetectionSmokeTest {
 
   New-Item -ItemType Directory -Force -Path $TestDirectory | Out-Null
   try {
+    # MpCmdRun requires an existing path for a reliable exclusion check.
+    # Create harmless bytes before checking; write the test signature only
+    # after confirming that this exact file is not excluded.
+    [System.IO.File]::WriteAllText($TestPath, "Defender smoke-test placeholder")
     $ExclusionResult = Invoke-MpCmdRun `
       -FilePath $MpCmdRunPath `
       -Arguments @("-CheckExclusion", "-Path", $TestPath)
@@ -246,8 +250,10 @@ function Get-Readiness {
   if ([bool]$Preference.DisableIOAVProtection) {
     $Problems.Add("The downloaded-file scanning preference is disabled.")
   }
-  if ([bool]$Preference.DisableIntrusionPreventionSystem) {
-    $Problems.Add("The intrusion prevention preference is disabled.")
+  # Current Defender builds can accept the legacy setter without returning
+  # that preference. Verify the actual Network Inspection System state.
+  if (-not [bool]$Status.NISEnabled) {
+    $Problems.Add("Defender network inspection is not enabled.")
   }
   if ([bool]$Preference.DisableScriptScanning) {
     $Problems.Add("The script scanning preference is disabled.")
@@ -300,18 +306,46 @@ function Get-Readiness {
   }
 }
 
-Assert-ElevatedSession
-
-$PassiveModePolicy = "HKLM:\SOFTWARE\Policies\Microsoft\Windows Advanced Threat Protection"
-if (Test-Path -LiteralPath $PassiveModePolicy) {
-  $PassiveModeValue = Get-ItemPropertyValue `
-    -LiteralPath $PassiveModePolicy `
-    -Name "ForceDefenderPassiveMode" `
-    -ErrorAction SilentlyContinue
+function Assert-DefenderActiveModePolicy {
+  param(
+    [string]$PolicyPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows Advanced Threat Protection"
+  )
+  if (-not (Test-Path -LiteralPath $PolicyPath)) { return }
+  # An existing policy key need not contain this optional value. On Windows
+  # PowerShell 5.1, Get-ItemPropertyValue can terminate even with
+  # SilentlyContinue when it is absent. RegistryKey.GetValue supplies a null
+  # default without masking access errors or a nonzero passive-mode policy.
+  $PassiveModeValue = (Get-Item -LiteralPath $PolicyPath -ErrorAction Stop).GetValue(
+    "ForceDefenderPassiveMode", $null
+  )
   if ($null -ne $PassiveModeValue -and [int]$PassiveModeValue -ne 0) {
     throw "ForceDefenderPassiveMode is enabled; returning Defender to active mode requires a runner reboot."
   }
 }
+
+function Update-DefenderSecurityIntelligence {
+  $UpdateFailures = [System.Collections.Generic.List[string]]::new()
+  foreach ($Source in @("MicrosoftUpdateServer", "MMPC")) {
+    try {
+      Write-Host "Updating Defender security intelligence from $Source..."
+      Update-MpSignature -UpdateSource $Source -ErrorAction Stop | Out-Null
+      $Status = Get-MpComputerStatus
+      # Windows Update can return successfully without updating old definitions.
+      # Verify freshness before accepting that source or skipping the fallback.
+      if ($null -eq $Status.AntivirusSignatureLastUpdated -or
+          [int]$Status.AntivirusSignatureAge -gt 1) {
+        throw "Signature timestamp is missing or antivirus signatures remain more than one day old."
+      }
+      return $Source
+    } catch {
+      $UpdateFailures.Add("$Source`: $($_.Exception.Message)")
+    }
+  }
+  throw "Defender security intelligence update failed: $($UpdateFailures -join '; ')"
+}
+
+Assert-ElevatedSession
+Assert-DefenderActiveModePolicy
 
 # Enforce the controlled runner baseline so a clean scan is evidence of active
 # protection rather than a passive or partially disabled Defender instance.
@@ -336,21 +370,7 @@ $RequiredPreferences = @{
 Set-MpPreference @RequiredPreferences
 Remove-ScanExclusions
 
-$Updated = $false
-$UpdateFailures = [System.Collections.Generic.List[string]]::new()
-foreach ($Source in @("MicrosoftUpdateServer", "MMPC")) {
-  try {
-    Write-Host "Updating Defender security intelligence from $Source..."
-    Update-MpSignature -UpdateSource $Source
-    $Updated = $true
-    break
-  } catch {
-    $UpdateFailures.Add("$Source`: $($_.Exception.Message)")
-  }
-}
-if (-not $Updated) {
-  throw "Defender security intelligence update failed: $($UpdateFailures -join '; ')"
-}
+$Source = Update-DefenderSecurityIntelligence
 
 $MpCmdRunPath = Get-MpCmdRunPath
 $MapsResult = Invoke-MpCmdRun `
@@ -387,6 +407,7 @@ $Summary = [ordered]@{
   behaviorMonitorEnabled = [bool]$ReadyStatus.BehaviorMonitorEnabled
   ioavProtectionEnabled = [bool]$ReadyStatus.IoavProtectionEnabled
   onAccessProtectionEnabled = [bool]$ReadyStatus.OnAccessProtectionEnabled
+  networkInspectionEnabled = [bool]$ReadyStatus.NISEnabled
   mapsReporting = [int]$ReadyPreference.MAPSReporting
   submitSamplesConsent = [int]$ReadyPreference.SubmitSamplesConsent
   puaProtection = [int]$ReadyPreference.PUAProtection

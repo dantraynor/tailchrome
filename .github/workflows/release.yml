@@ -827,6 +827,7 @@ jobs:
                   -not $computerStatus.RealTimeProtectionEnabled -or
                   -not $computerStatus.BehaviorMonitorEnabled -or
                   -not $computerStatus.IoavProtectionEnabled -or
+                  -not $computerStatus.NISEnabled -or
                   -not $computerStatus.OnAccessProtectionEnabled -or
                   $serviceState.Status -ne "Running" -or
                   $computerStatus.AMRunningMode -cne "Normal" -or
@@ -840,7 +841,6 @@ jobs:
                   [bool]$defenderPreference.DisableBlockAtFirstSeen -or
                   [bool]$defenderPreference.DisableRealtimeMonitoring -or
                   [bool]$defenderPreference.DisableBehaviorMonitoring -or
-                  [bool]$defenderPreference.DisableIntrusionPreventionSystem -or
                   [bool]$defenderPreference.DisableIOAVProtection -or
                   [bool]$defenderPreference.DisableScriptScanning -or
                   [bool]$defenderPreference.DisableArchiveScanning -or
@@ -1050,6 +1050,7 @@ jobs:
               behaviorMonitorEnabled = $status.BehaviorMonitorEnabled
               ioavProtectionEnabled = $status.IoavProtectionEnabled
               onAccessProtectionEnabled = $status.OnAccessProtectionEnabled
+              networkInspectionEnabled = $status.NISEnabled
               cloudDeliveredProtectionEnabled = ([int]$preference.MAPSReporting -eq 2)
               blockAtFirstSeenEnabled = (-not [bool]$preference.DisableBlockAtFirstSeen)
               automaticSampleSubmissionEnabled = ([int]$preference.SubmitSamplesConsent -eq 1)
