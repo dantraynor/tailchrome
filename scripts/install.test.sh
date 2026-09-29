@@ -28,17 +28,28 @@ new_case() {
   cleanup_case
   case_dir="$(mktemp -d "$tmp_root/tailchrome-bootstrap-test.XXXXXX")"
   mkdir "$case_dir/bin" "$case_dir/home"
-  for command_name in mktemp mkdir rmdir rm chmod sha256sum sed tr cp ln mv; do
+  for command_name in mktemp mkdir rmdir rm chmod sha256sum sed tr cp ln mv dirname basename; do
     ln -s "$(command -v "$command_name")" "$case_dir/bin/$command_name"
   done
   mkdir "$case_dir/bin-no-sha"
-  for command_name in bash env uname mktemp mkdir rmdir rm chmod sed tr cp ln mv; do
+  for command_name in bash env uname mktemp mkdir rmdir rm chmod sed tr cp ln mv dirname basename; do
     ln -s "$(command -v "$command_name")" "$case_dir/bin-no-sha/$command_name"
   done
-  cat >"$case_dir/bin-no-sha/shasum" <<'STUB'
+  local checksum_command
+  if command -v shasum >/dev/null 2>&1; then
+    checksum_command="$(command -v shasum)"
+    cat >"$case_dir/bin-no-sha/shasum" <<STUB
 #!/bin/sh
-exec /usr/bin/sha256sum "$3"
+exec "$checksum_command" "\$@"
 STUB
+  else
+    checksum_command="$(command -v sha256sum)"
+    cat >"$case_dir/bin-no-sha/shasum" <<STUB
+#!/bin/sh
+[ "\$#" -eq 3 ] && [ "\$1" = -a ] && [ "\$2" = 256 ] || exit 2
+exec "$checksum_command" "\$3"
+STUB
+  fi
   chmod 755 "$case_dir/bin-no-sha/shasum"
   cat >"$case_dir/bin/uname" <<'STUB'
 #!/bin/sh
@@ -49,6 +60,8 @@ case "$1" in
 esac
 STUB
   chmod 755 "$case_dir/bin/uname"
+  rm -f "$case_dir/bin-no-sha/uname"
+  ln -s "$case_dir/bin/uname" "$case_dir/bin-no-sha/uname"
   cat >"$case_dir/bin/curl" <<'STUB'
 #!/bin/sh
 set -eu
@@ -111,9 +124,30 @@ $body
 STUB
   chmod 755 "$path"
 }
+use_bsd_chmod() {
+  local real_chmod
+  real_chmod="$(command -v chmod)"
+  rm -f "$case_dir/bin/chmod"
+  cat >"$case_dir/bin/chmod" <<STUB
+#!/bin/sh
+for argument do
+  if [ "\$argument" = -- ]; then
+    printf '%s\n' 'chmod: --: No such file or directory' >&2
+    exit 1
+  fi
+done
+exec "$real_chmod" "\$@"
+STUB
+  chmod 755 "$case_dir/bin/chmod"
+}
 make_manifest() {
-  local digest
-  digest="$(sha256sum "$case_dir/artifact" | cut -d' ' -f1)"
+  local digest checksum_output
+  if command -v sha256sum >/dev/null 2>&1; then
+    checksum_output="$(sha256sum "$case_dir/artifact")"
+  else
+    checksum_output="$(shasum -a 256 "$case_dir/artifact")"
+  fi
+  digest="${checksum_output%% *}"
   printf '%s  tailscale-browser-ext-linux-amd64\n' "$digest" >"$case_dir/manifest"
 }
 run_install() {
@@ -178,6 +212,20 @@ test_latest_same_tag() {
     fi
   else
     fail_test 'resolves latest once and uses the same tag for checksum and binary' "$output"
+  fi
+}
+test_bsd_chmod_arguments() {
+  new_case
+  write_helper "$case_dir/artifact"
+  make_manifest
+  use_bsd_chmod
+  local output final="$case_dir/home/.local/bin/tailchrome"
+  if output="$(run_install --version v1.2.3 2>&1)" &&
+    [ -x "$final" ] &&
+    [ "$(cat "$case_dir/exec.log")" = "install --binary-path $final" ]; then
+    pass_test 'uses chmod arguments compatible with macOS BSD chmod'
+  else
+    fail_test 'uses chmod arguments compatible with macOS BSD chmod' "$output"
   fi
 }
 test_safe_inputs() {
@@ -511,6 +559,7 @@ if [ "$#" != 5 ] || [ "$4" != --user-data-dir ] || [ "$5" != "$TEST_USER_DATA_DI
 test_custom_user_data_dir
 test_failures
 test_provenance_and_shasum
+test_bsd_chmod_arguments
 test_latest_same_tag
 test_safe_inputs
 test_never_executes_bad_artifact
