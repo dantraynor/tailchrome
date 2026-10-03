@@ -10,11 +10,11 @@ overrides:
   postcss: ^8.5.23
   ws: ^8.20.1
   tmp: ^0.2.6
-  fast-uri: ^3.1.6
+  fast-uri: ^3.1.8
   defu: ^6.1.5
-  brace-expansion@1: ^1.1.18
+  brace-expansion@1: ^1.1.21
   brace-expansion@5: ^5.0.9
-  undici: ^7.29.0
+  undici: ^7.29.1
   esbuild: ^0.28.1
   js-yaml: ^4.3.2
   nanoid@3: ^3.3.17
@@ -23,10 +23,15 @@ overrides:
   '@humanfs/node': ^0.16.8
   node-notifier>uuid: ^11.1.1
   addons-linter>image-size: '-'
+  '@devicefarmer/adbkit': 3.3.9
+  '@devicefarmer/adbkit>node-forge': '-'
 
-packageExtensionsChecksum: sha256-5br5ts3NDYMSxVzemWVmwSip4PHNwrW9VBRyqKrtmiM=
+packageExtensionsChecksum: sha256-Oi+Gyk7ALxSbbBkCisBJ+JO5YlfS6qsCgApQDmbJaRo=
 
 patchedDependencies:
+  '@devicefarmer/adbkit@3.3.9':
+    hash: e2865f7e8bf5ea74cbc54d9b7a7c1c368d75d71ed2ab6d05522cf55ada689885
+    path: patches/@devicefarmer__adbkit@3.3.9.patch
   addons-linter@10.10.0:
     hash: 9976d3cf26612117f223a78b59401c8b1b6f6049f26d577ee30a5d34a9dd95da
     path: patches/addons-linter@10.10.0.patch
@@ -126,11 +131,6 @@ packages:
   '@devicefarmer/adbkit-monkey@1.2.1':
     resolution: {integrity: sha512-ZzZY/b66W2Jd6NHbAhLyDWOEIBWC11VizGFk7Wx7M61JZRz7HR9Cq5P+65RKWUU7u6wgsE8Lmh9nE4Mz+U2eTg==}
     engines: {node: '>= 0.10.4'}
-
-  '@devicefarmer/adbkit@3.3.8':
-    resolution: {integrity: sha512-7rBLLzWQnBwutH2WZ0EWUkQdihqrnLYCUMaB44hSol9e0/cdIhuNFcqZO0xNheAU6qqHVA8sMiLofkYTgb+lmw==}
-    engines: {node: '>= 0.10.4'}
-    hasBin: true
 
   '@devicefarmer/adbkit@3.3.9':
     resolution: {integrity: sha512-AYxk5G/b2BPEfubcuxVEZEOpsLf0isqrPNJnnwAlUjZAiLdFg/uvLNRDuBhsC/Ar62X+rUhVlvlL+tKp9HCjfQ==}
@@ -737,8 +737,8 @@ packages:
     resolution: {integrity: sha512-F3PH5k5juxom4xktynS7MoFY+NUWH5LC4CnH11YB8NPew+HLpmBLCybSAEyb2F+4pRXhuhWqFesoQd6DAyc2hw==}
     engines: {node: '>=18'}
 
-  brace-expansion@1.1.18:
-    resolution: {integrity: sha512-Edep/X9fGqVNmzKBVsDYIOtD+z1tuezV70LBjdCst9Tqu76lsnvRiZ6oTic1n+/BIwX6QDGAO94PN4N2SADvtw==}
+  brace-expansion@1.1.21:
+    resolution: {integrity: sha512-9zeA+KLZNNzglF2TPKRQEDyx6Yby7daAkuy8MiPzpXPsYDWi/DRM8jmwUDxokQjYqBpv5DgPiwD4h4ZZSy1Ujw==}
 
   buffer-equal-constant-time@1.0.1:
     resolution: {integrity: sha512-zRpUiDwd/xk6ADqPMATG8vc9VPrkck7T07OIx0gnjmJAnHnTVXNQG3vfvWNuiZIkwu9KrKdA1iJKfsfTVxE6NA==}
@@ -1177,8 +1177,8 @@ packages:
     resolution: {integrity: sha512-dwsoQlS7h9hMeYUq1W++23NDcBLV4KqONnITDV9DjfS3q1SgDGVrBdvvTLUotWtPSD7asWDV9/CmsZPy8Hf70A==}
     engines: {node: '>=6'}
 
-  fast-uri@3.1.7:
-    resolution: {integrity: sha512-dOvZVzjdZdz7phd9v6jCbwxrBW3fK6n8Rc0CtdmM4bumzMnxywBYhuph6J819RRw/ku+rLbelwfMunktuzVVHg==}
+  fast-uri@3.1.8:
+    resolution: {integrity: sha512-GZMtZUTNRpOVIECoXwLNZS5xUGE+mVNbTB8h/7Rwh2TFWcBQiPzTgyZi05BF9UMZKkLJv8XBRJTlU7zg8+ZfMg==}
 
   fdir@6.5.0:
     resolution: {integrity: sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==}
@@ -1666,10 +1666,6 @@ packages:
   node-fetch-native@1.6.7:
     resolution: {integrity: sha512-g9yhqoedzIUm0nTnTqAQvueMPVOuIY16bqgAJJC8XOOubYFNwz6IER9qs0Gq2Xd0+CecCKFjtdDTMA4u4xG06Q==}
 
-  node-forge@1.4.0:
-    resolution: {integrity: sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ==}
-    engines: {node: '>= 6.13.0'}
-
   node-notifier@10.0.1:
     resolution: {integrity: sha512-YX7TSyDukOZ0g+gmzjB6abKu+hTGvO8+8+gIFDsRCU2t8fLV/P2unmt+LGFaIa4y64aX98Qksa97rgz4vMNeLQ==}
 
@@ -1813,8 +1809,8 @@ packages:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
 
-  probe-image-size@7.3.0:
-    resolution: {integrity: sha512-7CaDeBwiAbh6ohXsvLbAZhO7wzsZAmaevfxe39qvCwRh8LyaZfDlBGGLU1CCTgrTLtCOdwBBhjOrIHaIIimHfQ==}
+  probe-image-size@7.4.0:
+    resolution: {integrity: sha512-cdEprVtZxV+awMde9X+4jILBFYh4CARxVrQaMl4wY4YcPWbul9jntXrIW95NInBDyJwcVUP3U0T6yukN8rMBaQ==}
 
   process-nextick-args@2.0.1:
     resolution: {integrity: sha512-3ouUOpQhtgrbOa17J7+uxOTpITYWaGP7/AhoR3+A+/1e9skrzelGi/dXzEYyvbxubEF6Wn2ypscTKiKJFFn1ag==}
@@ -2150,8 +2146,8 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
-  undici@7.29.0:
-    resolution: {integrity: sha512-IDxfleLmmbSskfWSUATiN1nfn2rDuvnMOqb5CWR92iIfojA0Ud+ulOAAEQ57LPr9rWmsreUyf5lwyao+7GNNVw==}
+  undici@7.30.0:
+    resolution: {integrity: sha512-dkrQXeHSaoamnItlYbmzG0wFYrM0ZwDxCIg0A7aKjTyyhh9svRzCNFEzV+Vm05/yehjCzjDZ31KXfGEjYSztDQ==}
     engines: {node: '>=20.18.1'}
 
   unimport@6.0.2:
@@ -2483,26 +2479,13 @@ snapshots:
 
   '@devicefarmer/adbkit-monkey@1.2.1': {}
 
-  '@devicefarmer/adbkit@3.3.8':
+  '@devicefarmer/adbkit@3.3.9(patch_hash=e2865f7e8bf5ea74cbc54d9b7a7c1c368d75d71ed2ab6d05522cf55ada689885)':
     dependencies:
       '@devicefarmer/adbkit-logcat': 2.1.3
       '@devicefarmer/adbkit-monkey': 1.2.1
       bluebird: 3.7.2
       commander: 9.5.0
       debug: 4.3.7
-      node-forge: 1.4.0
-      split: 1.0.1
-    transitivePeerDependencies:
-      - supports-color
-
-  '@devicefarmer/adbkit@3.3.9':
-    dependencies:
-      '@devicefarmer/adbkit-logcat': 2.1.3
-      '@devicefarmer/adbkit-monkey': 1.2.1
-      bluebird: 3.7.2
-      commander: 9.5.0
-      debug: 4.3.7
-      node-forge: 1.4.0
       split: 1.0.1
     transitivePeerDependencies:
       - supports-color
@@ -2900,7 +2883,7 @@ snapshots:
       fast-json-patch: 3.1.1
       json-merge-patch: 1.0.2
       pino: 10.3.1
-      probe-image-size: 7.3.0
+      probe-image-size: 7.4.0
       semver: 7.8.5
       source-map-support: 0.5.21
       upath: 3.0.8
@@ -2937,7 +2920,7 @@ snapshots:
   ajv@8.20.0:
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.7
+      fast-uri: 3.1.8
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
@@ -2997,7 +2980,7 @@ snapshots:
       widest-line: 5.0.0
       wrap-ansi: 9.0.2
 
-  brace-expansion@1.1.18:
+  brace-expansion@1.1.21:
     dependencies:
       balanced-match: 1.0.2
       concat-map: 0.0.1
@@ -3066,7 +3049,7 @@ snapshots:
       parse5: 7.3.0
       parse5-htmlparser2-tree-adapter: 7.1.0
       parse5-parser-stream: 7.1.2
-      undici: 7.29.0
+      undici: 7.30.0
       whatwg-mimetype: 4.0.0
 
   chokidar@5.0.0:
@@ -3441,7 +3424,7 @@ snapshots:
 
   fast-redact@3.5.0: {}
 
-  fast-uri@3.1.7: {}
+  fast-uri@3.1.8: {}
 
   fdir@6.5.0(picomatch@4.0.4):
     optionalDependencies:
@@ -3842,7 +3825,7 @@ snapshots:
 
   minimatch@3.1.5:
     dependencies:
-      brace-expansion: 1.1.18
+      brace-expansion: 1.1.21
 
   minimist@1.2.8: {}
 
@@ -3887,8 +3870,6 @@ snapshots:
       - supports-color
 
   node-fetch-native@1.6.7: {}
-
-  node-forge@1.4.0: {}
 
   node-notifier@10.0.1:
     dependencies:
@@ -4075,7 +4056,7 @@ snapshots:
 
   prelude-ls@1.2.1: {}
 
-  probe-image-size@7.3.0:
+  probe-image-size@7.4.0:
     dependencies:
       lodash.merge: 4.6.2
       needle: 2.9.1
@@ -4420,7 +4401,7 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  undici@7.29.0: {}
+  undici@7.30.0: {}
 
   unimport@6.0.2:
     dependencies:
@@ -4555,7 +4536,7 @@ snapshots:
   web-ext-run@0.2.4:
     dependencies:
       '@babel/runtime': 7.28.2
-      '@devicefarmer/adbkit': 3.3.8
+      '@devicefarmer/adbkit': 3.3.9(patch_hash=e2865f7e8bf5ea74cbc54d9b7a7c1c368d75d71ed2ab6d05522cf55ada689885)
       chrome-launcher: 1.2.0
       debounce: 1.2.1
       es6-error: 4.1.1
@@ -4580,7 +4561,7 @@ snapshots:
   web-ext@10.6.0(jiti@2.6.1):
     dependencies:
       '@babel/runtime': 8.0.0
-      '@devicefarmer/adbkit': 3.3.9
+      '@devicefarmer/adbkit': 3.3.9(patch_hash=e2865f7e8bf5ea74cbc54d9b7a7c1c368d75d71ed2ab6d05522cf55ada689885)
       addons-linter: 10.10.0(patch_hash=9976d3cf26612117f223a78b59401c8b1b6f6049f26d577ee30a5d34a9dd95da)(jiti@2.6.1)
       camelcase: 8.0.0
       chrome-launcher: 1.2.0
