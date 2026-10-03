@@ -28,9 +28,12 @@ new_case() {
   cleanup_case
   case_dir="$(mktemp -d "$tmp_root/tailchrome-bootstrap-test.XXXXXX")"
   mkdir "$case_dir/bin" "$case_dir/home"
-  for command_name in mktemp mkdir rmdir rm chmod sha256sum sed tr cp ln mv dirname basename; do
+  for command_name in mktemp mkdir rmdir rm chmod sed tr cp ln mv dirname basename; do
     ln -s "$(command -v "$command_name")" "$case_dir/bin/$command_name"
   done
+  if command -v sha256sum >/dev/null 2>&1; then
+    ln -s "$(command -v sha256sum)" "$case_dir/bin/sha256sum"
+  fi
   mkdir "$case_dir/bin-no-sha"
   for command_name in bash env uname mktemp mkdir rmdir rm chmod sed tr cp ln mv dirname basename; do
     ln -s "$(command -v "$command_name")" "$case_dir/bin-no-sha/$command_name"
