@@ -287,11 +287,11 @@ else
     "Warning: GitHub CLI attestation verification is unavailable; the checksum and artifact share the GitHub Release trust boundary." >&2
 fi
 
-chmod 755 -- "$artifact_path" || die "could not make the verified artifact executable"
+chmod 755 "$artifact_path" || die "could not make the verified artifact executable"
 stage_path="$(mktemp "$bin_dir/.tailchrome-stage.XXXXXX")" ||
   die "could not create same-directory staging file"
 cp -- "$artifact_path" "$stage_path" || die "could not stage verified helper"
-chmod 755 -- "$stage_path" || die "could not make staged helper executable"
+chmod 755 "$stage_path" || die "could not make staged helper executable"
 
 if [[ -e "$final_path" || -L "$final_path" ]]; then
   [[ -f "$final_path" && ! -L "$final_path" ]] || die "installed path is not a regular file: $final_path"

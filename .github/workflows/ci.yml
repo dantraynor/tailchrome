@@ -359,6 +359,18 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Test Bash installer with stock macOS tools
+        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        timeout-minutes: 5
+        run: |
+          export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+          /usr/bin/sw_vers
+          /bin/bash --version
+          command -v chmod
+          command -v shasum
+          /bin/bash -n scripts/install.sh
+          /bin/bash -n scripts/install.test.sh
+          /bin/bash scripts/install.test.sh
       - uses: actions/setup-go@v6
         with:
           go-version-file: host/go.mod

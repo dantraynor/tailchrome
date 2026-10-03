@@ -1,0 +1,168 @@
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -206,8 +206,8 @@
+ -   **androidKey** The key String or [`Buffer`][node-buffer] to parse. Not a filename.
+ -   **callback(err, output)** Optional. Use this or the returned `Promise`.
+     -   **err** `null` when successful, `Error` otherwise.
+-    -   **key** The key as a [forge.pki](https://github.com/digitalbazaar/forge#rsa) public key. You may need [node-forge](https://github.com/digitalbazaar/forge) for complicated operations. Additionally the following properties are present:
+-        -   **fingerprint** The key fingerprint, like it would display on a device. Note that this is different than the one you'd get from `forge.ssh.getPublicKeyFingerprint(key)`, because the device fingerprint is based on the original format.
++    -   **key** The key as a Node.js `crypto.KeyObject`, with a `verify(digest, signature)` method for the prehashed SHA-1 challenge used by ADB. This local patch replaces forge-specific key internals with Node.js crypto; use `key.export()` for PEM or JWK conversion. Additionally the following properties are present:
++        -   **fingerprint** The key fingerprint, like it would display on a device, based on the complete original Android key structure.
+         -   **comment** The key comment, if any.
+ -   Returns: `Promise`
+ -   Resolves with: `key` (see callback)
+diff --git a/dist/src/ExtendedPublicKey.d.ts b/dist/src/ExtendedPublicKey.d.ts
+--- a/dist/src/ExtendedPublicKey.d.ts
++++ b/dist/src/ExtendedPublicKey.d.ts
+@@ -1,7 +1,7 @@
+-import { pki } from 'node-forge';
+-import PublicKey = pki.rsa.PublicKey;
+-export default interface ExtendedPublicKey extends PublicKey {
++import { KeyObject } from 'node:crypto';
++export default interface ExtendedPublicKey extends KeyObject {
++    verify(digest: string | Buffer, signature: string | Buffer): boolean;
+     fingerprint: string;
+     comment: string;
+ }
+-//# sourceMappingURL=ExtendedPublicKey.d.ts.map
+\ No newline at end of file
++//# sourceMappingURL=ExtendedPublicKey.d.ts.map
+diff --git a/dist/src/adb/auth.js b/dist/src/adb/auth.js
+--- a/dist/src/adb/auth.js
++++ b/dist/src/adb/auth.js
+@@ -18,9 +18,13 @@
+     return (mod && mod.__esModule) ? mod : { "default": mod };
+ };
+ Object.defineProperty(exports, "__esModule", { value: true });
+-const node_forge_1 = __importDefault(require("node-forge"));
++const crypto = require("node:crypto");
+ const bluebird_1 = __importDefault(require("bluebird"));
+-const BigInteger = node_forge_1.default.jsbn.BigInteger;
++// ADB signs its 20-byte challenge as an already computed SHA-1 digest.
++const SHA1_DIGEST_INFO = [
++    Buffer.from('3021300906052b0e03021a05000414', 'hex'),
++    Buffer.from('301f300706052b0e03021a0414', 'hex'),
++];
+ class Auth {
+     static parsePublicKey(buffer) {
+         return new bluebird_1.default(function (resolve, reject) {
+@@ -36,7 +40,7 @@
+         });
+     }
+     static readPublicKeyFromStruct(struct, comment) {
+-        if (!struct.length) {
++        if (struct.length < 12) {
+             throw new Error('Invalid public key');
+         }
+         // Keep track of what we've read already
+@@ -44,7 +48,7 @@
+         // Get len
+         const len = struct.readUInt32LE(offset) * 4;
+         offset += 4;
+-        if (struct.length !== 4 + 4 + len + len + 4) {
++        if (!len || struct.length !== 4 + 4 + len + len + 4) {
+             throw new Error('Invalid public key');
+         }
+         // Skip n0inv, we don't need it
+@@ -61,22 +65,35 @@
+         if (!(e === 3 || e === 65537)) {
+             throw new Error(`Invalid exponent ${e}, only 3 and 65537 are supported`);
+         }
+-        // FIXME: bug in @types/node-forge
+-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+-        // @ts-ignore
+-        const modulus = new BigInteger(n.toString('hex'), 16);
+-        // FIXME: bug in @types/node-forge
+-        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+-        // @ts-ignore
+-        const exponent = new BigInteger(e.toString(), 10);
+-        // Restore the public key
+-        const key = node_forge_1.default.pki.rsa.setPublicKey(modulus, exponent);
++        const key = crypto.createPublicKey({
++            key: { kty: 'RSA', n: n.toString('base64url'), e: e === 3 ? 'Aw' : 'AQAB' },
++            format: 'jwk',
++        });
++        key.verify = (digest, signature) => {
++            const token = Buffer.from(digest, 'binary');
++            const bytes = Buffer.from(signature, 'binary');
++            if (token.length !== 20 || bytes.length !== Math.ceil(key.asymmetricKeyDetails.modulusLength / 8)) {
++                return false;
++            }
++            try {
++                // OpenSSL checks PKCS#1 v1.5 padding. Require the exact SHA-1
++                // DigestInfo as well, including the algorithm identifier and
++                // absence of trailing data; never parse attacker-supplied ASN.1.
++                const actual = crypto.publicDecrypt({ key, padding: crypto.constants.RSA_PKCS1_PADDING }, bytes);
++                // SHA-1 AlgorithmIdentifier parameters may be NULL or omitted.
++                return SHA1_DIGEST_INFO.some((prefix) => {
++                    const expected = Buffer.concat([prefix, token]);
++                    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
++                });
++            }
++            catch {
++                return false;
++            }
++        };
+         // It will be difficult to retrieve the fingerprint later as it's based
+         // on the complete struct data, so let's just extend the key with it.
+-        const md = node_forge_1.default.md.md5.create();
+-        md.update(struct.toString('binary'));
+         const extendedKey = key;
+-        extendedKey.fingerprint = md.digest().toHex().match(/../g).join(':');
++        extendedKey.fingerprint = crypto.createHash('md5').update(struct).digest('hex').match(/../g).join(':');
+         // Expose comment for the same reason
+         extendedKey.comment = comment;
+         return extendedKey;
+@@ -84,4 +101,4 @@
+ }
+ Auth.RE = /^((?:[A-Za-z0-9+\/]{4})*(?:[A-Za-z0-9+\/]{2}==|[A-Za-z0-9+\/]{3}=)?)\0?( .*|)\s*$/;
+ exports.default = Auth;
+-//# sourceMappingURL=auth.js.map
+\ No newline at end of file
++//# sourceMappingURL=auth.js.map
+diff --git a/dist/src/cli.js b/dist/src/cli.js
+--- a/dist/src/cli.js
++++ b/dist/src/cli.js
+@@ -38,7 +38,6 @@
+ Object.defineProperty(exports, "__esModule", { value: true });
+ const fs_1 = __importDefault(require("fs"));
+ const commander_1 = require("commander");
+-const node_forge_1 = __importDefault(require("node-forge"));
+ const pkg = __importStar(require("../package.json"));
+ const adb_1 = __importDefault(require("./adb"));
+ const auth_1 = __importDefault(require("./adb/auth"));
+@@ -54,9 +53,23 @@
+     return auth_1.default.parsePublicKey(fs_1.default.readFileSync(file).toString('utf8')).then((key) => {
+         switch (options.format.toLowerCase()) {
+             case 'pem':
+-                return console.log(node_forge_1.default.pki.publicKeyToPem(key).trim());
+-            case 'openssh':
+-                return console.log(node_forge_1.default.ssh.publicKeyToOpenSSH(key, 'adbkey').trim());
++                return console.log(key.export({ type: 'spki', format: 'pem' }).trim());
++            case 'openssh': {
++                const jwk = key.export({ format: 'jwk' });
++                // SSH mpints are signed, so positive values with their high bit
++                // set need a leading zero byte.
++                const integers = [jwk.e, jwk.n].map((value) => {
++                    const bytes = Buffer.from(value, 'base64url');
++                    return bytes[0] & 0x80 ? Buffer.concat([Buffer.from([0]), bytes]) : bytes;
++                });
++                const fields = [Buffer.from('ssh-rsa'), ...integers];
++                const wire = Buffer.concat(fields.flatMap((bytes) => {
++                    const length = Buffer.alloc(4);
++                    length.writeUInt32BE(bytes.length);
++                    return [length, bytes];
++                }));
++                return console.log(`ssh-rsa ${wire.toString('base64')} adbkey`);
++            }
+             default:
+                 console.error("Unsupported format '" + options.format + "'");
+                 return process.exit(1);
+@@ -93,4 +106,4 @@
+     reader.on('packet', (packet) => console.log(packet.toString()));
+ });
+ program.parse(process.argv);
+-//# sourceMappingURL=cli.js.map
+\ No newline at end of file
++//# sourceMappingURL=cli.js.map
