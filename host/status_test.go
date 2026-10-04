@@ -15,9 +15,11 @@ import (
 	"time"
 
 	"tailscale.com/client/local"
+	"tailscale.com/health"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
+	"tailscale.com/tsconst"
 	"tailscale.com/types/dnstype"
 	"tailscale.com/types/netmap"
 )
@@ -256,6 +258,122 @@ func TestWatchIPNBusPublishesSplitDNSChanges(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("watcher did not restart after a failed DNS fetch")
+	}
+}
+
+func TestWatchIPNBusFiltersBuildNoticesAndPublishesHealthChanges(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	notifications := make(chan ipn.Notify)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/localapi/v0/watch-ipn-bus":
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			for {
+				select {
+				case <-r.Context().Done():
+					return
+				case n := <-notifications:
+					if err := json.NewEncoder(w).Encode(n); err != nil {
+						return
+					}
+					w.(http.Flusher).Flush()
+				}
+			}
+		case "/localapi/v0/status":
+			json.NewEncoder(w).Encode(&ipnstate.Status{BackendState: "Running"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer api.Close()
+	lc := &local.Client{OmitAuth: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, network, api.Listener.Addr().String())
+	}}
+	writer, reader := net.Pipe()
+	defer writer.Close()
+	defer reader.Close()
+	h := newHost(nil, writer)
+	h.lc = lc
+	done := make(chan error, 1)
+	go func() {
+		done <- h.watchIPNBusSession(ctx, lc, 0)
+	}()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("IPN watcher did not stop")
+		}
+	}()
+
+	buildNotice := health.UnhealthyState{
+		WarnableCode: tsconst.HealthWarnableIsUsingUnstableVersion,
+		Severity:     health.SeverityLow,
+		// Deliberately different wording: the stable code identifies the notice.
+		Text: "Experimental build notice with changed wording.",
+	}
+	networkWarning := health.UnhealthyState{
+		WarnableCode:        tsconst.HealthWarnableNetworkStatus,
+		Severity:            health.SeverityMedium,
+		Text:                "The network is down.",
+		ImpactsConnectivity: true,
+	}
+	lowWarning := health.UnhealthyState{
+		WarnableCode: tsconst.HealthWarnableUpdateAvailable,
+		Severity:     health.SeverityLow,
+		Text:         "An update is available.",
+	}
+	unknownWarning := health.UnhealthyState{
+		WarnableCode: "future-warning-code",
+		Severity:     health.SeverityLow,
+		Text:         "An experimental feature could not connect.",
+	}
+	dnsWarning := health.UnhealthyState{
+		WarnableCode: "os-dns-warning",
+		Text:         "getting OS base config is not supported",
+	}
+	withHealth := func(warnings ...health.UnhealthyState) ipn.Notify {
+		state := &health.State{Warnings: make(map[health.WarnableCode]health.UnhealthyState)}
+		for _, warning := range warnings {
+			state.Warnings[warning.WarnableCode] = warning
+		}
+		return ipn.Notify{Health: state}
+	}
+	wantMixed := []string{networkWarning.Text, lowWarning.Text, unknownWarning.Text}
+	for _, tt := range []struct {
+		name   string
+		notify ipn.Notify
+		want   []string
+	}{
+		{"build notice only", withHealth(buildNotice), nil},
+		{"genuine failure", withHealth(networkWarning), []string{networkWarning.Text}},
+		{"build notice clears stale failure", withHealth(buildNotice), nil},
+		{"mixed warnings preserve low and unknown codes", withHealth(buildNotice, networkWarning, lowWarning, unknownWarning, dnsWarning), wantMixed},
+		{"notification without health preserves warnings", ipn.Notify{State: new(ipn.Running)}, wantMixed},
+		{"empty health clears stale warnings", withHealth(), nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			select {
+			case notifications <- tt.notify:
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			reader.SetReadDeadline(time.Now().Add(2 * time.Second))
+			reply := decodeReply(t, reader)
+			if reply.Status == nil {
+				t.Fatalf("reply = %+v, want status update", reply)
+			}
+			got, want := slices.Clone(reply.Status.Health), slices.Clone(tt.want)
+			slices.Sort(got)
+			slices.Sort(want)
+			if !slices.Equal(got, want) {
+				t.Fatalf("health = %q, want %q", got, want)
+			}
+		})
 	}
 }
 

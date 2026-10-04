@@ -13,6 +13,7 @@ import (
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
+	"tailscale.com/tsconst"
 	"tailscale.com/types/netmap"
 	"tailscale.com/util/dnsname"
 )
@@ -133,7 +134,11 @@ func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generat
 		}
 		var health []string
 		if n.Health != nil {
-			for _, w := range n.Health.Warnings {
+			for code, w := range n.Health.Warnings {
+				// A development-build notice does not indicate a connection failure.
+				if code == tsconst.HealthWarnableIsUsingUnstableVersion {
+					continue
+				}
 				// tsnet doesn't manage system DNS; suppress irrelevant warnings
 				if strings.Contains(w.Text, "getting OS base config is not supported") {
 					continue
