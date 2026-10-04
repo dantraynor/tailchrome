@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
 
+// Chrome pauses animation frames in background tabs. These DOM assertions
+// must keep observing updates when a network scenario opens another page.
+const domPollingInterval = 100;
+
 export async function waitForPopup(page) {
   await page.waitForFunction(
     () => {
@@ -9,7 +13,7 @@ export async function waitForPopup(page) {
       if (root.querySelector(".skeleton")) return false;
       return root.children.length > 0;
     },
-    { timeout: 10_000 },
+    { timeout: 10_000, polling: domPollingInterval },
   );
 }
 
@@ -21,7 +25,7 @@ export async function expectText(page, expected) {
   try {
     await page.waitForFunction(
       (text) => document.body.innerText.includes(text),
-      { timeout: 5_000 },
+      { timeout: 5_000, polling: domPollingInterval },
       expected,
     );
   } catch (err) {
@@ -131,7 +135,7 @@ export async function expectTextIn(page, selector, expected) {
     await page.waitForFunction(
       ({ selector, expected }) =>
         (document.querySelector(selector)?.textContent ?? "").includes(expected),
-      { timeout: 5_000 },
+      { timeout: 5_000, polling: domPollingInterval },
       { selector, expected },
     );
   } catch (err) {
