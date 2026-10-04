@@ -7,6 +7,12 @@ separate: an unsigned file can pass a malware scan and still show an unknown
 publisher warning. See [Microsoft's submission portal](https://www.microsoft.com/en-us/wdsi/filesubmission)
 and [SmartScreen guidance](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
 
+The [October 3, 2026 v0.1.14 investigation](windows-defender-v0.1.14-investigation.md)
+records the original x64 helper scans and standard-user lifecycle results on
+Windows 11 and Windows Server 2025, including real Chrome native messaging
+on Server. The reported Defender installer block was not reproduced with
+the recorded definitions; browser integration on Windows 11 remains untested.
+
 ## Free Windows 11 evaluation VM
 
 For a local Windows 11 retest, use Microsoft's official
