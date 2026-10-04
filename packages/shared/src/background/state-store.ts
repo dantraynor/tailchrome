@@ -4,6 +4,11 @@ import { sanitizeDiagnosticMessage } from "../helper-diagnostics";
 
 export type StateListener = (state: TailscaleState) => void;
 
+// Compatible older helpers forward this informational build-channel notice as
+// plain text. Match only the known notice so operational warnings stay visible.
+const UNSTABLE_BUILD_NOTICE =
+  "This is an unstable version of Tailscale meant for testing and development purposes. Please report any issues to Tailscale.";
+
 const DEFAULT_STATE: TailscaleState = {
   stateVersion: 0,
   hostConnected: false,
@@ -77,7 +82,9 @@ export class StateStore {
     );
 
     const peers = status.peers ?? [];
-    const health = [...(status.health ?? [])];
+    const health = (status.health ?? []).filter(
+      (warning) => warning !== UNSTABLE_BUILD_NOTICE,
+    );
     if (status.peersTruncated) {
       health.push(
         `Showing ${peers.length} of ${status.totalPeers ?? peers.length} devices because the tailnet status exceeded the browser message limit.`,

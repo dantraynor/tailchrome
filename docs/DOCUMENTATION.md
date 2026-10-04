@@ -139,11 +139,11 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 - **Shields Up** -- toggle to block all incoming connections
 - **Run as Exit Node** -- advertise this browser node as an exit node
 - **Login / Logout** -- authenticate with Tailscale (validates login URLs against allowed origins)
-- **Health warnings** -- collapsible banner displaying Tailscale health warnings
+- **Health warnings** -- collapsible banner displaying operational Tailscale health warnings. The upstream experimental-build notice is informational and does not count as a warning; other health warnings, including peer-list truncation, remain visible. The extension also filters the existing notice text from older compatible helpers.
 
 ### UX
 
-- **Badge status** -- extension icon reflects online/offline/warning state with text badge for active exit node
+- **Badge status** -- extension icon reflects online/offline/warning state with text badge for active exit node. Experimental-build notices leave connected and exit-node indicators unchanged; helper failures and routing failures still show warnings.
 - **Auto-reconnect** -- exponential backoff reconnection to native host (1s base, 30s max)
 - **Reliable helper activation** -- package downloads start a session-persisted discovery retry schedule; current-user registration repair is promoted only if package discovery still fails
 - **Actionable helper recovery** -- missing registration, permission denial, startup failure, unexpected stop, helper-reported errors, and explicit protocol incompatibility have distinct recovery copy

@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { BadgeManager } from "./badge-manager";
 import { baseState } from "../__test__/fixtures";
 
+const unstableBuildNotice =
+  "This is an unstable version of Tailscale meant for testing and development purposes. Please report any issues to Tailscale.";
+
 describe("BadgeManager", () => {
   let setIconSpy: ReturnType<typeof vi.fn>;
   let setBadgeTextSpy: ReturnType<typeof vi.fn>;
@@ -101,6 +104,75 @@ describe("BadgeManager", () => {
         path: expect.objectContaining({ 16: "icons/icon-16.png" }),
       });
       expect(setBadgeTextSpy).toHaveBeenCalledWith({ text: "" });
+    });
+  });
+
+  describe.each([false, true])("health warnings with exit node %s", (useExitNode) => {
+    const runningState = () => baseState({
+      health: [unstableBuildNotice],
+      routingHealth: { status: "active", message: "" },
+      exitNode: useExitNode
+        ? { id: "exit1", hostname: "exit-node", dnsName: "exit-node.example.ts.net.", location: null, online: true }
+        : null,
+    });
+    const expectedBadge = useExitNode ? "EN" : "";
+
+    it("keeps the normal connected indicator for an experimental build notice", () => {
+      const mgr = new BadgeManager();
+      mgr.update(runningState());
+
+      expect(setIconSpy).toHaveBeenLastCalledWith({
+        path: expect.objectContaining({ 16: "icons/icon-16.png" }),
+      });
+      expect(setBadgeTextSpy).toHaveBeenLastCalledWith({ text: expectedBadge });
+      expect(setBadgeColorSpy).not.toHaveBeenCalledWith({ color: "#E5832A" });
+    });
+
+    it.each(["blocked", "conflicted", "unavailable"] as const)(
+      "shows a %s routing failure and restores the normal indicator after recovery",
+      (status) => {
+        const mgr = new BadgeManager();
+        const state = runningState();
+        mgr.update(state);
+        mgr.update({ ...state, routingHealth: { status, message: "Routing failed" } });
+
+        expect(setIconSpy).toHaveBeenLastCalledWith({
+          path: expect.objectContaining({ 16: "icons/icon-16-warning.png" }),
+        });
+        expect(setBadgeTextSpy).toHaveBeenLastCalledWith({ text: "!" });
+        expect(setBadgeColorSpy).toHaveBeenLastCalledWith({ color: "#E5832A" });
+
+        mgr.update(state);
+        expect(setIconSpy).toHaveBeenLastCalledWith({
+          path: expect.objectContaining({ 16: "icons/icon-16.png" }),
+        });
+        expect(setBadgeTextSpy).toHaveBeenLastCalledWith({ text: expectedBadge });
+      },
+    );
+
+    it("shows a helper failure despite the build notice and clears it after recovery", () => {
+      const mgr = new BadgeManager();
+      const state = runningState();
+      mgr.update(state);
+      mgr.update({
+        ...state,
+        helperFailure: {
+          kind: "helper-stopped",
+          diagnosticCode: "native-host-disconnected",
+          diagnosticMessage: null,
+        },
+      });
+
+      expect(setIconSpy).toHaveBeenLastCalledWith({
+        path: expect.objectContaining({ 16: "icons/icon-16-warning.png" }),
+      });
+      expect(setBadgeTextSpy).toHaveBeenLastCalledWith({ text: "!" });
+
+      mgr.update(state);
+      expect(setIconSpy).toHaveBeenLastCalledWith({
+        path: expect.objectContaining({ 16: "icons/icon-16.png" }),
+      });
+      expect(setBadgeTextSpy).toHaveBeenLastCalledWith({ text: expectedBadge });
     });
   });
 

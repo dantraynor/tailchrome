@@ -2,6 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 import { StateStore } from "./state-store";
 import type { StatusUpdate } from "../types";
 
+const unstableBuildNotice =
+  "This is an unstable version of Tailscale meant for testing and development purposes. Please report any issues to Tailscale.";
+
 describe("StateStore", () => {
   describe("initial state", () => {
     it("starts disconnected and uninitialized", () => {
@@ -98,6 +101,54 @@ describe("StateStore", () => {
   });
 
   describe("applyStatusUpdate", () => {
+    const healthStatus = (health: string[]): StatusUpdate => ({
+      backendState: "Running",
+      running: true,
+      tailnet: "example.ts.net",
+      magicDNSSuffix: "example.ts.net",
+      selfNode: null,
+      needsLogin: false,
+      browseToURL: "",
+      exitNode: null,
+      peers: [],
+      prefs: null,
+      health,
+      error: null,
+    });
+
+    it.each([
+      { health: [unstableBuildNotice], expected: [] },
+      {
+        health: ["Network down", unstableBuildNotice, "Unknown health warning"],
+        expected: ["Network down", "Unknown health warning"],
+      },
+      {
+        health: ["An experimental connection failed", "Unstable network detected"],
+        expected: ["An experimental connection failed", "Unstable network detected"],
+      },
+      { health: [], expected: [] },
+    ])("keeps operational warnings from legacy helper health $health", ({ health, expected }) => {
+      const store = new StateStore();
+      const original = [...health];
+      store.applyStatusUpdate(healthStatus(health));
+
+      expect(store.getState().health).toEqual(expected);
+      expect(health).toEqual(original);
+    });
+
+    it("clears stale warnings when only the build notice remains and when health clears", () => {
+      const store = new StateStore();
+      store.applyStatusUpdate(healthStatus(["Network down", unstableBuildNotice]));
+      expect(store.getState().health).toEqual(["Network down"]);
+
+      store.applyStatusUpdate(healthStatus([unstableBuildNotice]));
+      expect(store.getState().health).toEqual([]);
+
+      store.applyStatusUpdate(healthStatus(["Network down"]));
+      store.applyStatusUpdate(healthStatus([]));
+      expect(store.getState().health).toEqual([]);
+    });
+
     it("surfaces native peer-list truncation as a health warning", () => {
       const store = new StateStore();
       store.applyStatusUpdate({
@@ -113,7 +164,7 @@ describe("StateStore", () => {
         peersTruncated: true,
         totalPeers: 12000,
         prefs: null,
-        health: [],
+        health: [unstableBuildNotice],
         error: null,
       });
 
