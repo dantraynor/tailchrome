@@ -35,7 +35,12 @@ Open the `tailchrome` project, which should list
    needs to be the default.
 
 2. Confirm **GitHub.com** is linked under **Trusted Build Systems** and its
-   organization-level configuration permits this repository. In the
+   organization-level configuration permits this repository. Install the
+   [SignPath GitHub App](https://github.com/apps/signpath/installations/new)
+   for `dantraynor`, choosing **Only select repositories → tailchrome**. If
+   already installed, confirm it is active and has access to this repository.
+   The pipeline connector reports `Failed to retrieve GitHub App token` when
+   it cannot use that installation. In the
    `test-signing` policy, choose **Edit** and enable **Require trusted build
    system**; the project-level link alone does not enforce it. All jobs leading
    up to these requests use GitHub-hosted runners.
