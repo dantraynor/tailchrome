@@ -105,8 +105,10 @@ After the workflow is merged into the default branch:
    workflow waits up to 30 minutes for each request.
 3. When the signed EXEs return, the workflow checks the amd64 signer's
    fingerprint before temporarily trusting its self-signed certificate in the
-   disposable Windows runner's current-user root store. It builds the MSI
-   with the usual signature checks enabled, then submits the second request.
+   disposable Windows runner's local-machine root store. The import runs
+   noninteractively using the hosted runner's administrator access. It builds
+   the MSI with the usual signature checks enabled, then submits the second
+   request.
 4. The outer-MSI request follows the same approval settings. The workflow
    verifies all final signatures and certificate fingerprints, checks the
    embedded EXE, and uploads `signpath-test-verified`. The run summary lists both signing request IDs;
