@@ -45,9 +45,10 @@ Open the `tailchrome` project, which should list
    user submitter access to this test policy. Scope that access to test signing
    for onboarding. Production signing still requires the explicit approvals
    in the code-signing policy.
-4. Find the organization ID in SignPath's organization settings. Download the
-   public test certificate and obtain its SHA-256 fingerprint independently of
-   any returned signed artifact. For a DER-encoded `.cer` on macOS or Linux:
+4. Open **Test certificate 2026** from the signing policy's **Certificate**
+   link. Download the public certificate and obtain its SHA-256 fingerprint
+   independently of any returned signed artifact. For a DER-encoded `.cer` on
+   macOS or Linux:
 
    ```bash
    openssl x509 -inform DER -in test-certificate.cer -noout -fingerprint -sha256
@@ -56,6 +57,9 @@ Open the `tailchrome` project, which should list
    For a PEM-encoded download, omit `-inform DER`. Use the hex fingerprint
    after `=`; colon separators are accepted. This is the certificate's SHA-256
    fingerprint, not its SHA-1 thumbprint and not a hash of the PEM text.
+5. Open **CI builds** from the policy's **Submitters** list and generate a
+   token in its **API Token** section. Store it directly as the GitHub secret
+   below; SignPath only displays a token when it is generated.
 
 Do not enable signing of the MSI's nested EXE in the second configuration.
 That EXE is already signed in the first request. Re-signing it would change its
@@ -135,3 +139,4 @@ The test workflow does not publish releases or satisfy those production gates.
 - [SignPath GitHub trusted-build integration](https://about.signpath.io/documentation/trusted-build-systems/github)
 - [SignPath artifact configuration](https://about.signpath.io/documentation/artifact-configuration/)
 - [Artifact configuration examples](https://about.signpath.io/documentation/artifact-configuration/examples)
+- [SignPath users and API tokens](https://docs.signpath.io/users#api-tokens)
