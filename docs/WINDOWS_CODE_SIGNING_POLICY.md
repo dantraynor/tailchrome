@@ -7,10 +7,11 @@ This policy covers the Windows helper executable and MSI published from
 
 Signed Windows publication is blocked until one signing provider has accepted
 the project, issued one stable publisher identity, and produced a successfully
-timestamped test signature. The repository currently has no selected Windows
-provider or approved Authenticode signer subject. A release must not substitute
-a locally generated certificate or a second provider when signing is
-unavailable.
+timestamped test signature. SignPath Foundation accepted the project on
+October 8, 2026; test-signing setup and production certificate issuance are
+pending. The repository has no approved production Authenticode signer subject.
+A release must not substitute a locally generated certificate or a second
+provider when signing is unavailable.
 
 While provider onboarding is pending, the maintainer may explicitly ship
 unsigned Windows binaries by setting the `WINDOWS_ALLOW_UNSIGNED_RELEASE`
@@ -22,13 +23,12 @@ SmartScreen unknown-publisher warning. The variable must be removed as soon as
 a signing provider and expected signer subject are recorded, at which point the
 fail-closed signed gate below is the only release path again.
 
-The project is applying to SignPath Foundation. SignPath becomes the selected
-production provider only after the Foundation accepts the application and its
-trusted-build flow produces a successful test signature. Azure Artifact Signing
-Individual remains the evaluated alternative if SignPath does not accept the
-project. Azure may be selected only after Individual identity validation and a
-successful OIDC-backed test signature. Exactly one integration and one expected
-signer subject must be recorded here before signed publication is enabled.
+SignPath is the accepted onboarding provider. The isolated
+[test-signing workflow](signpath-setup.md) uses its self-signed test certificate
+only for setup review. It cannot produce publishable release candidates.
+Production signing remains blocked until that trusted-build flow succeeds,
+the Foundation reviews the setup and issues the production certificate, and
+the release integration and exact production signer subject are recorded here.
 
 If SignPath supplies the production signature, the project home and download
 surfaces must include this acknowledgement:

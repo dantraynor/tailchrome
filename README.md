@@ -142,13 +142,14 @@ and packaging. Windows publication is additionally gated by the
 
 ## Code signing policy
 
-Tailchrome is applying to SignPath Foundation for Windows Authenticode signing.
-Until the application is accepted and the release workflow produces a verified
-test signature, Windows release notes continue to identify those artifacts as
-unsigned. The public [Windows code-signing
-policy](docs/WINDOWS_CODE_SIGNING_POLICY.md) defines who may submit and approve
-signing requests, which builds are eligible, how signatures are verified, and
-how a compromised or replaced publisher identity is handled.
+SignPath Foundation has accepted Tailchrome for Windows Authenticode signing.
+[Test-signing setup](docs/signpath-setup.md) is underway; production certificate
+issuance and release integration are still pending. Windows releases remain
+explicitly unsigned until those steps are complete. The public
+[Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md) defines who
+may submit and approve signing requests, which builds are eligible, how
+signatures are verified, and how a compromised or replaced publisher identity
+is handled.
 
 For releases signed through the SignPath Foundation program:
 
