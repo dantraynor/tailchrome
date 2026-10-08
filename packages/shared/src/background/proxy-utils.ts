@@ -1,4 +1,5 @@
 import type { PeerInfo, TailscaleState } from "../types";
+import { parseIPv6CIDR } from "./ipv6-subnets";
 
 // Tailscale CGNAT range: 100.64.0.0/10
 export const CGNAT_NETWORK = 0x64400000;
@@ -56,6 +57,30 @@ export function parseCIDR(
     return { network: networkStr, mask: numToIP(maskNum) };
   }
   return { network: networkNum, mask: maskNum };
+}
+
+// Match the IPv4 exclusions in host/proxy_policy.go's safeProxyRoute.
+const forbiddenIPv4Subnets = [
+  "0.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4", "240.0.0.0/4",
+].map(cidr => parseCIDR(cidr)!);
+
+/** Accept only strict subnet routes the helper can authorize, for either family. */
+export function isSupportedSubnetCIDR(cidr: string): boolean {
+  if (cidr.includes(":")) return parseIPv6CIDR(cidr) !== null;
+  const parsed = parseCIDR(cidr);
+  if (!parsed) return false;
+  const [address, prefixText] = cidr.split("/");
+  const prefixLength = Number(prefixText);
+  if (
+    numToIP(parsed.network) !== address ||
+    !Number.isInteger(prefixLength) || String(prefixLength) !== prefixText ||
+    prefixLength < 1 || prefixLength > 32
+  ) return false;
+  return !forbiddenIPv4Subnets.some(range => {
+    // Compare at the shorter prefix to reject overlap in either direction.
+    const commonMask = parsed.mask & range.mask;
+    return (parsed.network & commonMask) === (range.network & commonMask);
+  });
 }
 
 /**

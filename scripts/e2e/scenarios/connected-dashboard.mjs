@@ -1,4 +1,4 @@
-import { expectText, setInputValue, waitForPopup } from "../assertions.mjs";
+import { clickText, expectText, setInputValue, waitForPopup } from "../assertions.mjs";
 import {
   expectedHostVersion,
   makeControl,
@@ -26,7 +26,19 @@ export async function run({ openPopup }) {
     await expectText(page, "Network lock is enabled");
     await expectText(page, "router");
     await expectText(page, "laptop");
+    await page.waitForFunction(() => document.querySelectorAll(".peer-item").length === 5);
+    await clickText(page, "View all", ".peer-list-toggle");
     await expectText(page, "archive");
+    await clickText(page, "Profile", ".setting-row-profile");
+    await expectText(page, "Profiles");
+    await clickText(page, "Back", "button");
+    await expectText(page, "archive");
+    await clickText(page, "Show fewer", ".peer-list-toggle");
+    await page.waitForFunction(() => document.querySelectorAll(".peer-item").length === 5);
+
+    await setInputValue(page, ".peer-search", "archive");
+    await expectText(page, "archive");
+    await page.waitForFunction(() => document.querySelectorAll(".peer-item").length === 1);
 
     await setInputValue(page, ".peer-search", "laptop");
     await expectText(page, "laptop");

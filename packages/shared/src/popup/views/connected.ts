@@ -5,7 +5,7 @@ import {
   updateCoordinationServerRow,
 } from "../components/coordination-server-row";
 import { renderHeader } from "../components/header";
-import { renderPeerList, updatePeerList, filterPeers } from "../components/peer-list";
+import { renderPeerList, updatePeerList } from "../components/peer-list";
 import { peersForDeviceList } from "../peer-filters";
 import { renderHealthWarnings } from "../components/health-warnings";
 import { createCopyButton, formatKeyExpiryLocal, formatLocationLabel, machineName } from "../utils";
@@ -71,6 +71,44 @@ function openSubView(root: HTMLElement, renderFn: SubViewRenderer): void {
   }
 }
 
+/** A running node alone does not confirm that the browser proxy is working. */
+function updateRoutingStatus(statusBar: HTMLElement, state: TailscaleState): void {
+  const health = state.routingHealth;
+  let kind = "warning";
+  let text = "Checking browser routing\u2026";
+  if (health?.status === "conflicted") {
+    text = "Browser proxy controlled elsewhere";
+  } else if (health?.status === "unavailable") {
+    text = "Browser routing unavailable";
+  } else if (health?.status === "blocked") {
+    kind = "blocked";
+    text = state.selectedExitNodeID && !state.exitNode?.online
+      ? "Exit node unavailable \u00b7 traffic blocked"
+      : "Protected traffic blocked";
+  } else if (!state.hostConnected || !state.initialized || state.helperFailure) {
+    text = "Reconnecting to helper\u2026";
+  } else if (state.routingPolicy?.mode === "blocked") {
+    text = "Restoring browser routing\u2026";
+  } else if (health?.status === "inactive" || state.routingPolicy?.mode === "direct") {
+    kind = "inactive";
+    text = "Browser routing off";
+  } else if (health?.status === "active") {
+    kind = "active";
+    text = "Browser routing active";
+  }
+
+  statusBar.dataset.routing = kind;
+  let status = statusBar.querySelector<HTMLElement>(".status-bar-routing");
+  if (!status) {
+    status = document.createElement("div");
+    status.className = "status-bar-routing";
+    status.setAttribute("role", "status");
+    statusBar.firstElementChild?.insertAdjacentElement("afterend", status);
+  }
+  if (status.textContent !== text) status.textContent = text;
+  status.title = health?.message || text;
+}
+
 /**
  * Renders the connected view: header, status bar, quick settings, peer list, footer.
  */
@@ -98,6 +136,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
   tailnetRow.appendChild(tailnetName);
 
   statusBar.appendChild(tailnetRow);
+  updateRoutingStatus(statusBar, state);
 
   // Self IP + hostname row
   if (state.selfNode) {
@@ -306,9 +345,11 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
       if (latest) {
         updatePeerList(
           peerEl,
-          filterPeers(peersForDeviceList(latest.peers), peerSearchQuery),
+          peersForDeviceList(latest.peers),
           latest.supportsPingPeer,
           advancedSectionOpen,
+          peerSearchQuery,
+          root,
         );
       }
     }
@@ -387,11 +428,8 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   view.appendChild(settings);
 
-  const filteredPeers = filterPeers(
-    peersForDeviceList(state.peers),
-    peerSearchQuery,
-  );
-  if (state.peers.length >= PEER_SEARCH_THRESHOLD) {
+  const devicePeers = peersForDeviceList(state.peers);
+  if (devicePeers.length >= PEER_SEARCH_THRESHOLD || peerSearchQuery) {
     const searchContainer = document.createElement("div");
     searchContainer.className = "peer-search-container";
 
@@ -399,6 +437,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
     searchInput.type = "text";
     searchInput.className = "peer-search";
     searchInput.placeholder = "Search devices\u2026";
+    searchInput.setAttribute("aria-label", "Search devices");
     searchInput.value = peerSearchQuery;
     searchInput.addEventListener("input", () => {
       peerSearchQuery = searchInput.value;
@@ -408,9 +447,11 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
         if (latest) {
           updatePeerList(
             peerEl,
-            filterPeers(peersForDeviceList(latest.peers), peerSearchQuery),
+            peersForDeviceList(latest.peers),
             latest.supportsPingPeer,
             advancedSectionOpen,
+            peerSearchQuery,
+            root,
           );
         }
       }
@@ -421,7 +462,7 @@ export function renderConnected(root: HTMLElement, state: TailscaleState): void 
 
   const peerContainer = document.createElement("div");
   peerContainer.className = "peer-container";
-  renderPeerList(peerContainer, filteredPeers, state.supportsPingPeer, advancedSectionOpen);
+  renderPeerList(peerContainer, devicePeers, state.supportsPingPeer, advancedSectionOpen, peerSearchQuery, root);
   view.appendChild(peerContainer);
 
   const footer = document.createElement("div");
@@ -721,7 +762,7 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
   // If peer count crossed the search threshold, fall back to full render
   // so the search container is correctly added or removed.
   const hasSearchBox = view.querySelector(".peer-search-container") !== null;
-  const shouldHaveSearchBox = state.peers.length >= PEER_SEARCH_THRESHOLD;
+  const shouldHaveSearchBox = peersForDeviceList(state.peers).length >= PEER_SEARCH_THRESHOLD || !!peerSearchQuery;
   if (hasSearchBox !== shouldHaveSearchBox) {
     renderConnected(root, state);
     return;
@@ -783,6 +824,7 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
   }
 
   const statusBarEl = view.querySelector<HTMLElement>(".status-bar");
+  if (statusBarEl) updateRoutingStatus(statusBarEl, state);
   const keyExpiry = state.selfNode?.keyExpiry;
   let keyExpEl = view.querySelector<HTMLElement>(".status-bar-keyexpiry");
   if (keyExpiry) {
@@ -911,9 +953,11 @@ export function updateConnected(root: HTMLElement, state: TailscaleState): void 
   if (peerContainer) {
     updatePeerList(
       peerContainer,
-      filterPeers(peersForDeviceList(state.peers), peerSearchQuery),
+      peersForDeviceList(state.peers),
       state.supportsPingPeer,
       advancedSectionOpen,
+      peerSearchQuery,
+      root,
     );
   }
 }

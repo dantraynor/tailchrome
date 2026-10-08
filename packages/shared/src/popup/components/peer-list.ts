@@ -3,16 +3,20 @@ import { addListKeyboardNav } from "../utils";
 import { createPeerItem, peerActionsKey, peerDisplayKey, updatePeerItemText } from "./peer-item";
 import { iconSearch } from "../icons";
 
+const PREVIEW_LIMIT = 5;
+// The owner can outlive a list container replaced during a view redraw.
+const expandedLists = new WeakSet<HTMLElement>();
+
 /**
  * Filters peers by a search query, matching hostname, DNS name, and IP.
  */
 export function filterPeers(peers: PeerInfo[], query: string): PeerInfo[] {
-  if (!query) return peers;
-  const lower = query.toLowerCase();
+  const lower = query.trim().toLowerCase();
+  if (!lower) return peers;
   return peers.filter((p) =>
     p.hostname.toLowerCase().includes(lower) ||
     (p.dnsName && p.dnsName.toLowerCase().includes(lower)) ||
-    p.tailscaleIPs.some((ip) => ip.includes(lower))
+    p.tailscaleIPs.some((ip) => ip.toLowerCase().includes(lower))
   );
 }
 
@@ -36,7 +40,7 @@ function createSectionHeader(label: string, count: number): HTMLElement {
   return header;
 }
 
-function renderEmptyState(container: HTMLElement): void {
+function renderEmptyState(container: HTMLElement, searching: boolean): void {
   const empty = document.createElement("div");
   empty.className = "empty-state";
 
@@ -46,11 +50,13 @@ function renderEmptyState(container: HTMLElement): void {
 
   const title = document.createElement("div");
   title.className = "empty-state-title";
-  title.textContent = "No devices found";
+  title.textContent = searching ? "No matching devices" : "No devices found";
 
   const text = document.createElement("div");
   text.className = "empty-state-text";
-  text.textContent = "Other devices on your tailnet will appear here once they come online.";
+  text.textContent = searching
+    ? "Try another name or IP address."
+    : "Other devices on your tailnet will appear here once they come online.";
 
   empty.appendChild(icon);
   empty.appendChild(title);
@@ -113,6 +119,8 @@ export function renderPeerList(
   peers: PeerInfo[],
   supportsPingPeer: boolean,
   showPeerSSH: boolean,
+  query = "",
+  expansionOwner: HTMLElement = container,
 ): void {
   if (!container.dataset.kbnav) {
     addListKeyboardNav(container, ".peer-item");
@@ -120,35 +128,7 @@ export function renderPeerList(
   }
   container.textContent = "";
 
-  if (peers.length === 0) {
-    renderEmptyState(container);
-    return;
-  }
-
-  const online = peers.filter((p) => p.online);
-  const offline = peers.filter((p) => !p.online);
-
-  // Online section
-  if (online.length > 0) {
-    container.appendChild(createSectionHeader("Online", online.length));
-    const list = document.createElement("div");
-    list.className = "peer-list";
-    for (const peer of online) {
-      list.appendChild(createPeerItem(peer, supportsPingPeer, showPeerSSH));
-    }
-    container.appendChild(list);
-  }
-
-  // Offline section
-  if (offline.length > 0) {
-    container.appendChild(createSectionHeader("Offline", offline.length));
-    const list = document.createElement("div");
-    list.className = "peer-list";
-    for (const peer of offline) {
-      list.appendChild(createPeerItem(peer, supportsPingPeer, showPeerSSH));
-    }
-    container.appendChild(list);
-  }
+  updatePeerList(container, peers, supportsPingPeer, showPeerSSH, query, expansionOwner);
 }
 
 /**
@@ -160,7 +140,12 @@ export function updatePeerList(
   peers: PeerInfo[],
   supportsPingPeer: boolean,
   showPeerSSH: boolean,
+  query = "",
+  expansionOwner: HTMLElement = container,
 ): void {
+  const focused = container.contains(document.activeElement)
+    ? document.activeElement as HTMLElement
+    : null;
   // Collect existing peer item elements by ID
   const cachedElements = new Map<string, HTMLElement>();
   for (const el of container.querySelectorAll<HTMLElement>(".peer-item-container[data-peer-id]")) {
@@ -169,18 +154,52 @@ export function updatePeerList(
 
   container.textContent = "";
 
-  if (peers.length === 0) {
-    renderEmptyState(container);
+  const searching = query.trim().length > 0;
+  const matches = filterPeers(peers, query);
+  if (matches.length === 0) {
+    renderEmptyState(container, searching);
     return;
   }
 
-  const online = peers.filter((p) => p.online);
-  const offline = peers.filter((p) => !p.online);
+  const ordered = [
+    ...matches.filter((p) => p.online),
+    ...matches.filter((p) => !p.online),
+  ];
+  const expanded = expandedLists.has(expansionOwner);
+  const visible = searching || expanded ? ordered : ordered.slice(0, PREVIEW_LIMIT);
+  const online = visible.filter((p) => p.online);
+  const offline = visible.filter((p) => !p.online);
 
   if (online.length > 0) {
     renderPeerSection(container, "Online", online, cachedElements, supportsPingPeer, showPeerSSH);
   }
   if (offline.length > 0) {
     renderPeerSection(container, "Offline", offline, cachedElements, supportsPingPeer, showPeerSSH);
+  }
+
+  if (!searching && matches.length > PREVIEW_LIMIT) {
+    const more = document.createElement("div");
+    more.className = "peer-list-more";
+    const count = document.createElement("span");
+    count.textContent = `Showing ${visible.length} of ${matches.length} devices`;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "peer-list-toggle";
+    toggle.textContent = expanded ? "Show fewer" : "View all";
+    toggle.setAttribute("aria-expanded", String(expanded));
+    toggle.addEventListener("click", () => {
+      if (expanded) expandedLists.delete(expansionOwner);
+      else expandedLists.add(expansionOwner);
+      updatePeerList(container, peers, supportsPingPeer, showPeerSSH, query, expansionOwner);
+      container.querySelector<HTMLButtonElement>(".peer-list-toggle")?.focus();
+    });
+    more.append(count, toggle);
+    container.appendChild(more);
+  }
+
+  // Reattaching a cached row must not interrupt keyboard interaction.
+  if (focused && container.contains(focused)) focused.focus({ preventScroll: true });
+  else if (focused?.classList.contains("peer-list-toggle")) {
+    container.querySelector<HTMLButtonElement>(".peer-list-toggle")?.focus({ preventScroll: true });
   }
 }

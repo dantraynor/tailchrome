@@ -11,6 +11,7 @@ import {
 } from "@tailchrome/shared/constants";
 import {
   parseCIDR,
+  isSupportedSubnetCIDR,
   ipToNum,
   sanitizeMagicDNSSuffix,
   sanitizeDomain,
@@ -24,6 +25,11 @@ import {
   BLOCKED_PROXY_PORT,
   policyFromState,
 } from "@tailchrome/shared/background/routing-protection";
+import {
+  parseIPv6CIDR,
+  matchesIPv6Subnet,
+  type IPv6Subnet,
+} from "@tailchrome/shared/background/ipv6-subnets";
 
 export interface FirefoxProxyInfo {
   type: "socks" | "direct";
@@ -58,6 +64,8 @@ export class FirefoxProxyManager {
   private magicDNSSuffix = "";
   private exitNodeActive = true;
   private subnetRanges: Array<{ network: number; mask: number }> = [];
+  private blockedSubnetRanges: Array<{ network: number; mask: number }> = [];
+  private ipv6Subnets: IPv6Subnet[] = [];
   private splitMode: DomainSplitMode = "bypass";
   private splitDomains: string[] = [];
   private shortNames = new Set<string>();
@@ -104,8 +112,15 @@ export class FirefoxProxyManager {
     this.shortNames = new Set(sanitizeDNSRoutes(policy.shortNames).filter((name) => !name.includes(".")));
     this.dnsRoutes = sanitizeDNSRoutes(policy.dnsRoutes);
     this.subnetRanges = policy.subnetCIDRs
+      .filter(isSupportedSubnetCIDR)
       .map((cidr) => parseCIDR(cidr))
       .filter((r): r is { network: number; mask: number } => r !== null);
+    // Preserve legacy protection even if credentials disappear after apply().
+    this.blockedSubnetRanges = policy.subnetCIDRs
+      .map((cidr) => parseCIDR(cidr))
+      .filter((r): r is { network: number; mask: number } => r !== null);
+    this.ipv6Subnets = policy.subnetCIDRs.map(parseIPv6CIDR)
+      .filter((subnet): subnet is IPv6Subnet => subnet !== null);
     this.splitMode = policy.domainSplit.mode;
     this.splitDomains = sanitizeSplitDomains(policy.domainSplit);
     try {
@@ -189,12 +204,14 @@ export class FirefoxProxyManager {
     }
 
     if (hostNum !== null) {
-      for (const range of this.subnetRanges) {
+      for (const range of credentials ? this.subnetRanges : this.blockedSubnetRanges) {
         if ((hostNum & range.mask) === (range.network & range.mask)) {
           return proxy;
         }
       }
     }
+
+    if (matchesIPv6Subnet(host, this.ipv6Subnets)) return proxy;
 
     if (this.exitNodeActive) {
       if (this.splitMode === "only") {

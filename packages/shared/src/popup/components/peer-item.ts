@@ -111,9 +111,12 @@ export function updatePeerItemText(container: HTMLElement, peer: PeerInfo): void
     }
   }
 
-  const ipEl = container.querySelector(".peer-ip");
+  const ipEl = container.querySelector<HTMLButtonElement>(".peer-ip");
   if (ipEl) {
     ipEl.textContent = firstIP;
+    ipEl.setAttribute("aria-label", firstIP ? `Copy IP address ${firstIP}` : "Copy IP address");
+    ipEl.disabled = !firstIP;
+    ipEl.hidden = !firstIP;
   }
 
   const det = container.querySelector(".peer-details");
@@ -179,14 +182,14 @@ export function createPeerItem(
   container.dataset.actionsKey = peerActionsKey(peer, supportsPingPeer, showPeerSSH);
   container.dataset.displayKey = peerDisplayKey(peer);
 
-  const row = document.createElement("div");
+  const row = document.createElement("button");
+  row.type = "button";
   row.className = "peer-item";
-  row.setAttribute("role", "button");
-  row.setAttribute("tabindex", "0");
+  row.setAttribute("aria-expanded", "false");
   row.setAttribute("aria-label", `${displayName}, ${peer.online ? "online" : "offline"}`);
 
   // OS icon
-  const icon = document.createElement("div");
+  const icon = document.createElement("span");
   icon.className = "peer-icon";
   const iconEl = document.createElement("span");
   iconEl.className = "icon";
@@ -194,14 +197,14 @@ export function createPeerItem(
   icon.appendChild(iconEl);
 
   // Info column
-  const info = document.createElement("div");
+  const info = document.createElement("span");
   info.className = "peer-info";
 
-  const name = document.createElement("div");
+  const name = document.createElement("span");
   name.className = "peer-name";
   name.textContent = displayName;
 
-  const meta = document.createElement("div");
+  const meta = document.createElement("span");
   meta.className = "peer-meta";
 
   const dot = document.createElement("span");
@@ -222,14 +225,31 @@ export function createPeerItem(
   info.appendChild(name);
   info.appendChild(meta);
 
-  // Address display
-  const ip = document.createElement("div");
+  // Keep copy separate from the details toggle, including for keyboard users.
+  const ip = document.createElement("button");
+  ip.type = "button";
   ip.className = "peer-ip";
   ip.textContent = firstIP;
+  ip.title = "Copy IP address";
+  ip.setAttribute("aria-label", firstIP ? `Copy IP address ${firstIP}` : "Copy IP address");
+  ip.disabled = !firstIP;
+  ip.hidden = !firstIP;
+  ip.addEventListener("click", async () => {
+    const address = currentFirstIP();
+    if (!address) return;
+    try {
+      await copyToClipboard(address);
+      showToast("Copied " + address);
+    } catch {
+      showToast("Could not copy the IP address.", "error");
+    }
+  });
 
   row.appendChild(icon);
   row.appendChild(info);
-  row.appendChild(ip);
+  const peerRow = document.createElement("div");
+  peerRow.className = "peer-row";
+  peerRow.append(row, ip);
 
   // Actions panel (hidden by default)
   const actions = document.createElement("div");
@@ -343,7 +363,7 @@ export function createPeerItem(
     }));
   }
 
-  // Toggle actions on click or Enter/Space
+  // Native buttons also handle Enter and Space.
   const toggleActions = () => {
     const isOpen = container.classList.toggle("peer-item-container--expanded");
     actions.style.display = isOpen ? "flex" : "none";
@@ -351,15 +371,9 @@ export function createPeerItem(
     row.setAttribute("aria-expanded", String(isOpen));
   };
   row.addEventListener("click", toggleActions);
-  row.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      toggleActions();
-    }
-  });
 
   actions.style.display = "none";
-  container.appendChild(row);
+  container.appendChild(peerRow);
   container.appendChild(actions);
   if (editRow) container.appendChild(editRow);
 

@@ -45,7 +45,7 @@ func (h *Host) watchIPNBus(ctx context.Context, lc *local.Client, generation uin
 }
 
 func (h *Host) watchIPNBusSession(ctx context.Context, lc *local.Client, generation uint64) error {
-	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialPrefs|ipn.NotifyInitialNetMap|ipn.NotifyPeerChanges)
+	watcher, err := lc.WatchIPNBus(ctx, ipn.NotifyInitialState|ipn.NotifyInitialPrefs|ipn.NotifyInitialNetMap|ipn.NotifyInitialHealthState|ipn.NotifyPeerChanges)
 	if err != nil {
 		return err
 	}

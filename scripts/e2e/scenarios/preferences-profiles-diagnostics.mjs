@@ -64,7 +64,7 @@ export async function run({ openPopup, nativeHost }) {
       rows.find((row) => row.textContent?.includes("Work"))?.click();
     });
     await expectText(page, "Profiles");
-    await clickText(page, "Personal", ".profile-row");
+    await clickText(page, "Personal", ".profile-select-btn");
     await waitForRequest(nativeHost, "switch-profile", (msg) => msg.profileID === "profile-personal");
     await page.waitForFunction(() => {
       const active = document.querySelector(".profile-row--current");

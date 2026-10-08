@@ -141,6 +141,34 @@ describe("createPeerItem", () => {
     vi.restoreAllMocks();
   });
 
+  it("copies the current IP directly without expanding details", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    const peer = makePeer({ tailscaleIPs: ["100.64.0.10"], online: false });
+    const item = createPeerItem(peer, false, false);
+    const copy = item.querySelector<HTMLButtonElement>(".peer-ip")!;
+    expect(copy.tagName).toBe("BUTTON");
+    expect(copy.closest(".peer-item")).toBeNull();
+
+    updatePeerItemText(item, { ...peer, tailscaleIPs: ["100.64.0.11"] });
+    copy.click();
+    await Promise.resolve();
+
+    expect(copy.getAttribute("aria-label")).toBe("Copy IP address 100.64.0.11");
+    expect(writeText).toHaveBeenCalledWith("100.64.0.11");
+    expect(item.querySelector(".peer-item")?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("has no copy shortcut when a device has no IP address", () => {
+    const item = createPeerItem(makePeer({ tailscaleIPs: [] }), false, false);
+    const copy = item.querySelector<HTMLButtonElement>(".peer-ip")!;
+    expect(copy.hidden).toBe(true);
+    expect(copy.disabled).toBe(true);
+  });
+
   it("shows the machine name from the DNS name", () => {
     const peer = makePeer({
       hostname: "os-host",
