@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { baseState, makePeer } from "@tailchrome/shared/__test__/fixtures";
 import type { TailscaleState } from "@tailchrome/shared/types";
 import { ChromeProxyManager } from "./chrome-proxy-manager";
 import { ChromeProxyAuth } from "./chrome-proxy-auth";
+import { policyFromState, RoutingProtection, ROUTING_STORAGE_KEY } from "@tailchrome/shared/background/routing-protection";
 
 function capturePAC(
   pm: ChromeProxyManager,
@@ -272,6 +275,119 @@ describe("ChromeProxyManager", () => {
       );
       expect(route("http://10.0.1.1", "10.0.1.1")).toBe("DIRECT");
       expect(route("http://172.32.0.1", "172.32.0.1")).toBe("DIRECT");
+    });
+
+    it.each([false, true])("does not divert traffic into rejected IPv4 routes (explicit policy: %s)", explicit => {
+      const subnetCIDRs = ["10.0.0.7/24", "198.51.100.128/25", "0.0.0.0/0", "8.0.0.0/4", "126.0.0.0/7", "169.0.0.0/8", "192.0.0.0/2"];
+      const state = baseState({ peers: [makePeer({ subnets: subnetCIDRs })] });
+      if (explicit) state.routingPolicy = { ...policyFromState(baseState()), subnetCIDRs };
+      const route = evalPAC(pm, state);
+      for (const host of ["8.8.8.8", "126.0.0.1", "169.1.0.1", "198.51.100.1", "203.0.113.1"]) {
+        expect(route(`http://${host}/`, host)).toBe("DIRECT");
+      }
+      for (const host of ["10.0.0.5", "198.51.100.129", "100.64.0.5"]) {
+        expect(route(`http://${host}/`, host)).toBe("PROXY 127.0.0.1:1055");
+      }
+    });
+
+    it("still applies exit routing when an IPv4 subnet route is rejected", () => {
+      const state = baseState({
+        peers: [makePeer({ subnets: ["8.0.0.0/4"] })],
+        exitNode: { id: "exit", hostname: "exit", dnsName: "exit.example.ts.net", online: true, location: null },
+      });
+      expect(evalPAC(pm, state)("https://8.8.8.8/", "8.8.8.8")).toBe("PROXY 127.0.0.1:1055");
+      state.domainSplit = { mode: "bypass", domains: ["8.8.8.8"] };
+      expect(evalPAC(pm, state)("https://8.8.8.8/", "8.8.8.8")).toBe("DIRECT");
+    });
+
+    it("retains legacy IPv4 outage boundaries but excludes them from authenticated routing", async () => {
+      vi.spyOn(chrome.storage.local, "get").mockImplementation(async () => ({ [ROUTING_STORAGE_KEY]: {
+        active: { scope: '["","self1"]', selectedExitNodeID: null, magicDNSSuffix: "example.ts.net",
+          subnetCIDRs: ["10.0.0.0/24", "8.0.0.0/4"], shortNames: [], dnsRoutes: [],
+          domainSplit: { mode: "only", domains: [] } }, profiles: [],
+      } }));
+      const protection = new RoutingProtection();
+      await protection.restore();
+      const disconnected = protection.decorate(baseState({ hostConnected: false, proxyPort: null, proxyEnabled: false, backendState: "NoState" }));
+      const blocked = evalPAC(pm, disconnected);
+      expect(blocked("https://8.8.8.8/", "8.8.8.8")).toBe("PROXY 127.0.0.1:1");
+      expect(blocked("https://example.com/", "example.com")).toBe("DIRECT");
+
+      const active = baseState({ routingPolicy: { ...disconnected.routingPolicy!, mode: "active", proxyPort: 1055 } });
+      expect(evalPAC(pm, active)("https://8.8.8.8/", "8.8.8.8")).toBe("DIRECT");
+      pm.setProxySession(null);
+      expect(evalPAC(pm, active)("https://8.8.8.8/", "8.8.8.8")).toBe("PROXY 127.0.0.1:1");
+    });
+
+    it("executes IPv6 and mixed subnet routes before exit-domain split rules", () => {
+      const route = evalPAC(pm, baseState({
+        peers: [makePeer({ subnets: ["10.0.0.0/24", "fd00:1:2::/64", "fd00:3::/100", "fd00:4::9/128"] })],
+        domainSplit: { mode: "only", domains: [] },
+      }));
+      for (const host of ["fd00:1:2::5", "[FD00:1:2::5]", "fd00:0001:0002:0:0:0:0:0005", "fd00:3::ffff", "fd00:4::9", "10.0.0.5"]) {
+        expect(route(`http://${host}/`, host)).toBe("PROXY 127.0.0.1:1055");
+      }
+      for (const host of ["fd00:1:3::5", "fd00:3:0:0:0:0:1000:0", "fd00:4::8", "10.0.1.5", "example.com"]) {
+        expect(route(`http://${host}/`, host)).toBe("DIRECT");
+      }
+      const withExit = evalPAC(pm, baseState({
+        peers: [makePeer({ subnets: ["fd00:1:2::/64"] })],
+        exitNode: { id: "exit", hostname: "exit", dnsName: "exit.example.ts.net", online: true, location: null },
+        domainSplit: { mode: "only", domains: [] },
+      }));
+      expect(withExit("http://[fd00:1:2::5]/", "fd00:1:2::5")).toBe("PROXY 127.0.0.1:1055");
+      expect(withExit("https://example.com/", "example.com")).toBe("DIRECT");
+    });
+
+    it("rejects invalid IPv6 routes and literals without resolving DNS", () => {
+      const route = evalPAC(pm, baseState({ peers: [makePeer({ subnets: [
+        "fd00:1:2::/64", "::/0", "::1/128", "fe80::/10", "ff00::/8", "::ffff:192.0.2.0/120", "fd00::/129", "fd00::/64junk",
+      ] })] }));
+      for (const host of ["::1", "fe80::1", "ff02::1", "::ffff:192.0.2.1", "fd00:1:2::g", "fd00:1:2::1::2", "[fd00:1:2::5", "fd00:1:2::5%eth0", "fd00:9::1"]) {
+        expect(route(`http://${host}/`, host)).toBe("DIRECT");
+      }
+    });
+
+    it("routes restored IPv6 prefixes to the closed endpoint while public traffic stays direct", async () => {
+      const subnetCIDRs = ["10.0.0.0/24", "fd00:1:2::/64", "fd00:3::/100", "fd00:4::9/128"];
+      vi.spyOn(chrome.storage.local, "get").mockImplementation(async () => ({ [ROUTING_STORAGE_KEY]: {
+        active: { scope: '["","self1"]', selectedExitNodeID: null, magicDNSSuffix: "example.ts.net", subnetCIDRs,
+          shortNames: [], dnsRoutes: [], domainSplit: { mode: "bypass", domains: [] } }, profiles: [],
+      } }));
+      const protection = new RoutingProtection();
+      await protection.restore();
+      const route = evalPAC(pm, protection.decorate(baseState({ hostConnected: false, proxyPort: null, proxyEnabled: false, backendState: "NoState" })));
+      for (const host of ["fd00:1:2::5", "[fd00:3::ffff]", "fd00:4::9", "10.0.0.5"]) {
+        expect(route(`http://${host}/`, host)).toBe("PROXY 127.0.0.1:1");
+      }
+      expect(route("https://example.com/", "example.com")).toBe("DIRECT");
+    });
+
+    it("executes PAC generated by the bundled, production-minified manager", () => {
+      // Resolve the bundler already used by our Vite/Vitest toolchain without
+      // adding a production dependency just for this serialization regression.
+      const require = createRequire(import.meta.url);
+      const viteRequire = createRequire(createRequire(require.resolve("vitest")).resolve("vite"));
+      const { buildSync } = viteRequire("esbuild");
+      const built = buildSync({
+        entryPoints: [fileURLToPath(new URL("./chrome-proxy-manager.ts", import.meta.url))],
+        alias: { "@tailchrome/shared": fileURLToPath(new URL("../../../shared/src", import.meta.url)) },
+        bundle: true, minify: true, write: false, format: "cjs", platform: "browser", target: "chrome120",
+      });
+      const module = { exports: {} as { ChromeProxyManager: typeof ChromeProxyManager } };
+      new Function("module", "exports", built.outputFiles[0].text)(module, module.exports);
+      const bundled = new module.exports.ChromeProxyManager();
+      (bundled as unknown as { auth: { isReadyFor: () => boolean } }).auth.isReadyFor = () => true;
+      bundled.setProxySession({ port: 1055, username: "fixture", password: "fixture-credential-".repeat(3) });
+      const route = evalPAC(bundled, baseState({ peers: [makePeer({ subnets: [
+        "10.0.0.0/24", "fd00:1:2::/64", "fd00:3::/100", "fd00:4::9/128",
+      ] })] }));
+      for (const host of ["fd00:1:2::5", "[FD00:1:2::5]", "fd00:3::ffff", "fd00:4::9", "10.0.0.5"]) {
+        expect(route(`http://${host}/`, host)).toBe("PROXY 127.0.0.1:1055");
+      }
+      for (const host of ["fd00:9::1", "fd00:4::8", "fd00:1:2::5%eth0", "fd00:1:2::g", "example.com"]) {
+        expect(route(`http://${host}/`, host)).toBe("DIRECT");
+      }
     });
   });
 
@@ -679,18 +795,18 @@ describe("ChromeProxyManager", () => {
   });
 });
 
+function isInNet(host: string, network: string, mask: string): boolean {
+  const toNum = (ip: string) =>
+    ip.split(".").reduce((acc, octet) => (acc << 8) | Number(octet), 0) >>> 0;
+  return (toNum(host) & toNum(mask)) === (toNum(network) & toNum(mask));
+}
+
 function evalPAC(
   pm: ChromeProxyManager,
   state: TailscaleState,
 ): (url: string, host: string) => string {
   const pac = capturePAC(pm, state);
   if (!pac) throw new Error("No PAC script generated");
-
-  const isInNet = (host: string, network: string, mask: string): boolean => {
-    const toNum = (ip: string) =>
-      ip.split(".").reduce((acc, octet) => (acc << 8) | Number(octet), 0) >>> 0;
-    return (toNum(host) & toNum(mask)) === (toNum(network) & toNum(mask));
-  };
 
   const dnsDomainIs = (host: string, suffix: string): boolean =>
     host === suffix.slice(1) || host.endsWith(suffix);
@@ -711,7 +827,7 @@ describe("Chrome proxy authentication routing bootstrap", () => {
     let config!: chrome.proxy.ProxyConfig;
     chrome.proxy.settings.get({ incognito: false }, details => { config = details.value; });
     if (config.mode === "system") return "SYSTEM";
-    return new Function("host", "isInNet", "dnsDomainIs", `${config.pacScript!.data}; return FindProxyForURL("http://" + host + "/", host);`)(host, () => false, (host: string, suffix: string) => host.endsWith(suffix));
+    return new Function("host", "isInNet", "dnsDomainIs", `${config.pacScript!.data}; return FindProxyForURL("http://" + host + "/", host);`)(host, isInNet, (host: string, suffix: string) => host.endsWith(suffix));
   }
 
   function setup(state = baseState()) {
@@ -749,6 +865,20 @@ describe("Chrome proxy authentication routing bootstrap", () => {
     manager.apply(baseState());
     expect(currentRoute("100.100.100.100")).toBe("PROXY 127.0.0.1:1");
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks legacy IPv4 ranges while authentication is pending and excludes them after success", async () => {
+    const state = baseState({ routingPolicy: {
+      ...policyFromState(baseState()), subnetCIDRs: ["10.0.0.0/24", "8.0.0.0/4"],
+    } });
+    const { report, responses } = setup(state);
+    expect(currentRoute("8.8.8.8")).toBe("PROXY 127.0.0.1:1");
+    expect(currentRoute("10.0.0.5")).toBe("PROXY 127.0.0.1:1");
+    expect(currentRoute("example.com")).toBe("DIRECT");
+    responses[0]!({ status: 204 });
+    await vi.waitFor(() => expect(report).toHaveBeenLastCalledWith({ status: "active", message: "" }));
+    expect(currentRoute("8.8.8.8")).toBe("DIRECT");
+    expect(currentRoute("10.0.0.5")).toBe("PROXY 127.0.0.1:1055");
   });
 
   it.each(["tailnet", "exit node"])("recovers %s routing after a blocked request fails during authentication", async mode => {

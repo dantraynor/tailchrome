@@ -261,15 +261,31 @@ func TestWatchIPNBusPublishesSplitDNSChanges(t *testing.T) {
 	}
 }
 
-func TestWatchIPNBusFiltersBuildNoticesAndPublishesHealthChanges(t *testing.T) {
+func startHealthWatcher(t *testing.T, initial ipn.Notify, cachedHealth []string) (chan<- ipn.Notify, net.Conn) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	t.Cleanup(cancel)
 	notifications := make(chan ipn.Notify)
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/localapi/v0/watch-ipn-bus":
+			mask, err := strconv.ParseUint(r.URL.Query().Get("mask"), 10, 64)
+			if err != nil {
+				t.Errorf("invalid watcher mask: %v", err)
+				http.Error(w, "invalid mask", http.StatusBadRequest)
+				return
+			}
 			w.WriteHeader(http.StatusOK)
+			if initial.Health != nil {
+				n := initial
+				if ipn.NotifyWatchOpt(mask)&ipn.NotifyInitialHealthState == 0 {
+					n.Health = nil
+				}
+				if err := json.NewEncoder(w).Encode(n); err != nil {
+					return
+				}
+			}
 			w.(http.Flusher).Flush()
 			for {
 				select {
@@ -288,27 +304,58 @@ func TestWatchIPNBusFiltersBuildNoticesAndPublishesHealthChanges(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
-	defer api.Close()
+	t.Cleanup(api.Close)
 	lc := &local.Client{OmitAuth: true, Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, network, api.Listener.Addr().String())
 	}}
 	writer, reader := net.Pipe()
-	defer writer.Close()
-	defer reader.Close()
+	t.Cleanup(func() { writer.Close() })
+	t.Cleanup(func() { reader.Close() })
 	h := newHost(nil, writer)
 	h.lc = lc
+	h.lastHealth = slices.Clone(cachedHealth)
 	done := make(chan error, 1)
 	go func() {
 		done <- h.watchIPNBusSession(ctx, lc, 0)
 	}()
-	defer func() {
+	t.Cleanup(func() {
 		cancel()
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
 			t.Error("IPN watcher did not stop")
 		}
-	}()
+	})
+	return notifications, reader
+}
+
+func TestWatchIPNBusPublishesInitialHealth(t *testing.T) {
+	const warning = "The network is down."
+	for _, tt := range []struct {
+		name   string
+		health *health.State
+		cached []string
+		want   []string
+	}{
+		{"existing warning", &health.State{Warnings: map[health.WarnableCode]health.UnhealthyState{
+			tsconst.HealthWarnableNetworkStatus: {WarnableCode: tsconst.HealthWarnableNetworkStatus, Text: warning},
+		}}, nil, []string{warning}},
+		{"empty snapshot clears stale warning", &health.State{}, []string{warning}, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, reader := startHealthWatcher(t, ipn.Notify{State: new(ipn.Running), Health: tt.health}, tt.cached)
+			// No later health event is sent: the initial snapshot must suffice.
+			reader.SetReadDeadline(time.Now().Add(2 * time.Second))
+			reply := decodeReply(t, reader)
+			if reply.Status == nil || !slices.Equal(reply.Status.Health, tt.want) {
+				t.Fatalf("status = %+v, want health %q", reply.Status, tt.want)
+			}
+		})
+	}
+}
+
+func TestWatchIPNBusFiltersBuildNoticesAndPublishesHealthChanges(t *testing.T) {
+	notifications, reader := startHealthWatcher(t, ipn.Notify{}, nil)
 
 	buildNotice := health.UnhealthyState{
 		WarnableCode: tsconst.HealthWarnableIsUsingUnstableVersion,
@@ -359,8 +406,8 @@ func TestWatchIPNBusFiltersBuildNoticesAndPublishesHealthChanges(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			select {
 			case notifications <- tt.notify:
-			case <-ctx.Done():
-				t.Fatal(ctx.Err())
+			case <-time.After(2 * time.Second):
+				t.Fatal("timed out sending health notification")
 			}
 			reader.SetReadDeadline(time.Now().Add(2 * time.Second))
 			reply := decodeReply(t, reader)

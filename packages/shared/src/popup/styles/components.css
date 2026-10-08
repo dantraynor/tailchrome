@@ -76,6 +76,23 @@
   flex-shrink: 0;
 }
 
+.status-bar-routing {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
+.status-bar[data-routing="warning"] .status-bar-dot {
+  background: var(--ts-orange);
+}
+
+.status-bar[data-routing="blocked"] .status-bar-dot {
+  background: var(--ts-red);
+}
+
+.status-bar[data-routing="inactive"] .status-bar-dot {
+  background: var(--text-tertiary);
+}
+
 /* ==============================
    Toggle Switch
    ============================== */
@@ -256,14 +273,24 @@
   padding: var(--space-md) var(--space-xl);
   cursor: pointer;
   transition: background var(--transition-fast);
-  border-bottom: 1px solid var(--border-light);
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  padding-right: var(--space-sm);
 }
 
-.peer-item:last-child {
-  border-bottom: none;
+.peer-row {
+  display: flex;
+  align-items: center;
+  padding-right: var(--space-xl);
 }
 
-.peer-item:hover {
+.peer-row:hover,
+.peer-item-container--expanded .peer-row {
   background: var(--bg-secondary);
 }
 
@@ -289,6 +316,7 @@
 }
 
 .peer-name {
+  display: block;
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-medium);
   color: var(--text-primary);
@@ -314,6 +342,38 @@
   color: var(--text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
+  max-width: 44%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: var(--space-xs);
+  cursor: pointer;
+}
+
+.peer-ip:hover {
+  color: var(--ts-blue);
+  background: var(--ts-blue-light);
+}
+
+.peer-list-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-xl);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.peer-list-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--ts-blue);
+  font: inherit;
+  padding: var(--space-xs);
+  cursor: pointer;
 }
 
 .peer-exit-label {
@@ -1178,19 +1238,12 @@ button.setting-row {
    ============================== */
 
 .peer-item-container {
+  /* One full-width divider, including expanded actions and the IP shortcut. */
   border-bottom: 1px solid var(--border-light);
 }
 
 .peer-item-container:last-child {
   border-bottom: none;
-}
-
-.peer-item-container .peer-item {
-  border-bottom: none;
-}
-
-.peer-item-container--expanded .peer-item {
-  background: var(--bg-secondary);
 }
 
 .peer-actions {
@@ -1312,6 +1365,37 @@ button.setting-row {
   background: var(--bg-secondary);
 }
 
+.profile-select-btn {
+  flex: 1;
+  min-width: 0;
+  justify-content: flex-start;
+  gap: var(--space-md);
+  padding: 0;
+  text-align: left;
+}
+
+.profile-row--current .profile-select-btn:disabled,
+.profile-row--pending .profile-select-btn:disabled {
+  opacity: 1;
+}
+
+.profile-row--pending .spinner {
+  flex-shrink: 0;
+}
+
+.profile-row--pending .profile-badge {
+  color: var(--ts-orange);
+  background: var(--ts-orange-light);
+}
+
+.profile-status {
+  margin: var(--space-md) var(--space-xl);
+}
+
+.profile-status:empty {
+  display: none;
+}
+
 .profile-info {
   flex: 1;
   min-width: 0;
@@ -1356,13 +1440,14 @@ button.setting-row {
   line-height: 1;
 }
 
-.profile-delete-btn:hover {
+.profile-delete-btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--ts-red, #e25c5c) 10%, transparent);
   color: var(--ts-red, #e25c5c);
 }
 
-.profile-row--clickable {
-  cursor: pointer;
+.profile-delete-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .profile-add-row {

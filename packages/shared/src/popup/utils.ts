@@ -151,6 +151,9 @@ export function addListKeyboardNav(container: HTMLElement, itemSelector: string)
     if (items.length === 0) return;
     const current = document.activeElement as HTMLElement | null;
     const idx = current ? items.indexOf(current) : -1;
+    // Copy buttons and editable controls inside a list keep their native
+    // arrow-key behavior; only the row controls participate in navigation.
+    if (idx === -1 && current && container.contains(current)) return;
     let next: number;
     if (e.key === "ArrowDown") {
       next = idx < items.length - 1 ? idx + 1 : 0;

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { baseState, makePeer } from "@tailchrome/shared/__test__/fixtures";
 import { resetSessionStorage } from "../__test__/browser-mock";
 import { FirefoxProxyManager } from "./firefox-proxy-manager";
+import { policyFromState, RoutingProtection, ROUTING_STORAGE_KEY } from "@tailchrome/shared/background/routing-protection";
 
 function first(pm: FirefoxProxyManager, url: string) {
   const result = pm.listener({ url });
@@ -19,6 +20,7 @@ describe("FirefoxProxyManager", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   describe("apply / clear", () => {
@@ -162,6 +164,103 @@ describe("FirefoxProxyManager", () => {
 
       expect(resolve("http://10.0.0.50").type).toBe("socks");
       expect(resolve("http://172.32.0.1").type).toBe("direct");
+    });
+
+    it.each([false, true])("does not divert traffic into rejected IPv4 routes (explicit policy: %s)", explicit => {
+      const subnetCIDRs = ["10.0.0.7/24", "198.51.100.128/25", "0.0.0.0/0", "8.0.0.0/4", "126.0.0.0/7", "169.0.0.0/8", "192.0.0.0/2"];
+      const state = baseState({ peers: [makePeer({ subnets: subnetCIDRs })] });
+      if (explicit) state.routingPolicy = { ...policyFromState(baseState()), subnetCIDRs };
+      pm.apply(state);
+      for (const host of ["8.8.8.8", "126.0.0.1", "169.1.0.1", "198.51.100.1", "203.0.113.1"]) {
+        expect(first(pm, `http://${host}/`)).toEqual({ type: "direct" });
+      }
+      for (const host of ["10.0.0.5", "198.51.100.129", "100.64.0.5"]) {
+        expect(first(pm, `http://${host}/`)).toMatchObject({ type: "socks", port: 1055 });
+      }
+    });
+
+    it("still applies exit routing when an IPv4 subnet route is rejected", () => {
+      const state = baseState({
+        peers: [makePeer({ subnets: ["8.0.0.0/4"] })],
+        exitNode: { id: "exit", hostname: "exit", dnsName: "exit.example.ts.net", online: true, location: null },
+      });
+      pm.apply(state);
+      expect(first(pm, "https://8.8.8.8/")).toMatchObject({ type: "socks", port: 1055 });
+      state.domainSplit = { mode: "bypass", domains: ["8.8.8.8"] };
+      pm.apply(state);
+      expect(first(pm, "https://8.8.8.8/")).toEqual({ type: "direct" });
+    });
+
+    it("retains legacy IPv4 protection during outages and credential withdrawal", async () => {
+      vi.spyOn(chrome.storage.local, "get").mockImplementation(async () => ({ [ROUTING_STORAGE_KEY]: {
+        active: { scope: '["","self1"]', selectedExitNodeID: null, magicDNSSuffix: "example.ts.net",
+          subnetCIDRs: ["10.0.0.0/24", "8.0.0.0/4"], shortNames: [], dnsRoutes: [],
+          domainSplit: { mode: "only", domains: [] } }, profiles: [],
+      } }));
+      const protection = new RoutingProtection();
+      await protection.restore();
+      const disconnected = protection.decorate(baseState({ hostConnected: false, proxyPort: null, proxyEnabled: false, backendState: "NoState" }));
+      pm.apply(disconnected);
+      expect(pm.listener({ url: "https://8.8.8.8/" })).toEqual([
+        { type: "socks", host: "127.0.0.1", port: 1, proxyDNS: true }, null,
+      ]);
+      expect(first(pm, "https://example.com/")).toEqual({ type: "direct" });
+
+      pm.apply(baseState({ routingPolicy: { ...disconnected.routingPolicy!, mode: "active", proxyPort: 1055 } }));
+      expect(first(pm, "https://8.8.8.8/")).toEqual({ type: "direct" });
+      pm.setProxySession(null);
+      expect(pm.listener({ url: "https://8.8.8.8/" })).toEqual([
+        { type: "socks", host: "127.0.0.1", port: 1, proxyDNS: true }, null,
+      ]);
+    });
+
+    it("routes mixed IPv4/IPv6 subnets and exact /100-/128 prefixes", () => {
+      pm.apply(baseState({ peers: [makePeer({ subnets: [
+        "10.0.0.0/24", "fd00:1:2::/64", "fd00:3::/100", "fd00:4::9/128",
+      ] })] }));
+      for (const url of ["http://[FD00:1:2::5]/", "http://[fd00:0001:0002:0:0:0:0:0005]/", "http://[fd00:3::ffff]/", "http://[fd00:4::9]/", "http://10.0.0.5/"]) {
+        expect(first(pm, url)).toMatchObject({ type: "socks", port: 1055, proxyDNS: true });
+      }
+      for (const url of ["http://[fd00:1:3::5]/", "http://[fd00:3:0:0:0:0:1000:0]/", "http://[fd00:4::8]/", "http://10.0.1.5/", "https://example.com/"]) {
+        expect(first(pm, url)).toEqual({ type: "direct" });
+      }
+    });
+
+    it("keeps approved IPv6 routes ahead of exit-node only rules", () => {
+      pm.apply(baseState({
+        peers: [makePeer({ subnets: ["fd00:1:2::/64"] })],
+        exitNode: { id: "exit", hostname: "exit", dnsName: "exit.example.ts.net", online: true, location: null },
+        domainSplit: { mode: "only", domains: [] },
+      }));
+      expect(first(pm, "http://[fd00:1:2::5]/")).toMatchObject({ type: "socks", port: 1055 });
+      expect(first(pm, "https://example.com/")).toEqual({ type: "direct" });
+    });
+
+    it("rejects invalid routes and literal URLs", () => {
+      pm.apply(baseState({ peers: [makePeer({ subnets: [
+        "fd00:1:2::/64", "::/0", "::1/128", "fe80::/10", "ff00::/8", "::ffff:192.0.2.0/120", "fd00::/129", "fd00::/64junk",
+      ] })] }));
+      for (const url of ["http://[::1]/", "http://[fe80::1]/", "http://[ff02::1]/", "http://[::ffff:192.0.2.1]/", "http://[fd00:1:2::g]/", "http://[fd00:1:2::1::2]/", "http://[fd00:1:2::5/", "http://[fd00:1:2::5%eth0]/", "http://[fd00:9::1]/"]) {
+        expect(first(pm, url)).toEqual({ type: "direct" });
+      }
+    });
+
+    it("fails closed for restored IPv6 routes without a helper or credential", async () => {
+      const subnetCIDRs = ["10.0.0.0/24", "fd00:1:2::/64", "fd00:3::/100", "fd00:4::9/128"];
+      vi.spyOn(chrome.storage.local, "get").mockImplementation(async () => ({ [ROUTING_STORAGE_KEY]: {
+        active: { scope: '["","self1"]', selectedExitNodeID: null, magicDNSSuffix: "example.ts.net", subnetCIDRs,
+          shortNames: [], dnsRoutes: [], domainSplit: { mode: "bypass", domains: [] } }, profiles: [],
+      } }));
+      const protection = new RoutingProtection();
+      await protection.restore();
+      pm.setProxySession(null);
+      pm.apply(protection.decorate(baseState({ hostConnected: false, proxyPort: null, proxyEnabled: false, backendState: "NoState" })));
+      for (const url of ["http://[fd00:1:2::5]/", "http://[fd00:3::ffff]/", "http://[fd00:4::9]/", "http://10.0.0.5/"]) {
+        expect(pm.listener({ url })).toEqual([
+          { type: "socks", host: "127.0.0.1", port: 1, proxyDNS: true }, null,
+        ]);
+      }
+      expect(first(pm, "https://example.com/")).toEqual({ type: "direct" });
     });
   });
 

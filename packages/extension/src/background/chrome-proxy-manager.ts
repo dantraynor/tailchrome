@@ -11,6 +11,7 @@ import {
 } from "@tailchrome/shared/constants";
 import {
   parseCIDR,
+  isSupportedSubnetCIDR,
   sanitizeMagicDNSSuffix,
   sanitizeDomain,
   sanitizeDNSRoutes,
@@ -20,6 +21,11 @@ import {
   policyFromState,
   BLOCKED_PROXY_PORT,
 } from "@tailchrome/shared/background/routing-protection";
+import {
+  parseIPv6CIDR,
+  ipv6SubnetPACSource,
+  type IPv6Subnet,
+} from "@tailchrome/shared/background/ipv6-subnets";
 
 export class ChromeProxyManager {
   private readonly auth = new ChromeProxyAuth();
@@ -126,7 +132,10 @@ export class ChromeProxyManager {
           proxyPort,
           policy.magicDNSSuffix,
           policy.blockAll || policy.selectedExitNodeID !== null,
-          policy.subnetCIDRs,
+          // Legacy ranges remain blocked during outages and authentication.
+          proxyPort === BLOCKED_PROXY_PORT
+            ? policy.subnetCIDRs
+            : policy.subnetCIDRs.filter(isSupportedSubnetCIDR),
           policy.domainSplit.mode,
           sanitizeSplitDomains(policy.domainSplit),
           policy.shortNames,
@@ -275,6 +284,8 @@ export class ChromeProxyManager {
     probePort?: number,
   ): string {
     const proxy = `PROXY 127.0.0.1:${port}`;
+    const ipv6Subnets = subnets.map(parseIPv6CIDR)
+      .filter((subnet): subnet is IPv6Subnet => subnet !== null);
 
     const subnetChecks = subnets
       .map((cidr) => {
@@ -310,9 +321,10 @@ export class ChromeProxyManager {
       catchAll = "  return proxy;";
     }
 
-    return `function FindProxyForURL(url, host) {
+    return `${ipv6Subnets.length ? ipv6SubnetPACSource(ipv6Subnets) + "\n" : ""}function FindProxyForURL(url, host) {
 ${probePort ? `  if (host === "${PROXY_AUTH_PROBE_HOST}") return "PROXY 127.0.0.1:${probePort}";` : ""}
   host = host.toLowerCase().replace(/\\.$/, "");
+  if (host.charAt(0) === "[" && host.charAt(host.length - 1) === "]") host = host.slice(1, -1);
   var proxy = "${proxy}";
   var isIPv4 = /^\\d{1,3}(?:\\.\\d{1,3}){3}$/.test(host);
 
@@ -323,6 +335,7 @@ ${dnsChecks ? `  if (${dnsChecks}) return proxy;` : "  // No additional DNS rout
   if (isIPv4 && isInNet(host, "100.64.0.0", "255.192.0.0")) return proxy;
 
 ${subnetChecks || "  // No subnet routes"}
+${ipv6Subnets.length ? "  if (tailchromeIPv6.matches(host, tailchromeIPv6Subnets)) return proxy;" : ""}
 
 ${catchAll}
 }`;

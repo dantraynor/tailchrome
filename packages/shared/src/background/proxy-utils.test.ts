@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ipToNum,
   parseCIDR,
+  isSupportedSubnetCIDR,
   sanitizeMagicDNSSuffix,
   sanitizeSplitDNSDomains,
   collectSubnetCIDRs,
@@ -125,6 +126,45 @@ describe("parseCIDR (string format)", () => {
 });
 
 // === sanitizeMagicDNSSuffix ===
+
+describe("supported subnet CIDRs", () => {
+  it("admits safe IPv4 and IPv6 routes with three-digit prefixes", () => {
+    for (const cidr of ["10.0.0.0/24", "fd00:1:2::/64", "fd00::/100", "fd00::9/128"]) {
+      expect(isSupportedSubnetCIDR(cidr)).toBe(true);
+    }
+    // IPv4 consumers still receive the original numeric/string representation.
+    expect(parseCIDR("fd00::/64")).toBeNull();
+  });
+  it.each([
+    "0.0.0.0/0", "0.0.0.0/8", "0.128.0.1/32", "1.2.3.4/1",
+    "8.0.0.0/4", "126.0.0.0/7", "127.0.0.0/8", "127.0.0.1/32",
+    "169.0.0.0/8", "169.254.0.0/16", "169.254.10.4/24",
+    "192.0.0.0/2", "224.0.0.0/4", "239.1.2.3/32",
+    "240.0.0.0/4", "255.255.255.255/32",
+  ])("rejects the entire IPv4 route when it overlaps a helper exclusion: %s", cidr => {
+    expect(isSupportedSubnetCIDR(cidr)).toBe(false);
+  });
+  it.each([
+    "1.0.0.0/8", "126.0.0.0/8", "128.0.0.0/8",
+    "169.253.0.0/16", "169.255.0.0/16", "223.0.0.0/8",
+    "10.0.0.7/24", "172.16.0.0/12", "192.168.9.5/16",
+    "198.51.100.128/25", "203.0.113.9/32", "100.64.0.0/10",
+  ])("accepts safe IPv4 boundaries and host bits: %s", cidr => {
+    expect(isSupportedSubnetCIDR(cidr)).toBe(true);
+  });
+  it.each([
+    "10.0.0.0/24junk", "10.0.0.0/024", "10.0.0.0/0x10",
+    "10.0.0.0/ 16", "10.0.0.0/+16", "10.0.0.0/16.0", "10.0.0.0/16\n",
+    "010.0.0.0/8", "10.00.0.0/16", "256.0.0.0/24", "10.0.0.0/33",
+  ])("rejects malformed IPv4 routes: %s", cidr => {
+    expect(isSupportedSubnetCIDR(cidr)).toBe(false);
+  });
+  it("rejects unsupported IPv6 routes rather than widening them", () => {
+    for (const cidr of ["fd00::/64junk", "fd00::/129", "::/0", "::1/128", "fe80::/10", "ff00::/8", "::ffff:192.0.2.0/120"]) {
+      expect(isSupportedSubnetCIDR(cidr)).toBe(false);
+    }
+  });
+});
 
 describe("sanitizeMagicDNSSuffix", () => {
   it("returns suffix unchanged when safe", () => {

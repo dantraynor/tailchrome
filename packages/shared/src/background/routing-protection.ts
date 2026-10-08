@@ -3,6 +3,7 @@ import { normalizeDomainSplit } from "./domain-split";
 import {
   collectSubnetCIDRs,
   collectShortNames,
+  isSupportedSubnetCIDR,
   parseCIDR,
   sanitizeDNSName,
   sanitizeDNSRoutes,
@@ -48,7 +49,11 @@ function snapshot(value: unknown): Snapshot | null {
     return null;
   const subnetCIDRs = strings(
     raw.subnetCIDRs,
-    (s) => /\/\d{1,2}$/.test(s) && parseCIDR(s) !== null,
+    // Older versions protected IPv4 routes the helper rejects. Retain those
+    // outage boundaries; browser managers exclude them from active routing.
+    (s) => s.includes(":")
+      ? isSupportedSubnetCIDR(s)
+      : /\/\d{1,2}$/.test(s) && parseCIDR(s) !== null,
   );
   const shortNames = strings(raw.shortNames, (s) =>
     !s.includes(".") && sanitizeDNSName(s) === s,
@@ -131,7 +136,7 @@ export function policyFromState(state: TailscaleState): RoutingPolicy {
     selectedExitNodeID,
     magicDNSSuffix: sanitizeMagicDNSSuffix(state.magicDNSSuffix),
     subnetCIDRs: collectSubnetCIDRs(state.peers ?? []).filter(
-      (s) => parseCIDR(s) !== null,
+      isSupportedSubnetCIDR,
     ),
     shortNames: collectShortNames(state),
     dnsRoutes: sanitizeDNSRoutes(

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { baseState } from "../../__test__/fixtures";
+import { baseState, makePeer } from "../../__test__/fixtures";
+import type { RoutingHealth } from "../../types";
 import { sendMessage } from "../popup";
 import { renderConnected, updateConnected } from "./connected";
 
@@ -14,6 +15,107 @@ vi.mock("../popup", () => ({
 describe("connected view", () => {
   beforeEach(() => {
     vi.mocked(sendMessage).mockClear();
+  });
+
+  it.each<RoutingHealth["status"]>(["active", "blocked", "conflicted", "unavailable", "inactive"])(
+    "reflects browser routing health (%s) in the connection indicator",
+    (status) => {
+      const root = document.createElement("div");
+      renderConnected(root, baseState({ routingHealth: { status: "active", message: "" } }));
+      updateConnected(root, baseState({ routingHealth: { status, message: "Routing detail" } }));
+
+      const expected = {
+        active: ["active", "Browser routing active"],
+        blocked: ["blocked", "Protected traffic blocked"],
+        conflicted: ["warning", "Browser proxy controlled elsewhere"],
+        unavailable: ["warning", "Browser routing unavailable"],
+        inactive: ["inactive", "Browser routing off"],
+      }[status];
+      expect(root.querySelector<HTMLElement>(".status-bar")?.dataset.routing).toBe(expected[0]);
+      expect(root.querySelector(".status-bar-routing")?.textContent).toBe(expected[1]);
+      expect(root.querySelector(".status-bar-routing")?.getAttribute("title")).toBe("Routing detail");
+    },
+  );
+
+  it("does not show working routing until browser confirmation arrives", () => {
+    const root = document.createElement("div");
+    renderConnected(root, baseState());
+    expect(root.querySelector<HTMLElement>(".status-bar")?.dataset.routing).toBe("warning");
+    expect(root.textContent).toContain("Checking browser routing");
+  });
+
+  it("explains when an unavailable exit node is blocking traffic", () => {
+    const root = document.createElement("div");
+    renderConnected(root, baseState({
+      selectedExitNodeID: "missing-exit",
+      routingHealth: { status: "blocked", message: "" },
+    }));
+    expect(root.querySelector(".status-bar-routing")?.textContent)
+      .toBe("Exit node unavailable · traffic blocked");
+  });
+
+  it("counts only actual devices when deciding whether to show search", () => {
+    const root = document.createElement("div");
+    const peers = Array.from({ length: 8 }, (_, i) => makePeer({
+      id: `mullvad-${i}`, tags: ["tag:mullvad-exit-node"],
+    }));
+    renderConnected(root, baseState({ peers }));
+    expect(root.querySelector(".peer-search")).toBeNull();
+    expect(root.querySelector(".peer-list-toggle")).toBeNull();
+  });
+
+  const devicePeers = Array.from({ length: 8 }, (_, i) => makePeer({
+    id: `device-${i}`,
+    dnsName: `device-${i}.example.ts.net.`,
+  }));
+
+  it("keeps View all selected when profile data triggers a full redraw", () => {
+    const root = document.createElement("div");
+    const state = baseState({ peers: devicePeers });
+    renderConnected(root, state);
+    root.querySelector<HTMLButtonElement>(".peer-list-toggle")!.click();
+    const originalContainer = root.querySelector(".peer-container");
+
+    updateConnected(root, {
+      ...state,
+      currentProfile: { id: "work", name: "Work" },
+      profiles: [{ id: "work", name: "Work" }],
+    });
+
+    expect(root.querySelector(".peer-container")).not.toBe(originalContainer);
+    expect(root.querySelectorAll(".peer-item")).toHaveLength(8);
+    expect(root.querySelector(".peer-list-toggle")?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("retains the expansion preference across search-threshold redraws", () => {
+    const root = document.createElement("div");
+    const state = baseState({ peers: devicePeers });
+    renderConnected(root, state);
+    root.querySelector<HTMLButtonElement>(".peer-list-toggle")!.click();
+
+    updateConnected(root, { ...state, peers: devicePeers.slice(0, 5) });
+    expect(root.querySelector(".peer-search")).toBeNull();
+    updateConnected(root, state);
+    expect(root.querySelectorAll(".peer-item")).toHaveLength(8);
+
+    root.querySelector<HTMLButtonElement>(".peer-list-toggle")!.click();
+    renderConnected(root, state);
+    expect(root.querySelectorAll(".peer-item")).toHaveLength(5);
+  });
+
+  it("keeps View all when returning to the dashboard without sharing it between roots", () => {
+    const root = document.createElement("div");
+    const state = baseState({ peers: devicePeers });
+    renderConnected(root, state);
+    root.querySelector<HTMLButtonElement>(".peer-list-toggle")!.click();
+    root.textContent = "Another view";
+
+    const otherRoot = document.createElement("div");
+    renderConnected(otherRoot, state);
+    expect(otherRoot.querySelectorAll(".peer-item")).toHaveLength(5);
+
+    renderConnected(root, state);
+    expect(root.querySelectorAll(".peer-item")).toHaveLength(8);
   });
 
   it("renders Exit Node and Profile navigation as native buttons", () => {

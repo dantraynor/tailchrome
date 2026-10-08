@@ -20,8 +20,10 @@ Tailchrome runs a full Tailscale node per browser profile, without touching syst
 - **Split-tunneling** — pick domains that bypass your exit node (handy for sites that flag VPN traffic), or restrict the exit node to only the domains you list
 - **MagicDNS** — access devices by name, not IP
 - **Split DNS** — resolve internal domains using restricted nameservers configured in Tailscale or Headscale ([setup and testing](docs/split-dns.md))
-- **Subnet routing** — reach resources behind subnet routers
+- **Subnet routing** — reach IPv4 and IPv6 resources behind subnet routers
 - **Profiles** — create and switch between multiple Tailscale identities
+- **Device shortcuts** — a compact device list with one-click IP copying, full-list search, and a “View all” option
+- **Routing status** — see whether browser routing is active, blocked, or unavailable separately from the node's connection
 - **Custom coordination servers** — connect a browser profile to a self-hosted control server such as Headscale
 - **Side panel** — opt in to keep the UI docked while you browse (Chrome side panel, Firefox sidebar)
 - **Auto-connect on start** — optional toggle that brings the tailnet up when the browser launches

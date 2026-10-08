@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { StatusUpdate, TailscaleState } from "../types";
 import { baseState, makePeer } from "../__test__/fixtures";
-import { RoutingProtection, ROUTING_STORAGE_KEY } from "./routing-protection";
+import { policyFromState, RoutingProtection, ROUTING_STORAGE_KEY } from "./routing-protection";
 
 const prefs = {
   exitNodeID: "exit1",
@@ -559,6 +559,93 @@ describe("routing protection", () => {
       blockAll: true,
     });
   });
+
+  it("retains mixed subnet routes and /100-/128 protection after a restart", async () => {
+    const subnets = ["10.0.0.0/24", "fd00:1:2::/64", ...Array.from({ length: 29 }, (_, i) => `fd00:3::/${100 + i}`)];
+    const state = connected({
+      peers: [makePeer({ subnets: [...subnets, "::/0", "fe80::/10", "fd00::/129"] })],
+      prefs: { ...prefs, exitNodeID: "" }, exitNode: null,
+    });
+    const routing = new RoutingProtection();
+    await routing.restore();
+    routing.confirmStatus(status(state), state);
+    expect(routing.decorate(state).routingPolicy?.subnetCIDRs).toEqual(subnets);
+    await flush();
+    const restored = new RoutingProtection();
+    await restored.restore();
+    expect(restored.decorate(offline()).routingPolicy).toMatchObject({
+      mode: "blocked", proxyPort: null, subnetCIDRs: subnets, selectedExitNodeID: null,
+    });
+    expect(restored.decorate(offline()).routingPolicy?.blockAll).not.toBe(true);
+    restored.confirmStatus(status(state), state);
+    expect(restored.decorate(state).routingPolicy?.mode).toBe("active");
+  });
+
+  it("excludes rejected IPv4 advertisements before saving protection", async () => {
+    const state = connected({
+      peers: [makePeer({ subnets: ["10.0.0.0/24", "8.0.0.0/4", "169.0.0.0/8", "0.0.0.0/0"] })],
+      prefs: { ...prefs, exitNodeID: "" }, exitNode: null,
+    });
+    expect(policyFromState(state).subnetCIDRs).toEqual(["10.0.0.0/24"]);
+    const routing = new RoutingProtection();
+    await routing.restore();
+    routing.confirmStatus(status(state), state);
+    await flush();
+    const restored = new RoutingProtection();
+    await restored.restore();
+    expect(restored.decorate(offline()).routingPolicy).toMatchObject({
+      mode: "blocked", subnetCIDRs: ["10.0.0.0/24"], selectedExitNodeID: null,
+    });
+  });
+
+  it("retains legacy IPv4 protection through status updates and restarts until explicit release", async () => {
+    const state = connected({
+      peers: [makePeer({ subnets: ["10.0.0.0/24", "8.0.0.0/4"] })],
+      prefs: { ...prefs, exitNodeID: "" }, exitNode: null,
+    });
+    const routing = new RoutingProtection();
+    await routing.restore();
+    routing.confirmStatus(status(state), state);
+    await flush();
+    const legacyRoutes = ["10.0.0.0/24", "8.0.0.0/4"];
+    const value = saved[ROUTING_STORAGE_KEY] as { active: { subnetCIDRs: string[] } };
+    value.active.subnetCIDRs = legacyRoutes;
+
+    const restored = new RoutingProtection();
+    await restored.restore();
+    expect(restored.decorate(offline()).routingPolicy).toMatchObject({
+      mode: "blocked", subnetCIDRs: legacyRoutes,
+    });
+    expect(restored.decorate(offline()).routingPolicy?.blockAll).not.toBe(true);
+    restored.confirmStatus(status(state), state);
+    expect(restored.decorate(state).routingPolicy).toMatchObject({
+      mode: "active", subnetCIDRs: legacyRoutes,
+    });
+    expect(restored.decorate(offline()).routingPolicy?.subnetCIDRs).toEqual(legacyRoutes);
+    await flush();
+    const restarted = new RoutingProtection();
+    await restarted.restore();
+    expect(restarted.decorate(offline()).routingPolicy?.subnetCIDRs).toEqual(legacyRoutes);
+    restarted.release();
+    await flush();
+    const released = new RoutingProtection();
+    await released.restore();
+    expect(released.decorate(offline()).routingPolicy?.mode).toBe("direct");
+  });
+
+  it.each(["fd00::/64junk", "fd00::/129", "::/0", "fe80::/10", "::ffff:192.0.2.0/120"])(
+    "keeps malformed or forbidden persisted IPv6 routes fail closed: %s", async cidr => {
+      const routing = new RoutingProtection();
+      await routing.restore();
+      routing.confirmStatus(status(connected()), connected());
+      await flush();
+      const value = saved[ROUTING_STORAGE_KEY] as { active: { subnetCIDRs: string[] } };
+      value.active.subnetCIDRs.push(cidr);
+      const restored = new RoutingProtection();
+      await restored.restore();
+      expect(restored.decorate(offline()).routingPolicy).toMatchObject({ mode: "blocked", blockAll: true });
+    },
+  );
 
   it("preserves a pending None confirmation across a worker restart", async () => {
     const routing = new RoutingProtection();

@@ -115,7 +115,7 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 - **Split-tunneling** -- per-profile domain rules (Bypass / Only) that exempt specific domains from the exit node or restrict the exit node to a chosen domain set; rules are suffix-matched and applied after Tailscale-mandatory routes (MagicDNS, 100.64.0.0/10, subnet routes) so tailnet traffic is never affected
 - **MagicDNS** -- resolve tailnet device names automatically
 - **Split DNS** -- resolve restricted domains through nameservers supplied by Tailscale or Headscale, including nameservers reachable over subnet routes
-- **Subnet routing** -- access resources behind subnet routers (auto-detected from peer info)
+- **Subnet routing** -- access IPv4 and IPv6 resources behind subnet routers (auto-detected from peer info)
 - **Allow LAN access** -- when using an exit node, optionally allow local network access
 
 ### Device Management
@@ -273,6 +273,7 @@ The shared package contains all the platform-agnostic logic. The extension packa
 | `../helper-diagnostics.ts` | Pure diagnostic sanitizer, allowlist, bounds, and local report formatter |
 | `badge-manager.ts` | Extension icon/badge updates for online, offline, warning, and exit-node states |
 | `proxy-utils.ts` | IPv4/CIDR helpers, MagicDNS/split-domain sanitization, subnet collection, and proxy decisions |
+| `ipv6-subnets.ts` | IPv6 literal/CIDR validation and a shared subnet matcher for Firefox and generated Chrome PAC scripts |
 | `routing-protection.ts` | Persisted, account-scoped routing policy and fail-closed behavior across helper or worker restarts |
 | `proxy-session.ts` | In-memory helper proxy credentials and authenticated session handoff to browser-specific managers |
 | `domain-split.ts` | Split-tunneling config storage and normalization |
@@ -434,7 +435,7 @@ DNS routes require the MagicDNS setting to be enabled.
 
 Chrome uses a dynamically generated PAC (Proxy Auto-Config) script set via `chrome.proxy.settings.set()`. The PAC script routes traffic based on:
 
-1. **Tailnet destinations** -> proxy: the service IP (`100.100.100.100`), full MagicDNS names, exact known peer short names, restricted DNS domains, CGNAT addresses (`100.64.0.0/10`), Tailscale IPv6 addresses (`fd7a:115c:a1e0::/48`), and advertised subnet IPv4 addresses. Domain rules match both the domain and its subdomains. `isInNet()` is used only for IPv4 literals, avoiding local DNS resolution of hostnames.
+1. **Tailnet destinations** -> proxy: the service IP (`100.100.100.100`), full MagicDNS names, exact known peer short names, restricted DNS domains, CGNAT addresses (`100.64.0.0/10`), Tailscale IPv6 addresses (`fd7a:115c:a1e0::/48`), and approved IPv4/IPv6 subnet addresses. Domain rules match both the domain and its subdomains. `isInNet()` is used only for IPv4 literals; IPv6 uses a shared numeric prefix matcher. Neither subnet matcher resolves hostnames through local DNS.
 2. **Other traffic with a selected exit node** -> proxy subject to the user's **Bypass** or **Only** domain rules; protected requests are blocked while the exit node or helper is unavailable.
 3. **Otherwise** -> `DIRECT`.
 
@@ -468,9 +469,11 @@ Firefox uses the `browser.proxy.onRequest` API with an event listener that evalu
 
 1. Same routing logic as Chrome (service IP, CGNAT, Tailscale IPv6, MagicDNS, peer short names, subnets, restricted DNS domains, exit node)
 2. Protected requests use an authenticated SOCKS proxy with `proxyDNS: true` in a chain ending in `null`, preventing browser proxy fallback. Other requests use the normal browser connection.
-3. IP matching uses numeric comparison (`ipToNum()`) instead of PAC's `isInNet()`
+3. IPv4 matching uses numeric comparison (`ipToNum()`) instead of PAC's `isInNet()`; IPv6 subnet matching uses the same implementation embedded in the Chrome PAC.
 
 **Routing protection:** Both browsers retain a sanitized routing snapshot across restarts, including restricted DNS domains but excluding helper ports and credentials. Exit-node choices are scoped to the account and coordination server. Helper loss or an unavailable exit node blocks protected requests while preserving split-tunnel exceptions. Chrome uses mandatory PAC settings and checks effective proxy ownership.
+
+Both browsers exclude new IPv4 and IPv6 subnet routes that overlap the helper's forbidden address ranges, including broad prefixes containing those ranges. Rejected routes do not divert otherwise direct traffic into the helper. IPv4 routes saved by older versions remain protected during outages and authentication setup, but rejected prefixes are excluded from active subnet routing; selected exit-node rules still apply.
 
 The popup reports routing failures separately from the Tailscale connection. Choose **Disconnect and browse normally** to release protection when the helper cannot respond.
 
@@ -652,6 +655,16 @@ URL editor. A **Profile** row is added when `state.profiles` is non-empty and
 opens the profile switcher. **Admin Console** appears only for Tailscale's
 default coordination server, and the helper-version footer row appears only
 after the host reports a version.
+
+The device list previews five devices, with online devices first. **View all**
+and **Show fewer** expand or collapse it; search always includes the full list.
+Click an IP address to copy it without opening the device's actions. Search is
+offered for six or more devices, excluding Mullvad exit infrastructure.
+
+The status bar distinguishes confirmed browser routing from the node's
+connection. The profile switcher retains the confirmed **Active** profile while
+showing a pending switch, disables conflicting actions, and offers retry
+guidance if the helper fails or does not confirm within 20 seconds.
 
 ---
 
