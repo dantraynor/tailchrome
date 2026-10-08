@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
+  <zip-file>
+    <!-- The MSI already contains the signed amd64 EXE. Signing it again
+         would break the required byte-for-byte match with the raw EXE. -->
+    <msi-file path="tailchrome-helper-windows-x64.msi">
+      <authenticode-sign hash-algorithm="sha256" />
+    </msi-file>
+  </zip-file>
+</artifact-configuration>

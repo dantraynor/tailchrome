@@ -50,6 +50,10 @@ not eligible for release.
 
 ## Release signing
 
+SignPath Foundation has accepted the project. Follow the
+[SignPath setup guide](../../docs/signpath-setup.md) to configure and run the
+separate self-signed test workflow before production certificate issuance.
+
 Signed releases follow
 [WINDOWS_CODE_SIGNING_POLICY.md](../../docs/WINDOWS_CODE_SIGNING_POLICY.md),
 including its configured provider and exact publisher subject. The policy

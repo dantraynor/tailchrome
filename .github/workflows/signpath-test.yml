@@ -1,0 +1,234 @@
+name: SignPath Test Signing
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signpath-test-${{ github.ref }}
+  cancel-in-progress: false
+
+# Self-signed onboarding artifacts only. See docs/signpath-setup.md.
+# The project, signing policy, and artifact configurations are deliberately
+# fixed here; this workflow cannot select the production signing policy.
+env:
+  SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+  SIGNPATH_TEST_CERTIFICATE_SHA256: ${{ vars.SIGNPATH_TEST_CERTIFICATE_SHA256 }}
+
+jobs:
+  build:
+    if: github.repository == 'dantraynor/tailchrome'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - name: Require SignPath test configuration
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$SIGNPATH_ORGANIZATION_ID" =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]]; then
+            echo "Set SIGNPATH_ORGANIZATION_ID to the organization ID from SignPath." >&2
+            exit 1
+          fi
+          fingerprint="$(printf '%s' "$SIGNPATH_TEST_CERTIFICATE_SHA256" | tr -d '[:space:]:')"
+          if [[ ! "$fingerprint" =~ ^[[:xdigit:]]{64}$ ]]; then
+            echo "Set SIGNPATH_TEST_CERTIFICATE_SHA256 to the test certificate's SHA-256 fingerprint." >&2
+            exit 1
+          fi
+          if [[ -z "$SIGNPATH_API_TOKEN" ]]; then
+            echo "Set the SIGNPATH_API_TOKEN repository secret to a test-signing submitter token." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      - name: Record source revision
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: host/go.mod
+          cache-dependency-path: host/go.sum
+      - run: go test ./...
+        working-directory: host
+      - name: Build Windows helpers
+        run: |
+          make host-windows-amd64 host-windows-arm64 \
+            VERSION="v0.0.0-signpath-test.$GITHUB_RUN_ID.$GITHUB_RUN_ATTEMPT"
+      # upload-artifact supplies the outer ZIP. Both EXEs are at its root.
+      - name: Upload unsigned EXEs for SignPath
+        id: upload
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: signpath-test-unsigned-executables
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            dist/tailscale-browser-ext-windows-amd64.exe
+            dist/tailscale-browser-ext-windows-arm64.exe
+
+  sign-and-verify:
+    needs: build
+    runs-on: windows-2025
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      WINDOWS_SIGNTOOL_PATH: C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: ${{ needs.build.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: "8.0.x"
+      - name: Install WiX and require the pinned Windows SDK
+        run: |
+          if (-not (Test-Path -LiteralPath $env:WINDOWS_SIGNTOOL_PATH -PathType Leaf)) {
+            throw "Expected SignTool was not found at $env:WINDOWS_SIGNTOOL_PATH"
+          }
+          dotnet tool install --global wix --version 6.0.2
+          if ($LASTEXITCODE -ne 0) { throw "WiX installation failed." }
+      - name: Submit EXEs to test-signing
+        id: sign-executables
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: tailchrome
+          signing-policy-slug: test-signing
+          artifact-configuration-slug: windows-executables
+          github-artifact-id: ${{ needs.build.outputs.artifact_id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: signed-executables
+      - name: Pin and temporarily trust the self-signed test certificate
+        id: test-certificate
+        run: |
+          $signature = Get-AuthenticodeSignature -LiteralPath .\signed-executables\tailscale-browser-ext-windows-amd64.exe
+          $certificate = $signature.SignerCertificate
+          if ($null -eq $certificate) { throw "SignPath did not return a signed EXE." }
+          $expected = $env:SIGNPATH_TEST_CERTIFICATE_SHA256 -replace '[:\s]', ''
+          $actual = $certificate.GetCertHashString([System.Security.Cryptography.HashAlgorithmName]::SHA256)
+          if ($actual -ine $expected) {
+            throw "The signer does not match the independently configured test certificate fingerprint."
+          }
+          if ($certificate.Subject -cne $certificate.Issuer) {
+            throw "This workflow requires SignPath's self-signed test certificate."
+          }
+          $storePath = "Cert:\CurrentUser\Root\$($certificate.Thumbprint)"
+          if (Test-Path -LiteralPath $storePath) {
+            throw "The test certificate is already trusted; expected a fresh GitHub-hosted runner."
+          }
+          "thumbprint=$($certificate.Thumbprint)" >> $env:GITHUB_OUTPUT
+          "subject=$($certificate.Subject)" >> $env:GITHUB_OUTPUT
+          $certificatePath = Join-Path $env:RUNNER_TEMP "signpath-test.cer"
+          [System.IO.File]::WriteAllBytes($certificatePath, $certificate.RawData)
+          Import-Certificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+      - name: Build MSI from the signed amd64 EXE
+        env:
+          TEST_SIGNER_SUBJECT: ${{ steps.test-certificate.outputs.subject }}
+        run: |
+          .\packaging\windows\build-msi.ps1 `
+            -Version v0.0.0 `
+            -HelperExe .\signed-executables\tailscale-browser-ext-windows-amd64.exe `
+            -OutPath .\unsigned-msi\tailchrome-helper-windows-x64.msi `
+            -ExpectedSignerSubject $env:TEST_SIGNER_SUBJECT `
+            -SignToolPath $env:WINDOWS_SIGNTOOL_PATH
+      - name: Upload unsigned outer MSI for SignPath
+        id: upload-msi
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: signpath-test-unsigned-msi
+          retention-days: 7
+          if-no-files-found: error
+          path: unsigned-msi/tailchrome-helper-windows-x64.msi
+      - name: Submit outer MSI to test-signing
+        id: sign-msi
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: tailchrome
+          signing-policy-slug: test-signing
+          artifact-configuration-slug: windows-msi
+          github-artifact-id: ${{ steps.upload-msi.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: signed-msi
+      - name: Verify all signatures and the exact MSI payload
+        env:
+          TEST_SIGNER_SUBJECT: ${{ steps.test-certificate.outputs.subject }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          EXE_SIGNING_REQUEST_ID: ${{ steps.sign-executables.outputs.signing-request-id }}
+          MSI_SIGNING_REQUEST_ID: ${{ steps.sign-msi.outputs.signing-request-id }}
+        run: |
+          $expected = $env:SIGNPATH_TEST_CERTIFICATE_SHA256 -replace '[:\s]', ''
+          foreach ($path in @(
+            ".\signed-executables\tailscale-browser-ext-windows-amd64.exe",
+            ".\signed-executables\tailscale-browser-ext-windows-arm64.exe",
+            ".\signed-msi\tailchrome-helper-windows-x64.msi"
+          )) {
+            $certificate = (Get-AuthenticodeSignature -LiteralPath $path).SignerCertificate
+            if ($null -eq $certificate -or
+                $certificate.GetCertHashString([System.Security.Cryptography.HashAlgorithmName]::SHA256) -ine $expected) {
+              throw "Unexpected test certificate on $path"
+            }
+          }
+          .\scripts\verify-windows-signatures.ps1 `
+            -RawExe .\signed-executables\tailscale-browser-ext-windows-amd64.exe `
+            -RawArm64Exe .\signed-executables\tailscale-browser-ext-windows-arm64.exe `
+            -Msi .\signed-msi\tailchrome-helper-windows-x64.msi `
+            -ExpectedSignerSubject $env:TEST_SIGNER_SUBJECT `
+            -SignToolPath $env:WINDOWS_SIGNTOOL_PATH `
+            -SummaryPath .\signpath-test-evidence\windows-signature-summary.json
+          [ordered]@{
+            purpose = "SignPath onboarding only; not eligible for release"
+            sourceSha = $env:SOURCE_SHA
+            runUrl = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            projectSlug = "tailchrome"
+            signingPolicySlug = "test-signing"
+            certificateSha256 = $expected.ToLowerInvariant()
+            executableSigningRequestId = $env:EXE_SIGNING_REQUEST_ID
+            msiSigningRequestId = $env:MSI_SIGNING_REQUEST_ID
+          } | ConvertTo-Json | Set-Content .\signpath-test-evidence\signpath-test.json -Encoding utf8NoBOM
+          @"
+          SignPath test signing passed for source $env:SOURCE_SHA.
+
+          Verified amd64 and ARM64 EXEs, the outer MSI, and its byte-identical embedded EXE.
+          Signatures use the pinned self-signed test certificate, SHA-256, and RFC 3161 timestamps.
+
+          EXE signing request: $env:EXE_SIGNING_REQUEST_ID
+          MSI signing request: $env:MSI_SIGNING_REQUEST_ID
+
+          These artifacts are for SignPath onboarding only and must not be published as a release.
+          "@ >> $env:GITHUB_STEP_SUMMARY
+      - name: Upload verified test artifacts and evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: signpath-test-verified
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            signed-executables/tailscale-browser-ext-windows-amd64.exe
+            signed-executables/tailscale-browser-ext-windows-arm64.exe
+            signed-msi/tailchrome-helper-windows-x64.msi
+            signpath-test-evidence/*.json
+      - name: Remove temporary test certificate trust
+        if: always() && steps.test-certificate.outputs.thumbprint != ''
+        env:
+          TEST_CERTIFICATE_THUMBPRINT: ${{ steps.test-certificate.outputs.thumbprint }}
+        run: |
+          $path = "Cert:\CurrentUser\Root\$env:TEST_CERTIFICATE_THUMBPRINT"
+          if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
