@@ -114,7 +114,9 @@ jobs:
           output-artifact-directory: signed-executables
       - name: Pin and temporarily trust the self-signed test certificate
         id: test-certificate
+        timeout-minutes: 3
         run: |
+          Write-Host "Reading the test signing certificate from the returned EXE..."
           $signature = Get-AuthenticodeSignature -LiteralPath .\signed-executables\tailscale-browser-ext-windows-amd64.exe
           $certificate = $signature.SignerCertificate
           if ($null -eq $certificate) { throw "SignPath did not return a signed EXE." }
@@ -126,7 +128,7 @@ jobs:
           if ($certificate.Subject -cne $certificate.Issuer) {
             throw "This workflow requires SignPath's self-signed test certificate."
           }
-          $storePath = "Cert:\CurrentUser\Root\$($certificate.Thumbprint)"
+          $storePath = "Cert:\LocalMachine\Root\$($certificate.Thumbprint)"
           if (Test-Path -LiteralPath $storePath) {
             throw "The test certificate is already trusted; expected a fresh GitHub-hosted runner."
           }
@@ -134,7 +136,16 @@ jobs:
           "subject=$($certificate.Subject)" >> $env:GITHUB_OUTPUT
           $certificatePath = Join-Path $env:RUNNER_TEMP "signpath-test.cer"
           [System.IO.File]::WriteAllBytes($certificatePath, $certificate.RawData)
-          Import-Certificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+          # CurrentUser\Root can require an interactive confirmation dialog.
+          # GitHub-hosted Windows runners are elevated; use the machine store
+          # noninteractively, as in the Windows signature verifier fixtures.
+          Write-Host "Trusting the pinned test certificate in LocalMachine\Root..."
+          & certutil.exe -f -addstore Root $certificatePath | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Could not trust the pinned test certificate." }
+          if (-not (Test-Path -LiteralPath $storePath)) {
+            throw "The pinned test certificate was not installed in LocalMachine\Root."
+          }
+          Write-Host "Temporary test certificate trust is ready."
       - name: Build MSI from the signed amd64 EXE
         env:
           TEST_SIGNER_SUBJECT: ${{ steps.test-certificate.outputs.subject }}
@@ -230,5 +241,5 @@ jobs:
         env:
           TEST_CERTIFICATE_THUMBPRINT: ${{ steps.test-certificate.outputs.thumbprint }}
         run: |
-          $path = "Cert:\CurrentUser\Root\$env:TEST_CERTIFICATE_THUMBPRINT"
+          $path = "Cert:\LocalMachine\Root\$env:TEST_CERTIFICATE_THUMBPRINT"
           if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }

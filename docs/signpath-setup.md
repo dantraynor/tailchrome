@@ -35,7 +35,12 @@ Open the `tailchrome` project, which should list
    needs to be the default.
 
 2. Confirm **GitHub.com** is linked under **Trusted Build Systems** and its
-   organization-level configuration permits this repository. In the
+   organization-level configuration permits this repository. Install the
+   [SignPath GitHub App](https://github.com/apps/signpath/installations/new)
+   for `dantraynor`, choosing **Only select repositories → tailchrome**. If
+   already installed, confirm it is active and has access to this repository.
+   The pipeline connector reports `Failed to retrieve GitHub App token` when
+   it cannot use that installation. In the
    `test-signing` policy, choose **Edit** and enable **Require trusted build
    system**; the project-level link alone does not enforce it. All jobs leading
    up to these requests use GitHub-hosted runners.
@@ -100,8 +105,10 @@ After the workflow is merged into the default branch:
    workflow waits up to 30 minutes for each request.
 3. When the signed EXEs return, the workflow checks the amd64 signer's
    fingerprint before temporarily trusting its self-signed certificate in the
-   disposable Windows runner's current-user root store. It builds the MSI
-   with the usual signature checks enabled, then submits the second request.
+   disposable Windows runner's local-machine root store. The import runs
+   noninteractively using the hosted runner's administrator access. It builds
+   the MSI with the usual signature checks enabled, then submits the second
+   request.
 4. The outer-MSI request follows the same approval settings. The workflow
    verifies all final signatures and certificate fingerprints, checks the
    embedded EXE, and uploads `signpath-test-verified`. The run summary lists both signing request IDs;
