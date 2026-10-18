@@ -2,7 +2,7 @@
 
 > Access your Tailscale network directly from your browser. No system VPN required.
 
-**Version:** 0.1.14 (native host) | Manifest V3
+**Version:** 0.1.15 (native host) | Manifest V3
 **Browsers:** Chrome, Firefox
 **Platforms:** macOS (amd64, arm64), Linux (amd64 packages; amd64/arm64 raw helpers), Windows (amd64 MSI; amd64/arm64 raw helpers). Chrome Flatpak is an explicit Linux installation option
 **License:** MIT

@@ -19,7 +19,7 @@ The PowerShell bootstrap supports native amd64 and ARM64 Windows. Download
 `tailchrome-install.ps1` from the chosen release and run:
 
 ```powershell
-& .\tailchrome-install.ps1 -Version v0.1.14
+& .\tailchrome-install.ps1 -Version v0.1.15
 ```
 
 It installs `%LOCALAPPDATA%\Tailchrome\tailchrome.exe`, verifies checksums and
@@ -41,7 +41,7 @@ Then build from the repository root:
 
 ```powershell
 .\packaging\windows\build-msi.ps1 `
-  -Version v0.1.14 `
+  -Version v0.1.15 `
   -AllowUnsignedDevelopmentBuild
 ```
 

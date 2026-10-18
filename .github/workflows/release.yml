@@ -83,6 +83,8 @@ jobs:
         working-directory: host
       - run: pnpm validate:ids
       - run: pnpm validate:release-tag "$RELEASE_TAG"
+      - name: Check reviewed release notes
+        run: test -s "docs/releases/$RELEASE_TAG.md"
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm test:installer

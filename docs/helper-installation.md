@@ -28,13 +28,13 @@ To inspect or pin the Unix installer, download `tailchrome-install.sh` from the
 chosen release, inspect it, then run:
 
 ```bash
-bash ./tailchrome-install.sh --version v0.1.14
+bash ./tailchrome-install.sh --version v0.1.15
 ```
 
 For the Windows script downloaded from that release:
 
 ```powershell
-& .\tailchrome-install.ps1 -Version v0.1.14
+& .\tailchrome-install.ps1 -Version v0.1.15
 ```
 
 The PowerShell installer requires a valid Authenticode signature by default.
