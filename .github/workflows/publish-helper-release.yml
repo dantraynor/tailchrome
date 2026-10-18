@@ -567,6 +567,8 @@ jobs:
       - name: Create or resume coordinated draft
         run: |
           set -euo pipefail
+          release_notes="docs/releases/$RELEASE_TAG.md"
+          test -s "$release_notes"
           mkdir -p existing-assets
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true"
@@ -577,8 +579,8 @@ jobs:
           else
             gh release create "$RELEASE_TAG" \
               --verify-tag \
-              --title "$RELEASE_TAG" \
-              --generate-notes \
+              --title "Tailchrome $RELEASE_TAG" \
+              --notes-file "$release_notes" \
               --draft
           fi
 
@@ -618,7 +620,10 @@ jobs:
           test "$(
             gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha
           )" = "$source_sha"
-          gh release edit "$RELEASE_TAG" --draft=false
+          gh release edit "$RELEASE_TAG" \
+            --title "Tailchrome $RELEASE_TAG" \
+            --notes-file "docs/releases/$RELEASE_TAG.md" \
+            --draft=false
       - name: Write publication summary
         run: |
           {

@@ -23,6 +23,7 @@ not apply.
 
 - [ ] The release tag exists in this repository and points to the reviewed source commit.
 - [ ] Package versions match the release tag.
+- [ ] `docs/releases/<release-tag>.md` is reviewed and describes the changes, upgrade requirements, and the candidate's Windows signing mode; publication uses this file from the tagged source.
 - [ ] The Windows code-signing policy records exactly one selected provider and one exact expected signer subject.
 - [ ] The selected Windows provider has produced a successful test signature through the repository workflow.
 - [ ] `WINDOWS_EXPECTED_SIGNER_SUBJECT` exactly matches the documented subject.

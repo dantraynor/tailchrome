@@ -8,7 +8,9 @@ This policy covers the Windows helper executable and MSI published from
 Signed Windows publication is blocked until one signing provider has accepted
 the project, issued one stable publisher identity, and produced a successfully
 timestamped test signature. SignPath Foundation accepted the project on
-October 8, 2026; test-signing setup and production certificate issuance are
+October 8, 2026; the isolated
+[test-signing run](https://github.com/dantraynor/tailchrome/actions/runs/37815038448)
+passed that day. Production certificate issuance and release integration are
 pending. The repository has no approved production Authenticode signer subject.
 A release must not substitute a locally generated certificate or a second
 provider when signing is unavailable.
@@ -26,7 +28,7 @@ fail-closed signed gate below is the only release path again.
 SignPath is the accepted onboarding provider. The isolated
 [test-signing workflow](signpath-setup.md) uses its self-signed test certificate
 only for setup review. It cannot produce publishable release candidates.
-Production signing remains blocked until that trusted-build flow succeeds,
+Production signing remains blocked until
 the Foundation reviews the setup and issues the production certificate, and
 the release integration and exact production signer subject are recorded here.
 

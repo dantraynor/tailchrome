@@ -1,6 +1,6 @@
 {
   "name": "@tailchrome/shared",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "private": true,
   "scripts": {
     "typecheck": "tsc --noEmit",

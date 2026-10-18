@@ -81,6 +81,13 @@ Include your browser, OS, extension version, and steps to reproduce.
 
 ## Release Pipeline
 
+Before tagging a release, run `bash scripts/bump-version.sh X.Y.Z`, update the
+version in `docs/DOCUMENTATION.md`, and write `docs/releases/vX.Y.Z.md` with the
+user-facing changes, upgrade guidance, and Windows signing disclosure. Run
+`pnpm validate:release-tag vX.Y.Z` and review these changes together. Candidate
+creation requires the notes file; protected publication uses the notes from the
+tagged source for both a new release and a resumed draft.
+
 - PRs run extension tests, Chrome checks, the full Firefox review gate, Go
   tests on Linux and Windows, per-user installer tests, and a Chrome Flatpak
   helper smoke test. Relevant packaging changes also run native Windows ARM64

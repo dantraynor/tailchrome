@@ -55,8 +55,8 @@ The same UI renders in either surface.
 
 ### Terminal installation
 
-The simplified installer and CLI require helper **v0.1.14 or later**. Until that
-release is published, use the installers and instructions attached to the
+The simplified installer and CLI require helper **v0.1.14 or later**. Download
+the installers from the
 [current release](https://github.com/dantraynor/tailchrome/releases/latest).
 
 On macOS or Linux:
@@ -143,8 +143,9 @@ and packaging. Windows publication is additionally gated by the
 ## Code signing policy
 
 SignPath Foundation has accepted Tailchrome for Windows Authenticode signing.
-[Test-signing setup](docs/signpath-setup.md) is underway; production certificate
-issuance and release integration are still pending. Windows releases remain
+[Test signing](https://github.com/dantraynor/tailchrome/actions/runs/37815038448)
+has been verified; production certificate issuance and release integration are
+still pending. Windows releases remain
 explicitly unsigned until those steps are complete. The public
 [Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md) defines who
 may submit and approve signing requests, which builds are eligible, how
