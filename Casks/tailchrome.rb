@@ -1,6 +1,6 @@
 cask "tailchrome" do
-  version "0.1.14"
-  sha256 "ecef929fccc590e4607e0fa0e5c15712893fb3c2fbe9091d1f0ed85756809a9a"
+  version "0.1.15"
+  sha256 "a424f230254c3551ef6d721471602282293587e057fc762f801f14d11c1fdb90"
 
   url "https://github.com/dantraynor/tailchrome/releases/download/v#{version}/tailchrome-helper-macos.pkg"
   name "Tailchrome Helper"

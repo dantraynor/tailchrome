@@ -1,8 +1,8 @@
 class Tailchrome < Formula
   desc "Browser native messaging host for Tailscale networks"
   homepage "https://github.com/dantraynor/tailchrome"
-  url "https://github.com/dantraynor/tailchrome/archive/refs/tags/v0.1.14.tar.gz"
-  sha256 "2e2111c52e45e2c4939957d0effcd3ad0a095a120b1de04f7675cbcd89420cec"
+  url "https://github.com/dantraynor/tailchrome/archive/refs/tags/v0.1.15.tar.gz"
+  sha256 "a9e242f0059c6f5756e628ff5f219220f57d2e585a0ef4d7b70e490701aa284c"
   license "MIT"
 
   depends_on "go" => :build
