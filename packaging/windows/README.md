@@ -51,8 +51,10 @@ not eligible for release.
 ## Release signing
 
 SignPath Foundation has accepted the project. Follow the
-[SignPath setup guide](../../docs/signpath-setup.md) to configure and run the
-separate self-signed test workflow before production certificate issuance.
+[SignPath setup guide](../../docs/signpath-setup.md) for the separate self-signed
+test workflow and production activation. The Release Candidate workflow fixes
+production requests to `tailchrome` / `release-signing` and requires the
+verified production publisher before it can use that path.
 
 Signed releases follow
 [WINDOWS_CODE_SIGNING_POLICY.md](../../docs/WINDOWS_CODE_SIGNING_POLICY.md),
@@ -74,12 +76,13 @@ The release order is:
    .\packaging\windows\build-msi.ps1 `
      -Version $env:RELEASE_TAG `
      -HelperExe .\signed-windows\tailscale-browser-ext-windows-amd64.exe `
-     -OutPath .\signed-windows\tailchrome-helper-windows-x64.unsigned.msi `
+     -OutPath .\unsigned-msi\tailchrome-helper-windows-x64.msi `
      -ExpectedSignerSubject $env:WINDOWS_EXPECTED_SIGNER_SUBJECT `
      -SignToolPath $env:WINDOWS_SIGNTOOL_PATH
    ```
 
-4. Sign and timestamp the outer MSI with the same publisher.
+4. Sign and timestamp the outer MSI with the same publisher, then stage it as
+   `signed-windows/tailchrome-helper-windows-x64.msi`.
 5. Verify both final raw EXEs, the amd64 MSI-embedded EXE, and the outer MSI:
 
    ```powershell
@@ -145,7 +148,10 @@ Final EXE and MSI hashes are generated only after signing and must match the
 Defender and Malwarebytes evidence approved for publication. A validly signed
 SmartScreen unknown-reputation prompt is documented but is not treated as a
 malware detection; an actual malware, PUA, or behavioral detection blocks the
-release.
+release. Separately test a
+[browser-downloaded MSI launched from Explorer](../../docs/windows-smartscreen-validation.md)
+with Mark of the Web intact. A valid signature does not guarantee reputation,
+and an absent override button does not by itself identify a Windows policy.
 
 ## Architecture
 

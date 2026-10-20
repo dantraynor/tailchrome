@@ -24,10 +24,11 @@ concurrency:
 #   APPLE_API_KEY_ID             - App Store Connect API key ID
 #   APPLE_API_ISSUER_ID          - App Store Connect API issuer UUID
 #   APPLE_API_KEY_P8             - contents of the AuthKey_*.p8 file
+#   SIGNPATH_API_TOKEN           - submitter for tailchrome/release-signing
 #
-# Signed Windows candidate creation remains blocked until one signing provider
-# and the exact WINDOWS_EXPECTED_SIGNER_SUBJECT repository variable are
-# recorded. The only alternative is the explicit unsigned mode: setting the
+# Signed Windows candidates use SignPath's fixed release-signing policy.
+# SIGNPATH_ORGANIZATION_ID and the exact WINDOWS_EXPECTED_SIGNER_SUBJECT must
+# identify the approved production certificate. In explicit unsigned mode, setting the
 # WINDOWS_ALLOW_UNSIGNED_RELEASE repository variable to "true" ships the raw
 # EXE and MSI without Authenticode signatures, and records that choice in the
 # candidate metadata. Both signing modes require clean Defender evidence.
@@ -49,6 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       source_sha: ${{ steps.source.outputs.source_sha }}
+      windows_artifact_id: ${{ steps.upload-windows-executables.outputs.artifact-id }}
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
     steps:
@@ -110,6 +112,17 @@ jobs:
           unzip -q packages/extension/.output/firefox.zip -d "$rebuilt_dir"
           diff -qr "$original_dir" "$rebuilt_dir"
           popd >/dev/null
+      - name: Upload Windows EXEs for production signing
+        id: upload-windows-executables
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: windows-unsigned-executables
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            dist/tailscale-browser-ext-windows-amd64.exe
+            dist/tailscale-browser-ext-windows-arm64.exe
       - name: Upload reviewed build outputs
         uses: actions/upload-artifact@v6
         with:
@@ -440,6 +453,10 @@ jobs:
   package-windows:
     needs: build
     runs-on: windows-2025
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
     outputs:
       artifact_id: ${{ steps.upload-windows.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-windows.outputs.artifact-digest }}
@@ -451,6 +468,7 @@ jobs:
       WINDOWS_SIGNTOOL_PATH: C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe
       WINDOWS_EXPECTED_SIGNER_SUBJECT: ${{ vars.WINDOWS_EXPECTED_SIGNER_SUBJECT }}
       WINDOWS_ALLOW_UNSIGNED_RELEASE: ${{ vars.WINDOWS_ALLOW_UNSIGNED_RELEASE }}
+      SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -460,32 +478,30 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - name: Require Windows release signing configuration
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
         shell: pwsh
-        run: |
-          if ($env:WINDOWS_ALLOW_UNSIGNED_RELEASE -eq 'true') {
-            if (-not [string]::IsNullOrWhiteSpace($env:WINDOWS_EXPECTED_SIGNER_SUBJECT)) {
-              throw "WINDOWS_ALLOW_UNSIGNED_RELEASE cannot be combined with WINDOWS_EXPECTED_SIGNER_SUBJECT; remove one."
-            }
-            Write-Warning "WINDOWS_ALLOW_UNSIGNED_RELEASE is enabled: this candidate ships UNSIGNED Windows binaries."
-          } else {
-            if ([string]::IsNullOrWhiteSpace($env:WINDOWS_EXPECTED_SIGNER_SUBJECT)) {
-              throw "WINDOWS_EXPECTED_SIGNER_SUBJECT must contain the exact selected publisher subject."
-            }
-            if (-not (Test-Path -LiteralPath $env:WINDOWS_SIGNTOOL_PATH -PathType Leaf)) {
-              throw "Expected SignTool was not found at $env:WINDOWS_SIGNTOOL_PATH"
-            }
-          }
+        run: .\scripts\validate-windows-signing-config.ps1
       - name: Download reviewed build outputs
         uses: actions/download-artifact@v6
         with:
           name: build-output
       - name: Install WiX
         run: dotnet tool install --global wix --version 6.0.2
-      # Provider integration gate (signed mode): the selected provider must
-      # place timestamped amd64 and ARM64 raw EXEs in signed-windows before MSI
-      # construction, then sign the unsigned MSI to the final filename before
-      # verification. Unsigned mode stages both reviewed raw EXEs directly and
-      # builds the x64-only MSI without any signature validation.
+      - name: Submit Windows EXEs for production signing
+        id: sign-executables
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: tailchrome
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: windows-executables
+          github-artifact-id: ${{ needs.build.outputs.windows_artifact_id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: signed-windows
       - name: Stage unsigned helper
         if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE == 'true'
         shell: pwsh
@@ -508,7 +524,7 @@ jobs:
           .\packaging\windows\build-msi.ps1 `
             -Version "$env:RELEASE_TAG" `
             -HelperExe $signedExe `
-            -OutPath .\signed-windows\tailchrome-helper-windows-x64.unsigned.msi `
+            -OutPath .\unsigned-msi\tailchrome-helper-windows-x64.msi `
             -ExpectedSignerSubject "$env:WINDOWS_EXPECTED_SIGNER_SUBJECT" `
             -SignToolPath "$env:WINDOWS_SIGNTOOL_PATH"
       - name: Require provider-signed ARM64 helper
@@ -519,6 +535,36 @@ jobs:
           if (-not (Test-Path -LiteralPath $signedArm64 -PathType Leaf)) {
             throw "The selected signing provider must produce the timestamped ARM64 raw EXE before candidate assembly."
           }
+      - name: Upload outer MSI for production signing
+        id: upload-unsigned-msi
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: windows-unsigned-msi
+          retention-days: 7
+          if-no-files-found: error
+          path: unsigned-msi/tailchrome-helper-windows-x64.msi
+      - name: Submit outer MSI for production signing
+        id: sign-msi
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: tailchrome
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: windows-msi
+          github-artifact-id: ${{ steps.upload-unsigned-msi.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: signed-msi
+      - name: Stage the production-signed MSI
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
+        shell: pwsh
+        run: |
+          Copy-Item `
+            -LiteralPath .\signed-msi\tailchrome-helper-windows-x64.msi `
+            -Destination .\signed-windows\tailchrome-helper-windows-x64.msi
       - name: Build Windows MSI from the unsigned helper
         if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE == 'true'
         shell: pwsh
@@ -593,6 +639,44 @@ jobs:
           "raw_sha256=$rawHash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "arm64_sha256=$arm64Hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
           "msi_sha256=$msiHash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+      - name: Record production signing provenance
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
+        shell: pwsh
+        env:
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          EXE_SIGNING_REQUEST_ID: ${{ steps.sign-executables.outputs.signing-request-id }}
+          MSI_SIGNING_REQUEST_ID: ${{ steps.sign-msi.outputs.signing-request-id }}
+        run: |
+          foreach ($requestId in @($env:EXE_SIGNING_REQUEST_ID, $env:MSI_SIGNING_REQUEST_ID)) {
+            $parsed = [Guid]::Empty
+            if (-not [Guid]::TryParseExact($requestId, "D", [ref]$parsed) -or $parsed -eq [Guid]::Empty) {
+              throw "SignPath did not report a production signing request ID."
+            }
+          }
+          New-Item -ItemType Directory -Force -Path .\signpath-evidence | Out-Null
+          [ordered]@{
+            schemaVersion = 1
+            sourceSha = $env:SOURCE_SHA
+            releaseTag = $env:RELEASE_TAG
+            runUrl = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            organizationId = $env:SIGNPATH_ORGANIZATION_ID
+            projectSlug = "tailchrome"
+            signingPolicySlug = "release-signing"
+            expectedSignerSubject = $env:WINDOWS_EXPECTED_SIGNER_SUBJECT
+            executableSigningRequestId = $env:EXE_SIGNING_REQUEST_ID
+            msiSigningRequestId = $env:MSI_SIGNING_REQUEST_ID
+            signatures = Get-Content .\signed-windows\windows-signature-verification.json -Raw | ConvertFrom-Json
+          } | ConvertTo-Json -Depth 8 |
+            Set-Content .\signpath-evidence\signpath-release.json -Encoding utf8NoBOM
+      - name: Preserve production signing evidence
+        if: vars.WINDOWS_ALLOW_UNSIGNED_RELEASE != 'true'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: windows-signpath-signing
+          retention-days: 90
+          if-no-files-found: error
+          path: signpath-evidence/signpath-release.json
       - name: Upload final Windows bundle
         id: upload-windows
         uses: actions/upload-artifact@v6

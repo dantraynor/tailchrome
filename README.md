@@ -144,9 +144,11 @@ and packaging. Windows publication is additionally gated by the
 
 SignPath Foundation has accepted Tailchrome for Windows Authenticode signing.
 [Test signing](https://github.com/dantraynor/tailchrome/actions/runs/37815038448)
-has been verified; production certificate issuance and release integration are
-still pending. Windows releases remain
-explicitly unsigned until those steps are complete. The public
+has been verified, and the release workflow supports its separate production
+policy. Production certificate and publisher approval are still pending;
+v0.1.15's Windows artifacts are explicitly unsigned. Signing establishes a
+publisher identity but does not guarantee immediate SmartScreen reputation. The
+public
 [Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md) defines who
 may submit and approve signing requests, which builds are eligible, how
 signatures are verified, and how a compromised or replaced publisher identity

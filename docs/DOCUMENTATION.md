@@ -1006,13 +1006,13 @@ immutable SHA in every downstream checkout. It:
 4. **Verifies Firefox source ZIP**: extracts sources, rebuilds from scratch, `diff -qr` against original to ensure reproducibility
 5. Signs/notarizes the macOS binaries, app, and package and verifies every layer
 6. Builds and inspects Linux `.deb`/`.rpm` packages and includes the Unix and PowerShell bootstraps
-7. In signed mode, verifies both raw Windows EXEs, the outer x64 MSI, and its embedded amd64 EXE against the configured signing policy; explicit unsigned mode records its exception
+7. In signed mode, signs both Windows EXEs through SignPath `tailchrome` / `release-signing`, builds the x64 MSI from the signed amd64 EXE, signs the outer MSI, and verifies all four signature surfaces; explicit unsigned mode records its exception
 8. Requires native ARM64 runtime evidence and Defender evidence for both raw Windows EXEs and the MSI in both signing modes
 9. Assembles the complete allowlisted matrix, generates `SHA256SUMS.txt` only after final signing/packaging, creates build-provenance attestations, and stores the immutable candidate for 90 days
 
 The candidate workflow has no release-write permission and never publishes
-assets. The currently documented external Windows signer selection and
-publisher subject are intentionally fail-closed; see
+assets. Production signing requires the approved SignPath certificate, exact
+publisher subject, trusted-build policy, and explicit request approvals; see
 [WINDOWS_CODE_SIGNING_POLICY.md](WINDOWS_CODE_SIGNING_POLICY.md).
 
 ### Helper publication (`publish-helper-release.yml`) -- Manual Dispatch Only
@@ -1033,6 +1033,9 @@ candidate manifest digest. Defender/Malwarebytes findings apply only to those
 exact hashes; an ordinary SmartScreen unknown-reputation warning is tracked
 separately from a malware or PUA detection. The complete operator procedure and
 asset matrix are in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
+The separate [browser-download test](windows-smartscreen-validation.md)
+preserves Mark of the Web and exercises Explorer launch on Windows 11;
+signature verification and direct installation do not establish that result.
 
 ### Publish (`publish.yml`) -- Manual Dispatch Only
 
