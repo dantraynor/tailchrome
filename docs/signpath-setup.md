@@ -1,10 +1,12 @@
-# SignPath Foundation test signing
+# SignPath Foundation signing
 
 SignPath Foundation accepted Tailchrome on October 8, 2026. The `tailchrome`
 project has a `test-signing` policy using **Test certificate 2026**, and
-**GitHub.com** is linked as a trusted build system. The `release-signing`
-policy's production certificate is still pending. SignPath will review a
-working test-signing setup before issuing that certificate.
+**GitHub.com** is linked as a trusted build system. The
+[test-signing run](https://github.com/dantraynor/tailchrome/actions/runs/37815038448)
+passed that day. Production activation requires the Foundation-issued
+certificate and the policy checks below; no production publisher subject has
+been approved in the repository yet.
 
 The manual [SignPath Test Signing workflow](../.github/workflows/signpath-test.yml)
 builds both Windows helpers, signs them with the test policy, builds the MSI
@@ -128,18 +130,55 @@ the MSI uses version `0.0.0`. The workflow removes temporary certificate trust
 even if subsequent steps fail. Do not install that trust certificate on user
 machines or distribute these files as signed production releases.
 
-## Production handoff
+## Activate production signing
 
-After SignPath reviews the test run and imports the production certificate,
-record its exact publisher subject in
-[WINDOWS_CODE_SIGNING_POLICY.md](WINDOWS_CODE_SIGNING_POLICY.md). A separate
-reviewed change must wire `release-signing` into the release candidate
-workflow, verify the production certificate through normal Windows trust,
-configure `WINDOWS_EXPECTED_SIGNER_SUBJECT`, and remove
-`WINDOWS_ALLOW_UNSIGNED_RELEASE`. The existing Defender, Malwarebytes, native
-ARM64, and protected publication gates still apply.
+The [Release Candidate workflow](../.github/workflows/release.yml) uses only
+`tailchrome` / `release-signing` for production. It submits the two EXEs with
+`windows-executables`, builds the MSI from the signed amd64 EXE, then submits
+only the outer MSI with `windows-msi`. Both requests use GitHub artifact IDs
+from the same run. There is no policy, certificate, or local-file input.
 
-The test workflow does not publish releases or satisfy those production gates.
+Before enabling that path:
+
+1. Confirm that SignPath has reviewed the test run and attached a production
+   certificate to `release-signing`. Inspect its issuer, validity, code-signing
+   usage, and public certificate. It must chain through normal Windows trust;
+   do not import the test certificate or a private root to make it pass.
+   Record the exact Windows `X509Certificate2.Subject` value in
+   [WINDOWS_CODE_SIGNING_POLICY.md](WINDOWS_CODE_SIGNING_POLICY.md). OpenSSL's
+   displayed subject ordering is not necessarily the Windows string.
+2. Require **trusted build system** on `release-signing`, with **GitHub.com**
+   restricted to this repository. Keep both artifact configurations identical
+   to the reviewed XML above. Enable explicit approval by the maintainer for
+   each request, and require RFC 3161 timestamping. Automatic test-policy
+   approval is not the production policy.
+3. Grant the CI submitter access to `release-signing` without granting it
+   approval rights. Confirm that the GitHub `SIGNPATH_API_TOKEN` secret belongs
+   to that submitter. If a replacement is needed, transfer it directly from
+   SignPath into GitHub Secrets; never put it in source, logs, or artifacts.
+4. Set `WINDOWS_EXPECTED_SIGNER_SUBJECT` to the verified production subject and
+   remove `WINDOWS_ALLOW_UNSIGNED_RELEASE` before starting a new candidate.
+   Keep `SIGNPATH_ORGANIZATION_ID` set to the approved organization above.
+   The configuration validator rejects conflicting signed/unsigned settings,
+   missing credentials or SignTool, and production requests from branches,
+   pull requests, or another repository.
+5. Create a new reviewed version and tag. Do not resign or replace a published
+   release, including v0.1.15. Review each signing request's source SHA and
+   GitHub provenance in SignPath before approving it. The workflow waits up
+   to 30 minutes per request and never falls back to unsigned output.
+
+The final verifier checks normal Windows trust, the exact publisher, SHA-256
+signatures, RFC 3161 timestamps, and byte equality between the raw and embedded
+amd64 EXE. `windows-signpath-signing` preserves both request IDs, the source
+commit, run/attempt, publisher, and signature report for 90 days. Download that
+evidence with the candidate's security records before it expires.
+
+The existing Defender, Malwarebytes, native ARM64, and protected publication
+gates still apply. Complete the
+[browser-download and Explorer test](windows-smartscreen-validation.md) on the
+exact final MSI as well. A trusted signature establishes publisher identity;
+it does not guarantee SmartScreen reputation. The test-signing workflow does
+not publish releases or satisfy these production gates.
 
 ## References
 

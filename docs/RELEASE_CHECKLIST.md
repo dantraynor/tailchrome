@@ -15,8 +15,9 @@ not apply.
 
 > **Unsigned Windows mode.** When the `WINDOWS_ALLOW_UNSIGNED_RELEASE`
 > repository variable is `true` (see the code-signing policy), the
-> signing-provider and `WINDOWS_EXPECTED_SIGNER_SUBJECT` items below do not
-> apply. Defender-environment, controlled-runner, and exact-hash Windows
+> signing-provider, production-signature, signing-evidence, acknowledgement,
+> and `WINDOWS_EXPECTED_SIGNER_SUBJECT` items below do not apply.
+> Defender-environment, controlled-runner, and exact-hash Windows
 > security clearance requirements still apply. Candidate metadata must record
 > `windowsSigning: unsigned`, the release notes must state that the Windows
 > binaries are unsigned, and every other item still applies.
@@ -27,6 +28,8 @@ not apply.
 - [ ] The Windows code-signing policy records exactly one selected provider and one exact expected signer subject.
 - [ ] The selected Windows provider has produced a successful test signature through the repository workflow.
 - [ ] `WINDOWS_EXPECTED_SIGNER_SUBJECT` exactly matches the documented subject.
+- [ ] SignPath `tailchrome` / `release-signing` uses the production certificate, requires trusted GitHub builds and explicit maintainer approval, and permits the CI token to submit without approval rights.
+- [ ] Signed release notes include: `Free code signing provided by SignPath.io, certificate by SignPath Foundation`.
 - [ ] The protected `windows-defender-validation` environment requires review, prevents administrator bypass, permits only `v*` tags, and records the approved snapshot in `WINDOWS_DEFENDER_IMAGE_ID`; no repository- or organization-scoped variable uses that name.
 - [ ] A clean x64 Windows VM is registered only to this repository with `--ephemeral` and the run-specific `self-hosted`, `Windows`, `X64`, and `tailchrome-defender-<run-id>` labels.
 - [ ] The VM's host-owned pre-job hook permits only the approved repository, workflow, job, run ID, tag, and source SHA and verifies `TAILCHROME_DEFENDER_IMAGE_ID` against the approved snapshot; the VM has no signing credentials or internal-network access.
@@ -72,6 +75,7 @@ not apply.
 - [ ] The MSI-embedded EXE has the same signature requirements and SHA-256 as the raw EXE.
 - [ ] The outer MSI has one valid SHA-256 Authenticode signature, a timestamp, and the same expected subject.
 - [ ] The fixed Windows SDK SignTool and `Get-AuthenticodeSignature` both accept all four Windows signature surfaces.
+- [ ] The `windows-signpath-signing` evidence identifies both approved production requests, this run/attempt and source commit, and the final signature report; archive it with the clearance evidence.
 
 ## Exact-hash Windows security clearance
 
@@ -101,6 +105,8 @@ publication approval.
 - [ ] Repair or reinstall succeeded.
 - [ ] Uninstall removed only registrations and executables owned by that installation; node state was preserved.
 - [ ] No malware, PUA, or behavioral detection occurred.
+- [ ] The [browser-download and Explorer procedure](windows-smartscreen-validation.md) records the exact MSI hash, source URL, browser, Windows build/account context, `ZoneId=3`, protection/policy state, screenshots, available buttons, and installer launch result.
+- [ ] An unpublished candidate's download origin is recorded accurately; any untested public download route remains explicitly outstanding.
 - [ ] Any ordinary signed SmartScreen unknown-reputation prompt is recorded for release notes or support, but is not described as malware.
 
 If either scanner reports malware, PUA, or suspicious behavior, stop. Record the exact hash, detection name, definition version, vendor submission reference, determination, and same-hash retest. Do not approve publication while a determination is pending. A rebuild creates a new candidate and restarts every security check.
@@ -118,6 +124,7 @@ If either scanner reports malware, PUA, or suspicious behavior, stop. Record the
 - [ ] No asset was overwritten with `--clobber`.
 - [ ] The complete draft was downloaded and byte-compared with the candidate.
 - [ ] The draft was made public only by the final publication step.
+- [ ] The public MSI download was repeated through the browser and Explorer with its hash and Internet-zone marker rechecked; any prompt or block is recorded without changing the published assets.
 
 If the candidate artifact expires, or any file or digest differs, create a new candidate and repeat this checklist. Never rebuild, resign, repackage, regenerate checksums, or replace assets after clearance.
 

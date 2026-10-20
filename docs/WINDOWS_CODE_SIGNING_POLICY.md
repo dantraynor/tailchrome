@@ -10,7 +10,8 @@ the project, issued one stable publisher identity, and produced a successfully
 timestamped test signature. SignPath Foundation accepted the project on
 October 8, 2026; the isolated
 [test-signing run](https://github.com/dantraynor/tailchrome/actions/runs/37815038448)
-passed that day. Production certificate issuance and release integration are
+passed that day. The release workflow integrates the fixed
+`tailchrome` / `release-signing` policy, but production activation remains
 pending. The repository has no approved production Authenticode signer subject.
 A release must not substitute a locally generated certificate or a second
 provider when signing is unavailable.
@@ -20,17 +21,19 @@ unsigned Windows binaries by setting the `WINDOWS_ALLOW_UNSIGNED_RELEASE`
 repository variable to `true`. Unsigned mode is mutually exclusive with a
 configured signer subject, requires the same Defender clearance evidence, records
 `windowsSigning: unsigned` in the candidate metadata, and still requires the
-protected publication approval. Users installing these builds see the ordinary
-SmartScreen unknown-publisher warning. The variable must be removed as soon as
-a signing provider and expected signer subject are recorded, at which point the
+protected publication approval. Windows may show an unknown-publisher or
+reputation warning, and device policy can prevent overriding it. The variable
+must be removed as soon as a signing provider and expected signer subject are
+recorded, at which point the
 fail-closed signed gate below is the only release path again.
 
 SignPath is the accepted onboarding provider. The isolated
 [test-signing workflow](signpath-setup.md) uses its self-signed test certificate
 only for setup review. It cannot produce publishable release candidates.
-Production signing remains blocked until
-the Foundation reviews the setup and issues the production certificate, and
-the release integration and exact production signer subject are recorded here.
+Production signing remains blocked until the Foundation-issued production
+certificate, exact signer subject, trusted-build requirement, and explicit
+request approvals have been verified using the
+[production setup procedure](signpath-setup.md#activate-production-signing).
 
 If SignPath supplies the production signature, the project home and download
 surfaces must include this acknowledgement:
@@ -111,6 +114,13 @@ minimum configuration required by the selected provider. Identity and billing
 documents stay in the provider account. Production signing configuration must
 not expose a workflow input that switches providers or publisher identities.
 
+The release workflow fixes the provider to SignPath and the project/policy to
+`tailchrome` / `release-signing`. Its CI credential is a submitter, not an
+approver. The production policy must require GitHub trusted-build provenance
+and explicit maintainer approval for both the EXE and MSI requests. The
+`windows-signpath-signing` artifact retains those request IDs and the final
+signature report with the run's source commit for 90 days.
+
 ## Signature and timestamp requirements
 
 All four Windows signature surfaces—the amd64 raw EXE, ARM64 raw EXE,
@@ -144,6 +154,14 @@ current definitions.
 A validly signed SmartScreen unknown-reputation prompt is documented for users
 but is not itself a malware detection. An invalid signature or an actual
 SmartScreen/Defender classification remains blocking.
+
+Test the exact MSI downloaded by a browser with its Internet-zone marker intact
+and launched from Explorer using the
+[SmartScreen validation procedure](windows-smartscreen-validation.md). Record
+the visible publisher, buttons, relevant Windows policies, and whether the
+installer opens. A missing override button alone does not identify the policy
+or establish a malware detection. Direct `msiexec` installation and clean
+antivirus scans do not cover this path.
 
 The complete procedure is in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
 
