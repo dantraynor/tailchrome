@@ -577,8 +577,15 @@ func (h *Host) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}()
 	go func() {
 		io.Copy(client, upstream)
+		// The hijacked conn comes from proxymux, whose wrapper hides the
+		// underlying TCP CloseWrite. Without a half-close the browser would
+		// never see the tailnet side go away and would keep a dead pooled
+		// connection open (#152), so close the client outright instead. That
+		// also unblocks the client-to-upstream copy.
 		if cw, ok := client.(interface{ CloseWrite() error }); ok {
 			cw.CloseWrite()
+		} else {
+			client.Close()
 		}
 		done <- struct{}{}
 	}()
