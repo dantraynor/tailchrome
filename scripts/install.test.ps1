@@ -6,6 +6,7 @@ $Installer = Join-Path $Root 'scripts/install.ps1'
 . $Installer
 $ProductionInvokeInstalledHelper = (Get-Command Invoke-InstalledHelper -CommandType Function).ScriptBlock
 $ProductionGetNativeArchitecture = (Get-Command Get-NativeArchitecture -CommandType Function).ScriptBlock
+$ProductionTestAvailableAttestation = (Get-Command Test-AvailableAttestation -CommandType Function).ScriptBlock
 
 $TestsRun = 0
 $TestsFailed = 0
@@ -146,6 +147,89 @@ if ($helperSuccess -eq 0 -and $helperFailure -eq 7) {
   FailTest 'keeps helper stdout out of Invoke-InstalledHelper exit-code results' ("success=[$helperSuccess] failure=[$helperFailure]")
 }
 
+# A real native gh that reports failure on stderr. Under stock Windows
+# PowerShell 5.1 with ErrorActionPreference=Stop, redirected stderr used to
+# abort the installer before the exit-code check (#151).
+$fakeGhDir = Join-Path ([IO.Path]::GetTempPath()) ('tailchrome-fake-gh-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $fakeGhDir | Out-Null
+if ($WindowsTest) {
+@'
+@echo off
+if "%1"=="auth" (
+  if "%TAILCHROME_FAKE_GH_MODE%"=="unauthenticated" (
+    echo You are not logged into any GitHub hosts. 1>&2
+    exit /b 1
+  )
+  exit /b 0
+)
+if "%3"=="--help" exit /b 0
+if "%TAILCHROME_FAKE_GH_MODE%"=="verify-fails" (
+  echo attestation verification failed 1>&2
+  exit /b 1
+)
+exit /b 0
+'@ | Set-Content -LiteralPath (Join-Path $fakeGhDir 'gh.cmd')
+} else {
+@'
+#!/bin/sh
+if [ "$1" = "auth" ]; then
+  if [ "$TAILCHROME_FAKE_GH_MODE" = "unauthenticated" ]; then
+    echo "You are not logged into any GitHub hosts." >&2
+    exit 1
+  fi
+  exit 0
+fi
+if [ "$3" = "--help" ]; then exit 0; fi
+if [ "$TAILCHROME_FAKE_GH_MODE" = "verify-fails" ]; then
+  echo "attestation verification failed" >&2
+  exit 1
+fi
+exit 0
+'@ | Set-Content -LiteralPath (Join-Path $fakeGhDir 'gh')
+  & chmod +x (Join-Path $fakeGhDir 'gh')
+}
+$savedPath = $env:PATH
+$env:PATH = $fakeGhDir + [IO.Path]::PathSeparator + $env:PATH
+try {
+  $env:TAILCHROME_FAKE_GH_MODE = 'unauthenticated'
+  try {
+    $probeOutput = (& $ProductionTestAvailableAttestation (Join-Path $fakeGhDir 'artifact') 3>&1 | Out-String)
+    if ($probeOutput -like '*GitHub CLI is not authenticated*') {
+      Pass 'warns instead of aborting when gh is installed but not authenticated'
+    } else {
+      FailTest 'warns instead of aborting when gh is installed but not authenticated' ("output=[$probeOutput]")
+    }
+  } catch {
+    FailTest 'warns instead of aborting when gh is installed but not authenticated' $_.Exception.Message
+  }
+
+  $env:TAILCHROME_FAKE_GH_MODE = 'verify-fails'
+  Expect-Failure 'fails closed when gh attestation verification fails' 'GitHub artifact attestation verification failed' {
+    try {
+      & $ProductionTestAvailableAttestation (Join-Path $fakeGhDir 'artifact') 3>&1 | Out-Null
+      return ''
+    } catch {
+      return $_.Exception.Message
+    }
+  }
+
+  $env:TAILCHROME_FAKE_GH_MODE = 'verified'
+  try {
+    $probeOutput = (& $ProductionTestAvailableAttestation (Join-Path $fakeGhDir 'artifact') 3>&1 | Out-String)
+    if (-not $probeOutput.Trim()) {
+      Pass 'accepts a verified gh attestation silently'
+    } else {
+      FailTest 'accepts a verified gh attestation silently' ("output=[$probeOutput]")
+    }
+  } catch {
+    FailTest 'accepts a verified gh attestation silently' $_.Exception.Message
+  }
+} finally {
+  $env:PATH = $savedPath
+  Remove-Item Env:\TAILCHROME_FAKE_GH_MODE -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $fakeGhDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 New-Fixture
 $popupBin = Join-Path $script:Fixture "scriptblock bin/owner's helper"
 New-Item -ItemType Directory -Path $popupBin -Force | Out-Null
@@ -249,6 +333,7 @@ $script:SignatureStatus = 'Invalid'
 Expect-Failure 'rejects invalid signature with unsigned opt-in' 'signature verification failed' { Invoke-Main -AllowUnsigned }
 New-Fixture
 Expect-Failure 'rejects unsigned release without opt-in' 'use -AllowUnsigned' { Invoke-Main }
+Expect-Failure 'points unsigned-release failures at the pinned release notes' 'releases/tag/v1.2.3; if they approve this unsigned release, run the same command again with -AllowUnsigned' { Invoke-Main }
 New-Fixture
 $message = Invoke-Main -AllowUnsigned
 $destination = Join-Path $env:LOCALAPPDATA 'Tailchrome/tailchrome.exe'

@@ -164,29 +164,36 @@ function Invoke-Download([string]$Uri, [string]$Path) {
   Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $Path
 }
 
+function Invoke-NativeProbe([string]$Command, [string[]]$Arguments) {
+  # Windows PowerShell 5.1 turns redirected native stderr into a terminating
+  # NativeCommandError when ErrorActionPreference is Stop, so a probe that
+  # merely reports failure on stderr would abort the installer (#151). Probes
+  # report through their exit code; scope Continue to this call only.
+  $ErrorActionPreference = 'Continue'
+  & $Command @Arguments *> $null
+  return $LASTEXITCODE
+}
+
 function Test-AvailableAttestation([string]$ArtifactPath) {
   $gh = Get-Command gh -ErrorAction SilentlyContinue
   if (-not $gh) {
     Write-Warning 'GitHub CLI attestation verification is unavailable; the checksum and artifact share the GitHub Release trust boundary.'
     return
   }
-  & $gh.Source attestation verify --help *> $null
-  if ($LASTEXITCODE -ne 0) {
+  if ((Invoke-NativeProbe $gh.Source @('attestation', 'verify', '--help')) -ne 0) {
     Write-Warning 'GitHub CLI attestation verification is unavailable; the checksum and artifact share the GitHub Release trust boundary.'
     return
   }
-  & $gh.Source auth status --hostname github.com *> $null
-  if ($LASTEXITCODE -ne 0) {
+  if ((Invoke-NativeProbe $gh.Source @('auth', 'status', '--hostname', 'github.com')) -ne 0) {
     Write-Warning 'GitHub CLI is not authenticated; the checksum and artifact share the GitHub Release trust boundary.'
     return
   }
-  & $gh.Source attestation verify $ArtifactPath --hostname github.com --repo $Repository *> $null
-  if ($LASTEXITCODE -ne 0) {
+  if ((Invoke-NativeProbe $gh.Source @('attestation', 'verify', $ArtifactPath, '--hostname', 'github.com', '--repo', $Repository)) -ne 0) {
     Fail 'GitHub artifact attestation verification failed.'
   }
 }
 
-function Test-Authenticode([string]$ArtifactPath) {
+function Test-Authenticode([string]$ArtifactPath, [string]$Version) {
   $signatureCommand = Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue
   if (-not $signatureCommand) {
     if ($AllowUnsigned -or $env:TAILCHROME_ALLOW_UNSIGNED_RELEASE -eq '1') {
@@ -204,7 +211,8 @@ function Test-Authenticode([string]$ArtifactPath) {
     return
   }
   if ($signature.Status -eq 'NotSigned') {
-    Fail 'Release is unsigned; use -AllowUnsigned only for an explicitly approved unsigned release.'
+    $notes = if ($Version) { " Review the release notes at https://github.com/$Repository/releases/tag/$Version; if they approve this unsigned release, run the same command again with -AllowUnsigned added at the end." } else { '' }
+    Fail ('Release is unsigned; use -AllowUnsigned only for an explicitly approved unsigned release.' + $notes)
   }
   Fail "Windows signature verification failed: $($signature.Status)."
 }
@@ -347,7 +355,7 @@ $releaseBase = "$ReleaseBaseDefault/$Version"
     Fail 'SHA-256 checksum verification failed.'
   }
   Test-AvailableAttestation $artifactPath
-  Test-Authenticode $artifactPath
+  Test-Authenticode $artifactPath $Version
 
   $stagePath = Join-Path $targetDirectory ('.tailchrome-stage-' + [guid]::NewGuid().ToString('N') + '.tmp')
   Copy-VerifiedStage $artifactPath $stagePath

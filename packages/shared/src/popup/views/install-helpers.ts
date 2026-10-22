@@ -320,6 +320,9 @@ function createPrimaryInstall(
       platform === "linux" ? unixInstallCommand() : powershellInstallCommand();
     if (command) {
       card.appendChild(createCodeBlock(command));
+      if (platform === "windows") {
+        card.appendChild(createUnsignedPowerShellHint());
+      }
     } else {
       card.appendChild(createReleaseLink());
     }
@@ -431,7 +434,11 @@ function createAlternativeInstallDetails(
 
   if (platform === "windows" && architecture === "amd64") {
     appendAlternativeHeading(details, "PowerShell option");
-    appendCommandIfAvailable(details, powershellInstallCommand());
+    const command = powershellInstallCommand();
+    appendCommandIfAvailable(details, command);
+    if (command) {
+      details.appendChild(createUnsignedPowerShellHint());
+    }
     appendAdvancedDocs(details);
     return details;
   }
@@ -480,6 +487,19 @@ function appendCommandIfAvailable(
   if (command) {
     container.appendChild(createCodeBlock(command));
   }
+}
+
+/**
+ * The PowerShell installer requires an Authenticode signature unless the user
+ * explicitly opts in. Explain that opt-in here instead of baking it into the
+ * command, so signed releases keep rejecting an unsigned substitute (#151).
+ */
+function createUnsignedPowerShellHint(): HTMLElement {
+  const hint = document.createElement("p");
+  hint.className = "install-step-hint";
+  hint.textContent =
+    "If PowerShell stops at “Release is unsigned”, check the release notes. If they say this release's Windows helper is unsigned, run the command again with -AllowUnsigned added at the end.";
+  return hint;
 }
 
 function appendAdvancedDocs(container: HTMLElement): void {

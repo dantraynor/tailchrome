@@ -173,6 +173,9 @@ describe("renderInstallFlow", () => {
 
     const primary = root.querySelector<HTMLElement>(".helper-install-primary")!;
     expect(primary.textContent).toContain("without administrator access");
+    const alternatives = root.querySelector<HTMLDetailsElement>("details")!;
+    expect(alternatives.querySelector("code")!.textContent).not.toContain("-AllowUnsigned");
+    expect(alternatives.textContent).toContain("again with -AllowUnsigned added at the end");
     expect(primary.querySelector<HTMLAnchorElement>("a")?.href).toBe(
       `${release}/download/${version}/tailchrome-helper-windows-x64.msi`,
     );
@@ -188,6 +191,8 @@ describe("renderInstallFlow", () => {
     expect(command).toContain(`${release}/download/${version}/tailchrome-install.ps1`);
     expect(command).toContain(`-Version '${version}'`);
     expect(primary.textContent).toContain("native ARM64");
+    expect(command).not.toContain("-AllowUnsigned");
+    expect(primary.textContent).toContain("again with -AllowUnsigned added at the end");
     const alternatives = root.querySelector<HTMLDetailsElement>("details")!;
     expect(alternatives.open).toBe(false);
     expect(alternatives.textContent).toContain("x64 package (runs under emulation)");
