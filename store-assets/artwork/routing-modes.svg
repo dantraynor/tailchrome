@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 336" width="960" height="336" role="img" aria-labelledby="t d">
+  <title id="t">One browser profile, one Tailscale node, three ways to route</title>
+  <desc id="d">A browser profile controls tailchrome-helper over native messaging and sends browsing traffic through its local HTTP/SOCKS5 proxy. The helper is a Go program that runs a full Tailscale node. The three examples show the same profile and node reaching tailnet devices, routing internet browsing through an exit node, or splitting traffic by domain. System networking is unchanged.</desc>
+  <defs>
+    <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L8,4 L0,8 z" fill="#57606a"/>
+    </marker>
+    <marker id="ahf" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#8c959f"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1f2328; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .h { font-size: 14px; font-weight: 600; }
+      .s { font-size: 12px; }
+      .xs { font-size: 11px; fill: #57606a; }
+      .cap { font-size: 12px; fill: #57606a; font-style: italic; }
+      .br { fill: #fbefff; stroke: #c297ff; }
+      .node { fill: #dafbe1; stroke: #4ac26b; }
+      .net { fill: #ddf4ff; stroke: #54aeff; }
+      .own { fill: #fff8c5; stroke: #d4a72c; }
+      .proc { fill: #f6f8fa; stroke: #8c959f; }
+      .rt { fill: #1f2328; stroke: #1f2328; }
+      .link { stroke: #57606a; stroke-width: 1.6; fill: none; }
+      .fan { stroke: #8c959f; stroke-width: 1.2; stroke-dasharray: 5 4; fill: none; }
+      .model { fill: #f6f8fa; stroke: #d0d7de; }
+    </style>
+  </defs>
+
+  <rect x="1" y="1" width="958" height="334" rx="12" fill="#ffffff" stroke="#d0d7de"/>
+
+  <!-- Architecture: profile, helper, tailnet, untouched system -->
+  <rect class="br" x="24" y="16" width="130" height="40" rx="6"/>
+  <text class="s" x="89" y="40" text-anchor="middle">browser profile</text>
+  <g>
+    <title>Commands and status use native messaging; browsing traffic uses the local proxy.</title>
+    <path class="link" d="M157,31 H235" stroke-dasharray="3 3" marker-start="url(#ah)" marker-end="url(#ah)"/>
+    <text class="xs" x="195" y="24" text-anchor="middle">native msg</text>
+    <path class="link" d="M154,53 H236" marker-end="url(#ah)"/>
+    <text class="xs" x="195" y="46" text-anchor="middle">HTTP/SOCKS5</text>
+  </g>
+  <rect class="node" x="238" y="16" width="292" height="40" rx="6"/>
+  <text class="s" x="384" y="40" text-anchor="middle"><tspan class="mono">tailchrome-helper</tspan>: Tailscale node + local proxy</text>
+  <path class="link" d="M530,36 H592" marker-end="url(#ah)"/>
+  <text class="xs" x="561" y="29" text-anchor="middle">WireGuard</text>
+  <rect class="net" x="594" y="16" width="116" height="40" rx="6"/>
+  <text class="s" x="652" y="40" text-anchor="middle">your tailnet</text>
+  <rect class="own" x="728" y="16" width="208" height="40" rx="6"/>
+  <text class="s" x="832" y="40" text-anchor="middle"><tspan font-weight="600">sys networking</tspan> | unchanged</text>
+
+  <!-- The same node serves every routing mode -->
+  <path class="fan" d="M340,56 C310,80 220,76 180,96" marker-end="url(#ahf)"/>
+  <path class="fan" d="M390,56 C410,74 450,78 474,96" marker-end="url(#ahf)"/>
+  <path class="fan" d="M450,56 C550,74 700,76 780,96" marker-end="url(#ahf)"/>
+
+  <line x1="326" y1="104" x2="326" y2="282" stroke="#d0d7de"/>
+  <line x1="634" y1="104" x2="634" y2="282" stroke="#d0d7de"/>
+
+  <!-- 1: reach devices -->
+  <text class="h" x="172" y="116" text-anchor="middle">Reach devices</text>
+  <rect class="proc" x="40" y="126" width="264" height="94" rx="8"/>
+  <rect class="br" x="52" y="166" width="68" height="34" rx="6"/>
+  <text class="s" x="86" y="187" text-anchor="middle">browser</text>
+  <path class="link" d="M120,183 H136" marker-end="url(#ah)"/>
+  <rect class="node" x="138" y="166" width="54" height="34" rx="6"/>
+  <text class="s" x="165" y="187" text-anchor="middle">node</text>
+  <path class="link" d="M192,183 H208" marker-end="url(#ah)"/>
+  <rect class="net" x="210" y="166" width="82" height="34" rx="6"/>
+  <text class="s mono" x="251" y="181" text-anchor="middle">nas</text>
+  <text class="xs mono" x="251" y="195" text-anchor="middle">100.64.0.5</text>
+  <text class="cap" x="172" y="238" text-anchor="middle">tailnet names and IPs use the node, the rest is direct</text>
+  <rect class="model" x="32" y="250" width="280" height="26" rx="5"/>
+  <text class="xs" x="40" y="267">exit node</text>
+  <text class="s mono" x="198" y="267" text-anchor="middle">none (direct)</text>
+
+  <!-- 2: exit node -->
+  <text class="h" x="480" y="116" text-anchor="middle">Exit node</text>
+  <rect class="proc" x="348" y="126" width="264" height="94" rx="8"/>
+  <rect class="br" x="360" y="166" width="68" height="34" rx="6"/>
+  <text class="s" x="394" y="187" text-anchor="middle">browser</text>
+  <path class="link" d="M428,183 H444" marker-end="url(#ah)"/>
+  <rect class="node" x="446" y="166" width="54" height="34" rx="6"/>
+  <text class="s" x="473" y="187" text-anchor="middle">node</text>
+  <path class="link" d="M500,183 H516" marker-end="url(#ah)"/>
+  <rect class="rt" x="518" y="166" width="82" height="34" rx="17"/>
+  <text class="s mono" x="559" y="187" text-anchor="middle" style="fill:#ffffff">sfo-exit</text>
+  <text class="cap" x="480" y="238" text-anchor="middle">internet browsing uses sfo-exit</text>
+  <rect class="model" x="340" y="250" width="280" height="26" rx="5"/>
+  <text class="xs" x="348" y="267">exit node</text>
+  <text class="s mono" x="506" y="267" text-anchor="middle">sfo-exit &#183; or best Mullvad</text>
+
+  <!-- 3: split tunneling -->
+  <text class="h" x="788" y="116" text-anchor="middle">Split tunneling</text>
+  <rect class="proc" x="656" y="126" width="264" height="94" rx="8"/>
+  <rect class="br" x="668" y="166" width="68" height="34" rx="6"/>
+  <text class="s" x="702" y="187" text-anchor="middle">browser</text>
+  <path class="link" d="M736,176 C750,176 750,163 762,163 H830" marker-end="url(#ah)"/>
+  <path class="link" d="M736,190 C752,190 748,203 760,203 H766" marker-end="url(#ah)"/>
+  <rect class="net" x="832" y="150" width="76" height="26" rx="6"/>
+  <text class="xs" x="870" y="167" text-anchor="middle" style="fill:#1f2328">direct</text>
+  <rect class="node" x="768" y="190" width="48" height="26" rx="6"/>
+  <text class="xs" x="792" y="207" text-anchor="middle" style="fill:#1f2328">node</text>
+  <path class="link" d="M816,203 H830" marker-end="url(#ah)"/>
+  <rect class="rt" x="832" y="190" width="76" height="26" rx="13"/>
+  <text class="xs mono" x="870" y="207" text-anchor="middle" style="fill:#ffffff">sfo-exit</text>
+  <text class="cap" x="788" y="238" text-anchor="middle">listed domains skip the node, the rest use the exit</text>
+  <rect class="model" x="648" y="250" width="280" height="26" rx="5"/>
+  <text class="xs" x="656" y="267">bypass</text>
+  <text class="s mono" x="800" y="267" text-anchor="middle">video.example.com</text>
+
+  <!-- Bottom line -->
+  <text class="xs" x="480" y="294" text-anchor="middle">Same profile and node in all three examples.</text>
+  <text class="s" x="480" y="314" text-anchor="middle"><tspan font-weight="600">Each browser profile is its own node.</tspan> Same helper for Chrome and Firefox; the Tailscale app is optional.</text>
+</svg>

@@ -1,12 +1,14 @@
 # Tailchrome
 
-Access your Tailscale network directly from your browser. No system VPN required.
+Access your Tailscale network from the browser. You do not need the system VPN.
 
-<img width="1400" height="560" alt="Tailchrome routes a private tailnet inside the browser" src="store-assets/promo-marquee-v2.png" />
+<p align="center">
+  <img width="1440" height="368" alt="Browser profile sends proxied traffic through Tailchrome helper to tailnet devices or a selected exit node, which reaches the internet. Other internet requests use the normal browser connection. Native messaging carries controls and status between the browser and helper." src="store-assets/readme-flow.svg">
+</p>
 
 [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) | [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/) | [tesseras.org/tailchrome](https://tesseras.org/tailchrome/)
 
-Tailchrome runs a full Tailscale node per browser profile, without touching system networking. Works in Chrome, Firefox, and other Chromium-family browsers (Brave, Edge, Vivaldi, Opera, plus Arc on macOS) with full feature parity. Tailnet traffic is routed through a local SOCKS5/HTTP proxy, so it works alongside (or without) the Tailscale system app.
+Tailchrome runs a full Tailscale node in each browser profile. It does not change system networking. Chrome, Firefox, and other Chromium browsers (Brave, Edge, Vivaldi, Opera, and Arc on macOS) share the same feature set. Tailnet traffic goes through a local SOCKS5/HTTP proxy, so the extension works with or without the Tailscale system app.
 
 <p align="center">
   <img align="top" width="45%" alt="Tailchrome dashboard showing connection status and devices" src="store-assets/artwork/ui/dashboard.png" />
@@ -15,142 +17,63 @@ Tailchrome runs a full Tailscale node per browser profile, without touching syst
 
 ## Features
 
-- **Per-profile isolation** — each browser profile gets its own independent Tailscale node and identity
-- **Exit nodes** — route all browser traffic through any exit node on your tailnet, with a "Best available" recommendation that picks a nearby Mullvad location when one is available
-- **Split-tunneling** — pick domains that bypass your exit node (handy for sites that flag VPN traffic), or restrict the exit node to only the domains you list
-- **MagicDNS** — access devices by name, not IP
-- **Split DNS** — resolve internal domains using restricted nameservers configured in Tailscale or Headscale ([setup and testing](docs/split-dns.md))
-- **Subnet routing** — reach IPv4 and IPv6 resources behind subnet routers
-- **Profiles** — create and switch between multiple Tailscale identities
-- **Device shortcuts** — a compact device list with one-click IP copying, full-list search, and a “View all” option
-- **Routing status** — see whether browser routing is active, blocked, or unavailable separately from the node's connection
-- **Custom coordination servers** — connect a browser profile to a self-hosted control server such as Headscale
-- **Side panel** — opt in to keep the UI docked while you browse (Chrome side panel, Firefox sidebar)
-- **Auto-connect on start** — optional toggle that brings the tailnet up when the browser launches
-- **Shields Up** — block incoming connections for extra security
+- Each browser profile is its own Tailscale node and identity.
+- Route all browser traffic through any exit node on your tailnet. The picker recommends "Best available Mullvad VPN" when one exists.
+- Split-tunnel domains that bypass the exit node (for sites that block VPN traffic), or limit the exit node to a domain list you choose.
+- MagicDNS resolves devices by name instead of IP.
+- Split DNS resolves internal domains through restricted nameservers from Tailscale or Headscale ([setup and testing](docs/split-dns.md)).
+- Subnet routing reaches IPv4 and IPv6 resources behind subnet routers.
+- Switch between multiple Tailscale identities with profiles.
+- The device list supports one-click IP copy, search, and a "View all" link.
+- Routing status shows whether browser routing is active, blocked, or unavailable, separate from node connection state.
+- Point a profile at a self-hosted control server such as Headscale.
+- Keep the UI docked while you browse with the side panel (Chrome side panel, Firefox sidebar).
+- Optional auto-connect brings the tailnet up when the browser starts.
+- Shields Up blocks incoming connections.
 
 ## How it works
 
-The extension has two parts:
+Two parts:
 
-- A **browser extension** (Manifest V3, Chrome and Firefox) that manages proxy configuration and provides the popup UI
-- A **native host** (Go, using `tsnet`) that runs the actual Tailscale node and exposes a local proxy
+- A Manifest V3 browser extension (Chrome and Firefox) sets the proxy and provides the popup UI.
+- A Go native host using `tsnet` runs the Tailscale node and serves a local proxy.
 
-They communicate over the browser's native messaging protocol. See the [full documentation](docs/DOCUMENTATION.md) for details.
+They talk over the browser native messaging protocol. See [full documentation](docs/DOCUMENTATION.md).
 
 ### Side panel mode
 
-By default, clicking the Tailchrome toolbar icon opens a popup that dismisses on click-away. If you'd rather keep the UI visible while you browse, flip **Open as side panel** in the popup's quick settings:
+By default, the toolbar icon opens a popup that closes when you click away. Turn on **Open as side panel** in quick settings to keep the UI open.
 
-- **Chrome:** the side panel opens on toolbar click and stays open until you close it. Chrome keeps the extension's service worker alive while the panel is visible, so peer status updates feel snappier.
-- **Firefox:** the toolbar click opens Tailchrome in the sidebar. Flip the toggle from inside the sidebar to switch back to popup mode.
+- **Chrome:** The side panel stays open until you close it. Chrome keeps the service worker alive while the panel is visible, so peer updates arrive sooner.
+- **Firefox:** The toolbar opens Tailchrome in the sidebar. Use the same toggle inside the sidebar to return to popup mode.
 
-The same UI renders in either surface.
+The UI is the same in either surface.
 
 ## Install
 
-1. Get the extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) (also installs in Brave, Edge, Vivaldi, Opera, and — on macOS — Arc) or [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/)
-2. Open the extension and follow its per-user helper setup: the helper app on macOS, the Windows installer or native ARM64 PowerShell installer, or one terminal command on Linux. These install for your account without administrator access. [Homebrew](#homebrew-macos-and-linux) and system packages remain available.
-3. Log in to your Tailscale account
+1. Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) (Brave, Edge, Vivaldi, Opera, and Arc on macOS use the same listing) or [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/).
+2. Open the extension and follow helper setup for your platform. Per-user scripts and the popup-guided installers do not need admin rights. The [Homebrew cask](packaging/homebrew/README.md) and some system packages do.
+3. Log in to Tailscale.
 
-### Terminal installation
+Install the helper from the same [release](https://github.com/dantraynor/tailchrome/releases/latest) as the extension (minimum helper **v0.1.14** for the authenticated proxy). Pairing rules, repair, pinning, Flatpak, and uninstall are in [helper installation](docs/helper-installation.md).
 
-The simplified installer and CLI require helper **v0.1.14 or later**. Download
-the installers from the
-[current release](https://github.com/dantraynor/tailchrome/releases/latest).
-
-On macOS or Linux:
+**Quick install** (macOS/Linux):
 
 ```bash
 curl -fsSL https://github.com/dantraynor/tailchrome/releases/latest/download/tailchrome-install.sh | bash
 ```
 
-On Windows, in PowerShell:
+**Quick install** (Windows PowerShell):
 
 ```powershell
 irm https://github.com/dantraynor/tailchrome/releases/latest/download/tailchrome-install.ps1 | iex
 ```
 
-The installer selects and verifies the matching helper, places it at a stable
-user-owned path, and registers it with your browsers. Rerun the same installer
-to upgrade or repair registration. Downloads can also be inspected and pinned
-to a release. See [helper installation](docs/helper-installation.md) for paths,
-custom browser IDs, safe upgrades, removal, and Chrome Flatpak setup.
+**Other install paths:** [Homebrew tap](packaging/homebrew/README.md), [macOS](packaging/macos/README.md) and [Linux](packaging/linux/README.md) packages, [Windows](packaging/windows/README.md) MSI and raw helpers. Release checksums, attestation, and publication gates are in the [release checklist](docs/RELEASE_CHECKLIST.md).
 
-### Homebrew (macOS and Linux)
+## Windows code signing
 
-Add this repository as a tap once:
-
-```bash
-brew tap dantraynor/tailchrome https://github.com/dantraynor/tailchrome
-```
-
-On macOS, install the signed helper package with
-`brew install --cask dantraynor/tailchrome/tailchrome`.
-
-To build the helper from source on Linux or macOS, run:
-
-```bash
-brew install --formula dantraynor/tailchrome/tailchrome
-tailscale-browser-ext -install-now
-```
-
-The formula installs Go as a build dependency. Follow `brew info` for the
-registration command supported by the formula's pinned release. Starting with
-v0.1.14, direct registration uses Homebrew's stable `opt` path, so upgrades do
-not require refreshing a separate runtime copy. Older formula releases still
-require repeating `-install-now` after upgrading. See the
-[Homebrew instructions](packaging/homebrew/README.md) for upgrades, repair,
-and removal. The browser extension is installed separately.
-
-### Platform installers
-
-On macOS, open the downloaded ZIP and launch **Tailchrome Helper**. The app
-contains the helper and registers it for your account. The app and system
-package are signed and notarized. Organization browser policies can still
-block extensions or native messaging.
-
-A signed Windows release verifies both raw helpers, the embedded amd64
-helper, and the outer MSI under the
-[Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md). Explicit
-unsigned releases disclose that exception. Linux packages are covered by the release
-checksum and build-provenance attestation. If Tailchrome still cannot discover
-the helper after the package is installed, the popup
-offers a current-user registration repair for the browser that requested it.
-On macOS, reopen `~/Applications/Tailchrome Helper.app` for the per-user app,
-or `/Applications/Tailchrome Helper.app` for the system package. The per-user installer resolves one release version, checks the
-downloaded helper before running it, and uses the helper's own registration
-targets. Explicit version pinning remains available; see the
-[Linux](packaging/linux/README.md) and [macOS](packaging/macos/README.md)
-instructions.
-
-Helper version differences alone do not disable the connection: compatible
-helpers show a non-blocking release notice, and optional features use the
-capabilities the helper advertises. **Upgrade the extension and helper together
-for v0.1.14.** Its authenticated proxy is a required capability: the new extension
-rejects older helpers without it, and older extensions cannot authenticate to
-the new helper. Complete both updates before resuming protected browsing.
-Helper diagnostic reports
-are created only when you choose **Copy diagnostic report** or
-**Export diagnostic report**; they remain local until you copy, save, or share
-them.
-
-Release artifacts are assembled and checksummed only after platform signing
-and packaging. Windows publication is additionally gated by the
-[Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md) and the
-[release security checklist](docs/RELEASE_CHECKLIST.md).
-
-## Code signing policy
-
-SignPath Foundation has accepted Tailchrome for Windows Authenticode signing.
-[Test signing](https://github.com/dantraynor/tailchrome/actions/runs/37815038448)
-has been verified; production certificate issuance and release integration are
-still pending. Windows releases remain
-explicitly unsigned until those steps are complete. The public
-[Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md) defines who
-may submit and approve signing requests, which builds are eligible, how
-signatures are verified, and how a compromised or replaced publisher identity
-is handled.
+SignPath Foundation accepted Tailchrome for Windows Authenticode signing. [Test signing](https://github.com/dantraynor/tailchrome/actions/runs/37815038448) passed; production certificate issuance and signed release integration are still pending. Windows releases stay explicitly unsigned until that work ships. See the [Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md) and [SignPath setup notes](docs/signpath-setup.md).
 
 For releases signed through the SignPath Foundation program:
 
@@ -164,16 +87,11 @@ make dev              # Chrome extension (watch mode)
 make host             # Native host binary
 ```
 
-PRs run CI (lint, typecheck, TypeScript and Go tests, browser tests,
-packaging checks, and the Firefox review gate). A release tag assembles one
-immutable helper candidate; the protected publication workflow publishes only
-the cleared candidate bytes. Chrome Web Store and Firefox Add-ons submissions
-remain separate gated jobs. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for
-full setup and build commands.
+See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for CI, release workflow, and build commands.
 
 ## Contributing
 
-Bug reports and feature requests are welcome. Please open an issue before submitting a PR so we can discuss the approach. See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines.
+Bug reports and feature requests are welcome. Open an issue before a PR so we can agree on approach. See [CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ## License
 

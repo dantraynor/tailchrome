@@ -1,10 +1,10 @@
-# Tailchrome -- Complete Technical Documentation
+# Tailchrome: complete technical documentation
 
-> Access your Tailscale network directly from your browser. No system VPN required.
+Tailscale in the browser without changing system VPN settings. For a short overview and install links, see the [project README](../README.md).
 
-**Version:** 0.1.15 (native host) | Manifest V3
-**Browsers:** Chrome, Firefox
-**Platforms:** macOS (amd64, arm64), Linux (amd64 packages; amd64/arm64 raw helpers), Windows (amd64 MSI; amd64/arm64 raw helpers). Chrome Flatpak is an explicit Linux installation option
+**Version:** 0.1.15 (extension and native host) | Manifest V3
+**Browsers:** Chrome, Firefox, and Chromium-family browsers with the same Chrome Web Store build (Brave, Edge, Vivaldi, Opera; Arc on macOS)
+**Platforms:** macOS (amd64, arm64), Linux (amd64 packages; amd64/arm64 raw helpers), Windows (amd64 MSI; amd64/arm64 raw helpers). Chrome Flatpak is a separate Linux install path ([helper installation](helper-installation.md#chrome-flatpak))
 **License:** MIT
 **Website:** [tesseras.org/tailchrome](https://tesseras.org/)
 **Chrome Web Store:** [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
@@ -41,14 +41,14 @@
 
 ## Overview
 
-Tailchrome is a browser extension that runs a full Tailscale node per browser profile, without touching system networking. It consists of two components:
+Tailchrome runs a full Tailscale node in each browser profile. System networking is unchanged. Two components cooperate:
 
-- A **browser extension** (TypeScript, Manifest V3) that manages proxy configuration and provides a popup UI.
-- A **native messaging host** (Go, using `tsnet`) that runs the actual Tailscale node and exposes a local SOCKS5/HTTP proxy.
+- A TypeScript Manifest V3 extension sets browser proxy rules and renders the popup, side panel, or sidebar UI.
+- A Go native messaging host (`tsnet`) runs the node and listens on a local SOCKS5/HTTP proxy.
 
-The two communicate over the browser's native messaging protocol. Tailnet traffic from the browser is routed through the local proxy, so Tailchrome works alongside (or without) the Tailscale system app.
+They exchange JSON over the browser native messaging protocol. Browser tailnet traffic uses the local proxy, so Tailchrome works with or without the Tailscale system app.
 
-Each browser profile gets its own isolated Tailscale identity, meaning you can be logged into different tailnets in different Chrome/Firefox profiles simultaneously.
+Each browser profile has its own Tailscale identity. Different profiles can use different tailnets at the same time.
 
 ---
 
@@ -109,56 +109,56 @@ Each browser profile gets its own isolated Tailscale identity, meaning you can b
 
 ### Core Networking
 
-- **Tailnet access** -- browse devices on your tailnet by IP or MagicDNS name, directly from the browser
-- **Per-profile isolation** -- each browser profile gets its own independent Tailscale node and identity
-- **Exit nodes** -- route all browser traffic through any exit node on your tailnet, with a "Best available" Recommended row in the picker that picks a nearby Mullvad location when one is available
-- **Split-tunneling** -- per-profile domain rules (Bypass / Only) that exempt specific domains from the exit node or restrict the exit node to a chosen domain set; rules are suffix-matched and applied after Tailscale-mandatory routes (MagicDNS, 100.64.0.0/10, subnet routes) so tailnet traffic is never affected
-- **MagicDNS** -- resolve tailnet device names automatically
-- **Split DNS** -- resolve restricted domains through nameservers supplied by Tailscale or Headscale, including nameservers reachable over subnet routes
-- **Subnet routing** -- access IPv4 and IPv6 resources behind subnet routers (auto-detected from peer info)
-- **Allow LAN access** -- when using an exit node, optionally allow local network access
+- Browse tailnet devices by IP or MagicDNS name from the browser.
+- Each browser profile has its own Tailscale node and identity.
+- Route all browser traffic through any exit node on your tailnet. When a suitable Mullvad exit exists, the picker shows a Recommended row labeled "Best available Mullvad VPN".
+- Per-profile split tunneling with Bypass and Only domain rules. Rules match suffixes and apply after mandatory Tailscale routes (MagicDNS, 100.64.0.0/10, subnet routes), so tailnet traffic is unchanged.
+- MagicDNS resolves tailnet device names.
+- Split DNS uses nameservers from Tailscale or Headscale, including nameservers reached through subnet routes.
+- Subnet routing reaches IPv4 and IPv6 resources behind subnet routers (detected from peer info).
+- With an exit node enabled, you can optionally allow LAN access.
 
 ### Device Management
 
-- **Peer list** -- online/offline grouping with search, incremental DOM updates
-- **Copy IP / Copy DNS** -- one-click clipboard copy of any peer's Tailscale IP or DNS name
-- **Open web interface** -- launch peer's web UI in a new tab
-- **SSH access** -- open SSH-capable peers via the Tailscale web SSH client (`http://100.100.100.100/ssh/<hostname>`)
-- **Custom URLs** -- configure per-device custom port/URL for quick open actions
+- The peer list groups online and offline peers, supports search, and updates the DOM incrementally.
+- Copy a peer's Tailscale IP or DNS name to the clipboard in one click.
+- Open a peer's web UI in a new tab.
+- Open SSH-capable peers in the Tailscale web SSH client at `http://100.100.100.100/ssh/<hostname>`.
+- Set a per-device custom port or URL for quick open actions.
 
 ### File Transfer
 
-- **Taildrop** -- send files to other devices on your tailnet
-- **Context menu** -- right-click "Send page URL to Tailscale device" to share the current page URL as a text file via Taildrop
-- **Progress reporting** -- file send progress displayed as persistent toast notifications
+- Send files to other tailnet devices with Taildrop.
+- The context menu item "Send page URL to Tailscale device" sends the current page URL as a text file via Taildrop.
+- File send progress appears in persistent toast notifications.
 
 ### Identity & Configuration
 
-- **Profiles** -- create, switch between, and delete multiple Tailscale profiles (identities)
-- **Custom coordination server** -- point a profile at a self-hosted HTTP(S) control plane such as Headscale; switching servers signs the profile out and starts a fresh login against the new server
-- **Shields Up** -- toggle to block all incoming connections
-- **Run as Exit Node** -- advertise this browser node as an exit node
-- **Login / Logout** -- authenticate with Tailscale (validates login URLs against allowed origins)
-- **Health warnings** -- collapsible banner displaying operational Tailscale health warnings. The upstream experimental-build notice is informational and does not count as a warning; other health warnings, including peer-list truncation, remain visible. The extension also filters the existing notice text from older compatible helpers.
+- Create, switch, and delete multiple Tailscale profiles (identities).
+- Point a profile at a self-hosted HTTP(S) control server such as Headscale. Changing servers signs the profile out and starts a new login on the new server.
+- Shields Up blocks all incoming connections.
+- Run as Exit Node advertises this browser node as an exit node.
+- Login and logout authenticate with Tailscale. Login URLs must match allowed origins.
+- Operational health warnings appear in a collapsible banner. The upstream experimental-build notice is informational only. Other warnings, including peer-list truncation, stay visible. The extension filters the experimental notice text from older compatible helpers.
 
 ### UX
 
-- **Badge status** -- extension icon reflects online/offline/warning state with text badge for active exit node. Experimental-build notices leave connected and exit-node indicators unchanged; helper failures and routing failures still show warnings.
-- **Auto-reconnect** -- exponential backoff reconnection to native host (1s base, 30s max)
-- **Reliable helper activation** -- package downloads start a session-persisted discovery retry schedule; current-user registration repair is promoted only if package discovery still fails
-- **Actionable helper recovery** -- missing registration, permission denial, startup failure, unexpected stop, helper-reported errors, and explicit protocol incompatibility have distinct recovery copy
-- **Local helper diagnostics** -- on-demand copy/export produces a bounded, allowlisted report with sensitive values redacted; nothing is submitted automatically
-- **Non-blocking version notices** -- a helper/release version difference alone is informational; authenticated-proxy support is required, while optional commands remain gated by advertised capabilities
-- **Exit node persistence** -- last-selected exit node restored automatically after reconnection
-- **Toast notifications** -- in-popup toasts for operations (file send, errors, suggestions)
-- **Keyboard navigation** -- peer list supports arrow key navigation
-- **Platform-aware** -- detects macOS for platform-specific UI hints
-- **Side panel mode** -- opt-in toggle ("Open as side panel") that switches the UI from popup to Chrome side panel / Firefox sidebar; a single quick-settings row controls it on either browser
-- **Auto-connect on start** -- opt-in quick-settings toggle that brings the tailnet up on the first status after init when the backend is `Stopped`/`NoState`; a session-scoped flag preserves an explicit disconnect across service-worker restarts within the same browser session. The background registers a `runtime.onStartup` listener so the browser wakes it at launch -- without it the connection would wait for the popup to open. The extension also sends a session-scoped `wantRunning` hint with host init (the preference at browser launch, or the last explicit toggle afterwards) so the host can suppress tsnet's forced auto-up when the node should stay down; if the node comes up against a "stay down" decision anyway (a helper that predates the field, or a failed prefs edit), the background sends an explicit `down` as a fallback -- once per host connection, never overriding a newer user action. Switching (or creating) a profile clears the recorded intent -- the decision belonged to the previous profile, and the incoming profile's own saved prefs decide its run state
+- The extension icon shows online, offline, or warning state, with a text badge when an exit node is active. Experimental-build notices do not change connected or exit-node badges. Helper and routing failures still show warnings.
+- Reconnect to the native host with exponential backoff (1s base, 30s max).
+- After a package install, helper discovery retries on a session-persisted schedule. Current-user registration repair is offered only if discovery still fails.
+- Missing registration, permission denial, startup failure, unexpected stop, helper-reported errors, and explicit protocol incompatibility each have distinct recovery copy.
+- Copy or export a bounded, allowlisted helper diagnostic report with sensitive values redacted. Nothing is submitted automatically.
+- A helper or release version mismatch alone is informational. Authenticated proxy support is required. Optional commands depend on advertised helper capabilities.
+- The last selected exit node is restored after reconnect.
+- Toasts in the popup cover file send, errors, and suggestions.
+- Arrow keys navigate the peer list.
+- The UI adjusts hints on macOS.
+- **Open as side panel** switches the UI from popup to Chrome side panel or Firefox sidebar. One quick-settings row controls it on Chrome and Firefox.
+- **Auto-connect on start** (quick settings) brings the tailnet up on the first status after init when the backend is `Stopped` or `NoState`. A session-scoped flag preserves an explicit disconnect across service-worker restarts in the same browser session. The background listens for `runtime.onStartup` so launch does not wait for the popup to open. Init includes a session-scoped `wantRunning` hint (launch preference or last explicit toggle) so the host can keep the node down when auto-connect is off, despite tsnet defaulting to up on start. If the node still comes up (helper without the field, or a failed prefs edit), the background sends `down` once per host connection and does not override a newer user action. Switching or creating a profile clears recorded run intent; the new profile's saved prefs decide run state.
 
 ### Parity and backlog
 
-This document describes what Tailchrome implements today. The canonical place for **missing or partial features** versus the native Tailscale client, plus **architectural limits**, is [FEATURE_PARITY.md](FEATURE_PARITY.md). Maintain parity claims there; link from here if the parity doc moves or is renamed.
+This section lists current behavior only. Missing or partial features versus the native Tailscale client, plus architectural limits, are documented in [FEATURE_PARITY.md](FEATURE_PARITY.md). Maintain parity claims there; update this link if that file moves or is renamed.
 
 ---
 
@@ -699,17 +699,19 @@ guidance if the helper fails or does not confirm within 20 seconds.
 
 ### End User Installation
 
-**Chrome:**
+Install the extension, register the native helper, then log in. Step-by-step commands, version pairing (v0.1.14+ authenticated proxy), repair, and Flatpak are documented in [helper installation](helper-installation.md). The [README](../README.md) lists quick install one-liners.
+
+**Chrome (and Chromium-family browsers using the same store listing):**
 
 1. Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
-2. Follow the popup's per-user setup: the helper app on macOS, MSI on Windows x64, PowerShell installer on Windows ARM64, or terminal installer on Linux. The matching assets come from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest); [helper installation](helper-installation.md) documents the commands and alternatives.
-3. Log in to your Tailscale account
+2. Complete per-user helper setup from the popup (macOS helper app, Windows MSI or architecture-aware PowerShell installer, or Linux terminal command). Assets come from [GitHub Releases](https://github.com/dantraynor/tailchrome/releases/latest). Homebrew and system packages are optional ([packaging docs](../packaging/homebrew/README.md)).
+3. Log in to Tailscale
 
 **Firefox:**
 
 1. Install from [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/) or the matching [GitHub Release](https://github.com/dantraynor/tailchrome/releases/latest)
-2. Follow the same per-user helper setup used for Chrome.
-3. Log in to your Tailscale account
+2. Use the same helper setup flow as Chrome
+3. Log in to Tailscale
 
 ### Native Host Installation
 
