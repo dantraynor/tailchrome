@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"tailscale.com/client/local"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/ipn/store"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
 	"tailscale.com/types/netmap"
@@ -362,6 +364,9 @@ func (h *Host) handleRequestLocked(req Request) {
 	}
 }
 
+// startupPrefs are applied to a profile with no saved prefs. tsnet does not
+// accept subnet routes by default, but Tailchrome's proxy rules are built from
+// accepted PrimaryRoutes, so new profiles enable route acceptance.
 func startupPrefs() *ipn.MaskedPrefs {
 	return &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
@@ -369,6 +374,30 @@ func startupPrefs() *ipn.MaskedPrefs {
 		},
 		RouteAllSet: true,
 	}
+}
+
+// newProfileServer prepares the tsnet.Server for a browser profile's state
+// directory. It opens the state store the way tsnet would and reads the saved
+// prefs first, because Start overwrites them (#153). An unreadable prefs entry
+// is logged and treated as a new profile rather than blocking startup.
+func newProfileServer(stateDir string) (*tsnet.Server, *ipn.Prefs, error) {
+	st, err := store.New(log.Printf, filepath.Join(stateDir, "tailscaled.state"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open state: %v", err)
+	}
+	saved, err := loadSavedProfilePrefs(st)
+	if err != nil {
+		log.Printf("ignoring saved prefs: %v", err)
+		saved = nil
+	}
+	return &tsnet.Server{
+		Dir:          stateDir,
+		Store:        st,
+		Hostname:     savedHostname(saved),
+		ControlURL:   savedControlURL(saved),
+		RunWebClient: true,
+		Logf:         log.Printf,
+	}, saved, nil
 }
 
 // handleInit initializes (or reuses) a tsnet.Server for the given browser profile.
@@ -444,11 +473,13 @@ func (h *Host) handleInit(req Request) {
 		return
 	}
 
-	server := &tsnet.Server{
-		Dir:          stateDir,
-		Hostname:     "browser-ext",
-		RunWebClient: true,
-		Logf:         log.Printf,
+	server, saved, err := newProfileServer(stateDir)
+	if err != nil {
+		h.send(Reply{
+			Cmd:  "init",
+			Init: &InitReply{Error: err.Error()},
+		})
+		return
 	}
 
 	if err := server.Start(); err != nil {
@@ -469,11 +500,14 @@ func (h *Host) handleInit(req Request) {
 		return
 	}
 
-	// tsnet does not accept subnet routes by default. Tailchrome's proxy rules
-	// are built from accepted PrimaryRoutes, so enable route acceptance before
-	// publishing the first status update.
+	// tsnet.Server.Start reset the profile's prefs to its defaults. Reapply
+	// what was saved before publishing the first status update (#153).
 	prefsCtx, prefsCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	_, err = lc.EditPrefs(prefsCtx, startupPrefs())
+	_, err = lc.EditPrefs(prefsCtx, restoredStartupPrefs(saved))
+	if err != nil && saved != nil {
+		log.Printf("restoring saved prefs failed, using startup defaults: %v", err)
+		_, err = lc.EditPrefs(prefsCtx, startupPrefs())
+	}
 	prefsCancel()
 	if err != nil {
 		h.send(Reply{

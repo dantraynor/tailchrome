@@ -381,6 +381,7 @@ The native host is a Go binary at `host/` using `tailscale.com/tsnet` pinned to 
 | `proxy.go` / `proxy_policy.go` | SOCKS5/HTTP multiplexing, authenticated destination policy, lazy quad-100 web client, and buffered CONNECT tunneling |
 | `dns.go` / `exit_dns.go` | Restricted split-DNS forwarding and exit-node DNS behavior |
 | `profiles.go` | Profile management through the current local-client snapshot |
+| `saved_prefs.go` | Reads a profile's saved prefs before tsnet start and builds the restore edit |
 | `taildrop.go` | Chunk reassembly, asynchronous cancellable `PushFile`, progress, and cleanup |
 | `install.go` / `install_*.go` | Cross-platform native host installation and cleanup, including Chrome Flatpak sandbox state and registration |
 | `peers.go` | Peer/status conversion from Tailscale types |
@@ -392,7 +393,7 @@ The native host is a Go binary at `host/` using `tailscale.com/tsnet` pinned to 
 
 1. **Browser launches the host** via native messaging (stdin/stdout). Not a terminal -- goes directly to messaging mode.
 2. **Proxy starts** on `127.0.0.1:0`. The port is sent back to the extension via `procRunning`.
-3. **Extension sends `init`** with a profile identifier restricted to 1-64 ASCII letters, numbers, underscores, or hyphens. Host creates a `tsnet.Server` at `~/.config/tailscale-browser-ext/<ID>/` and atomically installs it as the current session.
+3. **Extension sends `init`** with a profile identifier restricted to 1-64 ASCII letters, numbers, underscores, or hyphens. Host creates a `tsnet.Server` at `~/.config/tailscale-browser-ext/<ID>/` and atomically installs it as the current session. `tsnet.Server.Start` resets the profile's prefs to its defaults, so the host reads the saved prefs first: the coordination server and hostname are passed into tsnet, and subnet-route acceptance, DNS, Shields Up, LAN access, SSH, and advertised routes are reapplied after start. The extension restores its selected exit node, and new profiles accept subnet routes by default.
 4. **IPN bus watcher** monitors state, prefs, netmap, browse-to-URL, and health changes. Errors trigger bounded exponential retries; each change schedules a debounced full `StatusUpdate` from the same session snapshot.
 5. **Host reads commands** in a loop from stdin, dispatches to handlers, and writes replies to stdout.
 6. **On stdin EOF** (browser closed), the host cancels the watcher and active Taildrop transfers, closes the tsnet server, and exits cleanly.
