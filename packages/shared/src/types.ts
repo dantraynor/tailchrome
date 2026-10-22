@@ -12,7 +12,7 @@ export type BackendState =
 
 export type NativeRequest =
   | { cmd: "init"; initID: string; wantRunning?: boolean }
-  | { cmd: "login" }
+  | { cmd: "login"; authKey?: string }
   | { cmd: "up" }
   | { cmd: "down" }
   | { cmd: "get-status" }
@@ -52,6 +52,8 @@ export interface NativeReply {
     supportsLogin?: boolean;
     /** When true, the native host accepts a `controlURL` field in `set-prefs` (omitted on older helpers). */
     supportsCustomControlURL?: boolean;
+    /** When true, the native host accepts an `authKey` field in `login` (omitted on older helpers). */
+    supportsAuthKeyLogin?: boolean;
     proxyAuth?: { version: 1; username: string; password: string };
   };
   init?: { error?: string };
@@ -269,6 +271,8 @@ export interface TailscaleState {
   supportsLogin: boolean;
   /** True when the connected native helper advertises `supportsCustomControlURL` in procRunning. */
   supportsCustomControlURL: boolean;
+  /** True when the connected native helper advertises `supportsAuthKeyLogin` in procRunning. */
+  supportsAuthKeyLogin: boolean;
   /** True when the native host disconnected and reconnection is being attempted. */
   reconnecting: boolean;
   /** Opt-in: send `up` automatically on extension startup when the node is Stopped/NoState. */
@@ -303,6 +307,7 @@ export type BackgroundMessage =
   | { type: "release-routing" }
   | { type: "toggle" }
   | { type: "login" }
+  | { type: "login-with-auth-key"; authKey: string }
   | { type: "disconnect-and-login" }
   | { type: "logout" }
   | {

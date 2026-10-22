@@ -732,6 +732,44 @@ button.setting-row {
   align-self: flex-start;
 }
 
+.auth-key-login {
+  width: 100%;
+  max-width: 280px;
+  margin-top: var(--space-lg);
+  text-align: left;
+}
+
+.auth-key-login summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.auth-key-form {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.auth-key-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-xs) var(--space-sm);
+  font-family: var(--font-family);
+  font-size: var(--font-size-xs);
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.auth-key-note {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+
 .split-tunneling-editor.hidden {
   display: none;
 }

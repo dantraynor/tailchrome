@@ -14,6 +14,11 @@ type Request struct {
 	Prefs  json.RawMessage `json:"prefs,omitempty"`  // partial prefs JSON, used with "set-prefs"
 	Note   string          `json:"note,omitempty"`   // optional note for "bug-report"
 
+	// AuthKey optionally signs in with a pre-authorized auth key, used with
+	// "login". It is passed to the local backend for this login only and is
+	// never stored or logged by the helper.
+	AuthKey string `json:"authKey,omitempty"`
+
 	// WantRunning is an optional hint used with "init": whether the node
 	// should be running after startup. tsnet forces WantRunning=true on every
 	// Start, so without this hint the node connects on every browser launch
@@ -64,6 +69,7 @@ type ProcRunningReply struct {
 	SupportsPingPeer         bool       `json:"supportsPingPeer,omitempty"`
 	SupportsLogin            bool       `json:"supportsLogin,omitempty"`
 	SupportsCustomControlURL bool       `json:"supportsCustomControlURL,omitempty"`
+	SupportsAuthKeyLogin     bool       `json:"supportsAuthKeyLogin,omitempty"`
 }
 
 // InitReply is the response to an "init" command.

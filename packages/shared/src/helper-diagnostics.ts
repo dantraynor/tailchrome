@@ -125,6 +125,7 @@ export function formatHelperDiagnosticReport(
     ["supportsPingPeer", state.supportsPingPeer],
     ["supportsLogin", state.supportsLogin],
     ["supportsCustomControlURL", state.supportsCustomControlURL],
+    ["supportsAuthKeyLogin", state.supportsAuthKeyLogin],
     ["repairRegistrationAvailable", state.repairRegistrationAvailable],
   ];
 

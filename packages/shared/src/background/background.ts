@@ -741,6 +741,7 @@ export function initBackground(
           supportsPingPeer: false,
           supportsLogin: false,
           supportsCustomControlURL: false,
+          supportsAuthKeyLogin: false,
         });
       } else {
         sawHealthyProcRunning = true;
@@ -753,6 +754,7 @@ export function initBackground(
           supportsPingPeer: msg.procRunning.supportsPingPeer === true,
           supportsLogin: msg.procRunning.supportsLogin === true,
           supportsCustomControlURL: msg.procRunning.supportsCustomControlURL === true,
+          supportsAuthKeyLogin: msg.procRunning.supportsAuthKeyLogin === true,
         });
         maybeCompleteHelperRecovery();
       }
@@ -1033,6 +1035,7 @@ export function initBackground(
       supportsPingPeer: false,
       supportsLogin: false,
       supportsCustomControlURL: false,
+      supportsAuthKeyLogin: false,
     });
   }
 
@@ -1498,6 +1501,28 @@ export function initBackground(
           proxyManager.apply(routing.decorate(store.getState()));
         } else {
           requestLogin();
+        }
+        break;
+      }
+
+      case "login-with-auth-key": {
+        // The key goes straight to the helper for this one login. It is never
+        // written to extension storage, logged, or echoed back to the popup.
+        const authKey = msg.authKey.trim();
+        if (!authKey || state.backendState !== "NeedsLogin") break;
+        if (!state.supportsAuthKeyLogin) {
+          sendToastToPopup(
+            "Please update the native helper to sign in with an auth key.",
+            "error",
+          );
+          break;
+        }
+        // Auth-key login needs no browser tab, so routing stays as it is;
+        // record the intent to connect like an interactive login does.
+        routing.reconnect();
+        recordIntent(true);
+        if (!nativeHost.send({ cmd: "login", authKey })) {
+          sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
         }
         break;
       }

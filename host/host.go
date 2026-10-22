@@ -326,7 +326,7 @@ func (h *Host) handleRequestLocked(req Request) {
 	case "init":
 		h.handleInit(req)
 	case "login":
-		h.handleLogin()
+		h.handleLogin(req)
 	case "up":
 		h.handleUp()
 	case "down":
@@ -631,7 +631,13 @@ func (h *Host) cancelStartupCorrection() {
 }
 
 // handleLogin requests or resumes an interactive Tailscale login flow.
-func (h *Host) handleLogin() {
+func (h *Host) handleLogin(req Request) {
+	if req.AuthKey != "" {
+		if err := validateAuthKey(req.AuthKey); err != nil {
+			h.sendError("login", err.Error())
+			return
+		}
+	}
 	lc := h.localClient("login")
 	if lc == nil {
 		return
@@ -641,6 +647,12 @@ func (h *Host) handleLogin() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	if req.AuthKey != "" {
+		if err := loginWithAuthKey(ctx, lc, req.AuthKey); err != nil {
+			h.sendError("login", fmt.Sprintf("failed to log in with auth key: %v", err))
+		}
+		return
+	}
 	if err := lc.StartLoginInteractive(ctx); err != nil {
 		h.sendError("login", fmt.Sprintf("failed to start login: %v", err))
 	}

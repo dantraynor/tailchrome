@@ -335,6 +335,22 @@ describe("initBackground", () => {
       );
     });
 
+    it("sets supportsAuthKeyLogin only when procRunning advertises it", async () => {
+      await setupBackground();
+      sendNativeMessage({
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, supportsAuthKeyLogin: true },
+      });
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({ supportsAuthKeyLogin: true })
+      );
+      sendNativeMessage({
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234 },
+      });
+      expect(proxyManager.apply).toHaveBeenLastCalledWith(
+        expect.objectContaining({ supportsAuthKeyLogin: false })
+      );
+    });
+
     it("defaults supportsCustomControlURL to false on older helpers", async () => {
       await setupBackground();
       sendNativeMessage({
@@ -1284,6 +1300,53 @@ describe("initBackground", () => {
 
       expect(chrome.tabs.create).not.toHaveBeenCalled();
       expect(nativePort.postMessage).toHaveBeenCalledWith({ cmd: "login" });
+    });
+
+    describe("auth key login", () => {
+      const needsLoginStatus = {
+        backendState: "NeedsLogin" as const, running: false, tailnet: null,
+        magicDNSSuffix: "", selfNode: null, needsLogin: true,
+        browseToURL: "https://login.tailscale.com/auth/xyz",
+        exitNode: null, peers: [], prefs: null, health: [], error: null,
+      };
+
+      async function setupNeedsLogin(supportsAuthKeyLogin: boolean) {
+        await setupBackground();
+        sendNativeMessage({
+          procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) }, port: 1055, pid: 1234, supportsAuthKeyLogin },
+        });
+        sendNativeMessage({ status: needsLoginStatus });
+        nativePort.postMessage.mockClear();
+        const popupPort = createPopupPort();
+        connectListeners[0]!(popupPort);
+        return popupPort;
+      }
+
+      it("forwards the trimmed key to the helper without opening a login tab", async () => {
+        const popupPort = await setupNeedsLogin(true);
+        popupPort.onMessage._listeners[0]!({ type: "login-with-auth-key", authKey: " tskey-auth-abc " });
+        expect(nativePort.postMessage).toHaveBeenCalledExactlyOnceWith({ cmd: "login", authKey: "tskey-auth-abc" });
+        expect(chrome.tabs.create).not.toHaveBeenCalled();
+      });
+
+      it("asks older helpers to update instead of sending the key", async () => {
+        const popupPort = await setupNeedsLogin(false);
+        popupPort.onMessage._listeners[0]!({ type: "login-with-auth-key", authKey: "tskey-auth-abc" });
+        expect(nativePort.postMessage).not.toHaveBeenCalled();
+        expect(popupPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+          type: "toast", message: "Please update the native helper to sign in with an auth key.",
+        }));
+      });
+
+      it("does not persist the key", async () => {
+        const popupPort = await setupNeedsLogin(true);
+        popupPort.onMessage._listeners[0]!({ type: "login-with-auth-key", authKey: "tskey-auth-secret" });
+        const storageCalls = JSON.stringify([
+          vi.mocked(chrome.storage.local.set).mock.calls,
+          vi.mocked(chrome.storage.session.set).mock.calls,
+        ]);
+        expect(storageCalls).not.toContain("tskey-auth-secret");
+      });
     });
 
     it("does not allow alternate login URL ports", async () => {

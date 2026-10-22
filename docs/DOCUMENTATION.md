@@ -172,7 +172,7 @@ Communication uses the Chrome native messaging wire format: a **4-byte little-en
 | Command             | Fields                                          | Description                                      |
 | ------------------- | ----------------------------------------------- | ------------------------------------------------ |
 | `init`              | `initID: string`, `wantRunning?: boolean`       | Initialize tsnet.Server for browser profile UUID; optional hint for whether the node should run after startup |
-| `login`             | --                                              | Request a fresh Tailscale login URL              |
+| `login`             | `authKey?: string`                              | Request a fresh Tailscale login URL, or sign in with a pre-authorized auth key |
 | `up`                | --                                              | Set `WantRunning=true`                           |
 | `down`              | --                                              | Set `WantRunning=false`                          |
 | `get-status`        | --                                              | Request full status update                       |
@@ -196,7 +196,7 @@ Communication uses the Chrome native messaging wire format: a **4-byte little-en
 
 | Reply Field          | When Sent                           | Payload                                         |
 | -------------------- | ----------------------------------- | ----------------------------------------------- |
-| `procRunning`        | Immediately on host startup         | `{ port, pid, version, proxyAuth, supportsNetcheck?, supportsPingPeer?, supportsLogin?, supportsCustomControlURL?, error? }` |
+| `procRunning`        | Immediately on host startup         | `{ port, pid, version, proxyAuth, supportsNetcheck?, supportsPingPeer?, supportsLogin?, supportsCustomControlURL?, supportsAuthKeyLogin?, error? }` |
 | `init`               | After `init` command                | `{ error? }`                                    |
 | `pong`               | After `ping`                        | `{}`                                            |
 | `status`             | After state changes or `get-status` | Full `StatusUpdate` object                      |
@@ -236,6 +236,8 @@ interface StatusUpdate {
 ```
 
 When `NeedsLogin` is active, the extension opens a validated `browseToURL` immediately when available. If the URL is missing and the helper advertises `supportsLogin`, the extension sends `login`, waits for a fresh `browseToURL` or `authURL`, validates the URL, and then opens it.
+
+If the helper advertises `supportsAuthKeyLogin`, the login view also accepts a pre-authorized auth key. The extension sends it once as `login.authKey` and never stores it. The helper rejects OAuth client secrets and malformed values without echoing them, then restarts the backend with the key and the current prefs (like `tailscale up --auth-key`). The key is not written to prefs or node state.
 
 `set-prefs.prefs.controlURL` uses an empty string for Tailscale's default control plane and an HTTP(S) URL for a custom server. The helper validates the URL at the native-message boundary. A confirmed change clears server-scoped exit-node state, logs out the old identity, restarts with the new prefs, and requires a fresh login; failures attempt to restore the previous server.
 
@@ -522,6 +524,7 @@ interface TailscaleState {
   supportsPingPeer: boolean;
   supportsLogin: boolean;
   supportsCustomControlURL: boolean;
+  supportsAuthKeyLogin: boolean;
   reconnecting: boolean;
   autoConnectOnStart: boolean;
 }
@@ -542,7 +545,7 @@ interface TailscaleState {
 **BackgroundMessage** (popup -> background):
 
 - Connection and recovery: `release-routing`, `toggle`, `login`,
-  `disconnect-and-login`, `logout`, and `retry-native-host`
+  `login-with-auth-key`, `disconnect-and-login`, `logout`, and `retry-native-host`
 - Routing and preferences: `set-exit-node`, `clear-exit-node`, `set-pref`,
   `set-advertise-routes`, `set-domain-split`, and
   `set-auto-connect-on-start`

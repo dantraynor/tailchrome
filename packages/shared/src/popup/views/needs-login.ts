@@ -55,6 +55,7 @@ export function renderNeedsLogin(root: HTMLElement, state: TailscaleState): void
   content.appendChild(title);
   content.appendChild(description);
   content.appendChild(loginBtn);
+  content.appendChild(createAuthKeyLogin(state));
   view.appendChild(content);
 
   // Coordination server editor — lets users point at a custom control plane
@@ -67,11 +68,77 @@ export function renderNeedsLogin(root: HTMLElement, state: TailscaleState): void
   root.appendChild(view);
 }
 
+/** Whether the auth-key form is expanded; kept across re-renders. */
+let authKeyOpen = false;
+
+/**
+ * Optional sign-in with a pre-authorized auth key (#154), for people who
+ * cannot complete an interactive login. The key lives only in this input until
+ * it is sent to the helper; it is never written to extension storage.
+ */
+function createAuthKeyLogin(state: TailscaleState): HTMLElement {
+  const details = document.createElement("details");
+  details.className = "auth-key-login";
+  details.open = authKeyOpen;
+  details.addEventListener("toggle", () => {
+    authKeyOpen = details.open;
+  });
+
+  const summary = document.createElement("summary");
+  summary.textContent = "Use an auth key";
+  details.appendChild(summary);
+
+  const form = document.createElement("form");
+  form.className = "auth-key-form";
+
+  const input = document.createElement("input");
+  input.type = "password";
+  input.className = "auth-key-input";
+  input.placeholder = "tskey-auth-…";
+  input.autocomplete = "off";
+  input.spellcheck = false;
+  input.autocapitalize = "off";
+  input.setAttribute("aria-label", "Auth key");
+
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.className = "btn btn-secondary auth-key-submit";
+  submit.textContent = "Sign in with key";
+
+  const note = document.createElement("p");
+  note.className = "auth-key-note";
+  const supported = state.supportsAuthKeyLogin;
+  input.disabled = !supported;
+  submit.disabled = !supported;
+  note.textContent = supported
+    ? "Paste a pre-authorized key from your tailnet admin. It is used for this sign-in only and is not saved."
+    : "Update the native helper to sign in with an auth key.";
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const authKey = input.value.trim();
+    if (!authKey || submit.disabled) return;
+    sendMessage({ type: "login-with-auth-key", authKey });
+    input.value = "";
+    note.textContent = "Signing in…";
+  });
+
+  form.append(input, submit);
+  details.append(form, note);
+  return details;
+}
+
 /**
  * In-place update path for the needs-login view. Re-renders the view while
- * preserving an in-progress coordination-server edit (value, focus, caret), so
- * a partially-typed URL is not discarded by a status update.
+ * preserving an in-progress coordination-server edit (value, focus, caret) and
+ * a typed auth key, so neither is discarded by a status update.
  */
 export function updateNeedsLogin(root: HTMLElement, state: TailscaleState): void {
+  const keyInput = root.querySelector<HTMLInputElement>(".auth-key-input");
+  const typedKey = keyInput?.value ?? "";
+  const keyFocused = keyInput !== null && document.activeElement === keyInput;
   rerenderPreservingCoordEdit(root, state, renderNeedsLogin);
+  const nextKeyInput = root.querySelector<HTMLInputElement>(".auth-key-input");
+  if (nextKeyInput && typedKey) nextKeyInput.value = typedKey;
+  if (nextKeyInput && keyFocused) nextKeyInput.focus();
 }
