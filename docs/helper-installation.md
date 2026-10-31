@@ -1,5 +1,7 @@
 # Helper installation
 
+Quick install one-liners and store links are in the [README](../README.md#install).
+
 The commands on this page describe v0.1.14 and later. The helper release must
 be published before the matching extension is distributed. For older releases,
 use their attached installer instructions and legacy flags.
