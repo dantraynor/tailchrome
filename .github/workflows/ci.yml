@@ -295,6 +295,10 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           set -euo pipefail
+          # Trust this checkout's cask on Homebrew versions that require it.
+          if brew command trust >/dev/null 2>&1; then
+            brew trust --cask dantraynor/tailchrome/tailchrome
+          fi
           brew style --cask dantraynor/tailchrome/tailchrome
           brew info --cask --json=v2 dantraynor/tailchrome/tailchrome
           brew fetch --cask dantraynor/tailchrome/tailchrome
