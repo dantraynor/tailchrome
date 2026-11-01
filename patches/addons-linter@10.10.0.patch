@@ -1,5 +1,5 @@
 diff --git a/dist/addons-linter.js b/dist/addons-linter.js
-index 1d08d742cc947939861dadd4573e048c700637a8..ecddab4bc28b29b5782645470c022a7b8b678e7c 100644
+index 1d08d742cc947939861dadd4573e048c700637a8..b905559b4c099e339091dc7b2d9f1978dd1bbcf2 100644
 --- a/dist/addons-linter.js
 +++ b/dist/addons-linter.js
 @@ -3081,12 +3081,19 @@ async function getStreamImageSize(stream) {
@@ -27,3 +27,24 @@ index 1d08d742cc947939861dadd4573e048c700637a8..ecddab4bc28b29b5782645470c022a7b
 @@ -4164 +4171 @@ module.exports = require("@fregante/relaxed-json");
 -module.exports = require("image-size");
 +module.exports = require("probe-image-size/sync");
+@@ -5130 +5137 @@ exports.deepPatch = deepPatch;
+-module.exports = require("deepmerge");
++module.exports = require("./deepmerge.cjs");
+diff --git a/dist/deepmerge.cjs b/dist/deepmerge.cjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..a416d4c713c903d3d5e670263f8559e7cfbaea16
+--- /dev/null
++++ b/dist/deepmerge.cjs
+@@ -0,0 +1,12 @@
++// Adapt the linter's arrayMerge callbacks to the maintained merge implementation.
++const createDeepmerge = require('@fastify/deepmerge');
++
++module.exports = (target, source, options = {}) => createDeepmerge({
++  symbols: true,
++  mergeArray: options.arrayMerge
++    ? ({ isMergeableObject }) => (left, right) => options.arrayMerge(left, right, {
++      ...options,
++      isMergeableObject,
++    })
++    : undefined,
++})(target, source);

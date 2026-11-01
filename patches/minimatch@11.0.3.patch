@@ -1,0 +1,20 @@
+diff --git a/dist/esm/index.js b/dist/esm/index.js
+--- a/dist/esm/index.js
++++ b/dist/esm/index.js
+@@ -11,6 +11,7 @@
+     }
+     return cachedMinimatch(pattern, options).match(p);
+ };
++export default minimatch;
+ // The Minimatch objects that minimatch() used most recently. A Map
+ // keeps its keys in the order they were set, so the first key is the
+ // one used least recently.
+diff --git a/dist/esm/index.d.ts b/dist/esm/index.d.ts
+--- a/dist/esm/index.d.ts
++++ b/dist/esm/index.d.ts
+@@ -1,4 +1,5 @@
+ import { Matcher, type Form } from '@isaacs/nonrecursive-glob-match';
++export default minimatch;
+ export type Platform = 'aix' | 'android' | 'darwin' | 'freebsd' | 'haiku' | 'linux' | 'openbsd' | 'sunos' | 'win32' | 'cygwin' | 'netbsd';
+ export interface MinimatchOptions {
+     /** do not expand `{x,y}` style braces */

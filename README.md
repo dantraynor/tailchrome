@@ -73,7 +73,7 @@ irm https://github.com/dantraynor/tailchrome/releases/latest/download/tailchrome
 
 ## Windows code signing
 
-SignPath Foundation accepted Tailchrome for Windows Authenticode signing. [Test signing](https://github.com/dantraynor/tailchrome/actions/runs/37815038448) passed; production certificate issuance and signed release integration are still pending. Windows releases stay explicitly unsigned until that work ships. See the [Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md) and [SignPath setup notes](docs/signpath-setup.md).
+SignPath Foundation accepted Tailchrome for Windows Authenticode signing. [Test signing](https://github.com/dantraynor/tailchrome/actions/runs/37815038448) passed, and the release workflow supports its separate production policy. Production certificate and publisher approval are still pending; v0.1.15's Windows artifacts are explicitly unsigned. Signing identifies the publisher but does not guarantee immediate SmartScreen reputation. See the [Windows code-signing policy](docs/WINDOWS_CODE_SIGNING_POLICY.md) and [SignPath setup notes](docs/signpath-setup.md).
 
 For releases signed through the SignPath Foundation program:
 
