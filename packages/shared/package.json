@@ -11,6 +11,6 @@
     "@types/chrome": "^0.2.2",
     "happy-dom": "^21.0.4",
     "typescript": "^5.7.0",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   }
 }
