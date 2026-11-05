@@ -135,7 +135,7 @@ Each browser profile has its own Tailscale identity. Different profiles can use 
 ### Identity & Configuration
 
 - Create, switch, and delete multiple Tailscale profiles (identities).
-- Point a profile at a self-hosted HTTP(S) control server such as Headscale. Changing servers signs the profile out and starts a new login on the new server.
+- Point a profile at a self-hosted HTTP(S) control server such as Headscale. Changing servers starts a fresh login on the new server and keeps the previous account in Profiles. The previous server does not need to be reachable.
 - Shields Up blocks all incoming connections.
 - Run as Exit Node advertises this browser node as an exit node.
 - Login and logout authenticate with Tailscale. Login URLs must match allowed origins.
@@ -237,7 +237,7 @@ interface StatusUpdate {
 
 When `NeedsLogin` is active, the extension opens a validated `browseToURL` immediately when available. If the URL is missing and the helper advertises `supportsLogin`, the extension sends `login`, waits for a fresh `browseToURL` or `authURL`, validates the URL, and then opens it.
 
-`set-prefs.prefs.controlURL` uses an empty string for Tailscale's default control plane and an HTTP(S) URL for a custom server. The helper validates the URL at the native-message boundary. A confirmed change clears server-scoped exit-node state, logs out the old identity, restarts with the new prefs, and requires a fresh login; failures attempt to restore the previous server.
+`set-prefs.prefs.controlURL` uses an empty string for Tailscale's default control plane and an HTTP(S) URL for a custom server. The helper validates the URL and preferences before switching to an empty local profile. The new profile clears server-scoped exit-node state and requires a fresh login. The previous account remains in Profiles, and failures attempt to restore its identity and preferences. Switching does not require remote logout. Settings for the pending login survive a helper restart.
 
 If a status payload would exceed the browser's 1 MiB native-message limit, the helper removes peers from the end until it fits and sets `peersTruncated` plus `totalPeers`. The popup displays a health warning instead of silently losing all status updates on very large tailnets.
 
@@ -381,6 +381,8 @@ The native host is a Go binary at `host/` using `tailscale.com/tsnet` pinned to 
 | `proxy.go` / `proxy_policy.go` | SOCKS5/HTTP multiplexing, authenticated destination policy, lazy quad-100 web client, and buffered CONNECT tunneling |
 | `dns.go` / `exit_dns.go` | Restricted split-DNS forwarding and exit-node DNS behavior |
 | `profiles.go` | Profile management through the current local-client snapshot |
+| `saved_prefs.go` | Loads saved profile preferences before tsnet startup and persists settings for pending logins |
+| `control_url.go` | Changes coordination servers using a fresh local profile, with rollback to the previous account |
 | `taildrop.go` | Chunk reassembly, asynchronous cancellable `PushFile`, progress, and cleanup |
 | `install.go` / `install_*.go` | Cross-platform native host installation and cleanup, including Chrome Flatpak sandbox state and registration |
 | `peers.go` | Peer/status conversion from Tailscale types |
@@ -396,6 +398,8 @@ The native host is a Go binary at `host/` using `tailscale.com/tsnet` pinned to 
 4. **IPN bus watcher** monitors state, prefs, netmap, browse-to-URL, and health changes. Errors trigger bounded exponential retries; each change schedules a debounced full `StatusUpdate` from the same session snapshot.
 5. **Host reads commands** in a loop from stdin, dispatches to handlers, and writes replies to stdout.
 6. **On stdin EOF** (browser closed), the host cancels the watcher and active Taildrop transfers, closes the tsnet server, and exits cleanly.
+
+Before starting tsnet, the host reads the selected account's saved preferences and supplies its coordination server, hostname, and advertised tags. It restores subnet-route acceptance, DNS, Shields Up, LAN access, SSH, and advertised routes before publishing the session to the proxy and status watcher. New browser profiles accept subnet routes by default. The extension supplies the startup connection intent and restores its selected exit node after the account is running. An unreadable preference record stops initialization instead of replacing the saved settings with defaults.
 
 ### Proxy Architecture
 

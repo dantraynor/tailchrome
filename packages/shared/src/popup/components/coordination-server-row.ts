@@ -110,7 +110,7 @@ export function createCoordinationServerRow(
     input.disabled = !supported;
     save.disabled = !supported;
     note.textContent = supported
-      ? "Leave blank for the default Tailscale server. Saving signs you out and requires a new login."
+      ? "Leave blank for the default Tailscale server. Changing servers requires a new login."
       : "Update the native helper to change the coordination server.";
   }
 
