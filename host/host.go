@@ -95,6 +95,10 @@ type Host struct {
 
 	// proxyDial is a test seam; production leaves it nil and uses tsnet.
 	proxyDial func(context.Context, string, string) (net.Conn, error)
+
+	// stateDirForProfile is a test seam for exercising init with isolated state.
+	// Production leaves it nil and uses the normal per-browser state directory.
+	stateDirForProfile func(string) (string, error)
 }
 
 // newHost creates a new Host that reads from r and writes to w.
@@ -362,6 +366,7 @@ func (h *Host) handleRequestLocked(req Request) {
 	}
 }
 
+// startupPrefs supplies defaults only when the profile has no saved settings.
 func startupPrefs() *ipn.MaskedPrefs {
 	return &ipn.MaskedPrefs{
 		Prefs: ipn.Prefs{
@@ -419,16 +424,17 @@ func (h *Host) handleInit(req Request) {
 	h.cancelTransfers()
 	h.clearCachedStatus(nil)
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		h.send(Reply{
-			Cmd:  "init",
-			Init: &InitReply{Error: fmt.Sprintf("failed to get home dir: %v", err)},
-		})
-		return
+	stateDirForProfile := h.stateDirForProfile
+	if stateDirForProfile == nil {
+		stateDirForProfile = func(initID string) (string, error) {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("failed to get home dir: %w", err)
+			}
+			return hostStateDir(homeDir, initID)
+		}
 	}
-
-	stateDir, err := hostStateDir(homeDir, req.InitID)
+	stateDir, err := stateDirForProfile(req.InitID)
 	if err != nil {
 		h.send(Reply{
 			Cmd:  "init",
@@ -444,11 +450,10 @@ func (h *Host) handleInit(req Request) {
 		return
 	}
 
-	server := &tsnet.Server{
-		Dir:          stateDir,
-		Hostname:     "browser-ext",
-		RunWebClient: true,
-		Logf:         log.Printf,
+	server, saved, err := newProfileServer(stateDir)
+	if err != nil {
+		h.send(Reply{Cmd: "init", Init: &InitReply{Error: err.Error()}})
+		return
 	}
 
 	if err := server.Start(); err != nil {
@@ -469,16 +474,15 @@ func (h *Host) handleInit(req Request) {
 		return
 	}
 
-	// tsnet does not accept subnet routes by default. Tailchrome's proxy rules
-	// are built from accepted PrimaryRoutes, so enable route acceptance before
-	// publishing the first status update.
+	// tsnet.Start resets preferences. Restore the saved settings before making
+	// the session available to the proxy or publishing its first status.
 	prefsCtx, prefsCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	_, err = lc.EditPrefs(prefsCtx, startupPrefs())
+	_, err = lc.EditPrefs(prefsCtx, restoredStartupPrefs(saved))
 	prefsCancel()
 	if err != nil {
 		h.send(Reply{
 			Cmd:  "init",
-			Init: &InitReply{Error: fmt.Sprintf("failed to accept subnet routes: %v", err)},
+			Init: &InitReply{Error: fmt.Sprintf("failed to apply startup prefs: %v", err)},
 		})
 		server.Close()
 		return
@@ -945,72 +949,22 @@ func (h *Host) handleSetPrefs(req Request) {
 		h.cancelStartupCorrection()
 	}
 	if controlURLChanged {
-		finishProfileChange := h.beginProxyProfileChange(lc)
-		defer finishProfileChange()
-	}
-
-	updatedPrefs, err := lc.EditPrefs(ctx, mp)
-	if err != nil {
-		h.sendError("set-prefs", fmt.Sprintf("failed to set prefs: %v", err))
-		return
-	}
-
-	if controlURLChanged {
-		// Exit-node selection and node identity are scoped to the previous
-		// tailnet; clear them so a now-invalid ExitNodeID (a StableNodeID from
-		// the old control server) isn't carried onto the new one.
-		updatedPrefs.ExitNodeID = ""
-		updatedPrefs.ExitNodeIP = netip.Addr{}
-
-		h.clearCachedStatus(updatedPrefs)
-
-		// Explicitly log out so the previous control plane's node key and
-		// profile identity are discarded. Without this, restarting with the
-		// new ControlURL would carry the old identity to the new server and
-		// the IPN engine could skip the interactive login prompt.
-		logoutCtx, logoutCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		if err := lc.Logout(logoutCtx); err != nil {
-			logoutCancel()
-			log.Printf("logout during controlURL change failed, restoring previous URL: %v", err)
-
-			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			rollbackErr := lc.Start(rollbackCtx, ipn.Options{UpdatePrefs: currentPrefs})
-			rollbackCancel()
-			if rollbackErr != nil {
-				h.clearCachedStatus(currentPrefs)
-				h.sendError("set-prefs", fmt.Sprintf("failed to logout before changing control URL: %v; also failed to restore previous control URL: %v", err, rollbackErr))
-				return
-			}
-
-			h.clearCachedStatus(currentPrefs)
+		if err := h.switchControlURL(lc, partial); err != nil {
 			h.handleGetStatus()
-			h.sendError("set-prefs", fmt.Sprintf("failed to logout before changing control URL: %v; restored previous control URL", err))
+			h.sendError("set-prefs", err.Error())
 			return
 		}
-		logoutCancel()
-
-		restartCtx, restartCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		if err := lc.Start(restartCtx, ipn.Options{UpdatePrefs: updatedPrefs}); err != nil {
-			restartCancel()
-			log.Printf("restart with updated control URL failed, restoring previous URL: %v", err)
-
-			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			rollbackErr := lc.Start(rollbackCtx, ipn.Options{UpdatePrefs: currentPrefs})
-			rollbackCancel()
-			if rollbackErr != nil {
-				h.clearCachedStatus(currentPrefs)
-				h.sendError("set-prefs", fmt.Sprintf("failed to restart with updated control URL: %v; also failed to restore previous control URL: %v", err, rollbackErr))
-				return
-			}
-
-			h.clearCachedStatus(currentPrefs)
-			h.handleGetStatus()
-			// The logout above already discarded the previous session, so the
-			// prefs are restored but the node is signed out and must log in again.
-			h.sendError("set-prefs", fmt.Sprintf("failed to switch control server: %v; reverted to your previous server, but you have been signed out and must log in again", err))
+		h.handleListProfiles()
+	} else {
+		updatedPrefs, err := lc.EditPrefs(ctx, mp)
+		if err != nil {
+			h.sendError("set-prefs", fmt.Sprintf("failed to set prefs: %v", err))
 			return
 		}
-		restartCancel()
+		if err := h.savePendingProfilePrefs(lc, updatedPrefs, false); err != nil {
+			h.sendError("set-prefs", fmt.Sprintf("failed to save pending profile: %v", err))
+			return
+		}
 	}
 
 	h.handleGetStatus()
