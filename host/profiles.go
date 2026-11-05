@@ -78,6 +78,10 @@ func (h *Host) handleNewProfile() {
 		h.sendError("new-profile", fmt.Sprintf("failed to create new profile: %v", err))
 		return
 	}
+	if err := h.savePendingProfilePrefs(lc, nil, true); err != nil {
+		h.sendError("new-profile", fmt.Sprintf("failed to save new profile: %v", err))
+		return
+	}
 
 	// Send updated profiles after creating.
 	h.handleListProfiles()
