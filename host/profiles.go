@@ -58,6 +58,11 @@ func (h *Host) handleSwitchProfile(profileID string) {
 		return
 	}
 
+	// Track the new profile's control URL so the next launch restores it.
+	if prefs, err := lc.GetPrefs(ctx); err == nil {
+		h.persistControlURL(prefs.ControlURL)
+	}
+
 	// Send updated profiles after switching.
 	h.handleListProfiles()
 }
@@ -77,6 +82,12 @@ func (h *Host) handleNewProfile() {
 	if err := lc.SwitchToEmptyProfile(ctx); err != nil {
 		h.sendError("new-profile", fmt.Sprintf("failed to create new profile: %v", err))
 		return
+	}
+
+	// New profiles start on the default control server; keep the saved URL in
+	// step so the next launch doesn't restore the previous profile's.
+	if prefs, err := lc.GetPrefs(ctx); err == nil {
+		h.persistControlURL(prefs.ControlURL)
 	}
 
 	// Send updated profiles after creating.

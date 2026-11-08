@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -56,6 +57,10 @@ type Host struct {
 
 	// initID is the browser profile UUID, set during the init command.
 	initID string
+
+	// stateDir is the on-disk state directory for the browser profile, set
+	// during the init command.
+	stateDir string
 
 	// watchCancel cancels the IPN bus watcher goroutine.
 	watchCancel context.CancelFunc
@@ -371,6 +376,38 @@ func startupPrefs() *ipn.MaskedPrefs {
 	}
 }
 
+// controlURLStateFile records the last control-server URL applied for this
+// browser profile, so the next helper launch can restore it before tsnet
+// resets prefs to defaults.
+const controlURLStateFile = "control-url"
+
+// readSavedControlURL returns the saved control-server URL, or "" if none was
+// saved (missing file, default server, or invalid URL).
+func readSavedControlURL(stateDir string) string {
+	raw, err := os.ReadFile(filepath.Join(stateDir, controlURLStateFile))
+	if err != nil {
+		return ""
+	}
+	url := strings.TrimSpace(string(raw))
+	if isDefaultControlURL(url) {
+		return ""
+	}
+	if !isValidControlURL(url) {
+		return ""
+	}
+	return url
+}
+
+// writeSavedControlURL records a control-server URL; default servers are
+// stored as "" to match a missing file.
+func writeSavedControlURL(stateDir, controlURL string) error {
+	url := strings.TrimSpace(controlURL)
+	if isDefaultControlURL(url) {
+		url = ""
+	}
+	return os.WriteFile(filepath.Join(stateDir, controlURLStateFile), []byte(url), 0600)
+}
+
 // handleInit initializes (or reuses) a tsnet.Server for the given browser profile.
 func (h *Host) handleInit(req Request) {
 	if !validInitID.MatchString(req.InitID) {
@@ -444,10 +481,17 @@ func (h *Host) handleInit(req Request) {
 		return
 	}
 
+	h.sessionMu.Lock()
+	h.stateDir = stateDir
+	h.sessionMu.Unlock()
+
+	// tsnet resets ControlURL to the default on every Start; restore the saved
+	// custom server first so the reset writes the same URL back.
 	server := &tsnet.Server{
 		Dir:          stateDir,
 		Hostname:     "browser-ext",
 		RunWebClient: true,
+		ControlURL:   readSavedControlURL(stateDir),
 		Logf:         log.Printf,
 	}
 
@@ -1011,9 +1055,27 @@ func (h *Host) handleSetPrefs(req Request) {
 			return
 		}
 		restartCancel()
+
+		// Record the new server so the next launch restores it before tsnet
+		// resets ControlURL to the default.
+		h.persistControlURL(updatedPrefs.ControlURL)
 	}
 
 	h.handleGetStatus()
+}
+
+// persistControlURL records the control URL applied by set-prefs. Failures are
+// logged, not surfaced: a stale sidecar degrades to the pre-patch behavior.
+func (h *Host) persistControlURL(controlURL string) {
+	h.sessionMu.RLock()
+	stateDir := h.stateDir
+	h.sessionMu.RUnlock()
+	if stateDir == "" {
+		return
+	}
+	if err := writeSavedControlURL(stateDir, controlURL); err != nil {
+		log.Printf("failed to persist control URL: %v", err)
+	}
 }
 
 // handleLogout logs out of the current Tailscale account.
