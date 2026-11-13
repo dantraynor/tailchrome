@@ -363,6 +363,61 @@ func TestHandleConnectForwardsBufferedClientBytes(t *testing.T) {
 	}
 }
 
+// The hijacked proxymux conn cannot half-close, so an upstream EOF must close
+// the browser side instead of leaving the tunnel open until the browser gives up.
+func TestHandleConnectClosesClientWhenUpstreamCloses(t *testing.T) {
+	h := newHost(nil, nil)
+	upstream, target := net.Pipe()
+	h.proxyDial = func(context.Context, string, string) (net.Conn, error) {
+		return upstream, nil
+	}
+	serverConn, browserConn := net.Pipe()
+	defer browserConn.Close()
+	buffered := bufio.NewReadWriter(bufio.NewReader(serverConn), bufio.NewWriter(serverConn))
+	w := &hijackTestWriter{
+		header:   make(http.Header),
+		conn:     serverConn,
+		buffered: buffered,
+	}
+	req := httptest.NewRequest(http.MethodConnect, "http://peer.example", nil)
+	req.Host = "peer.example:443"
+	done := make(chan struct{})
+	go func() {
+		h.handleConnect(w, req)
+		close(done)
+	}()
+
+	browserReader := bufio.NewReader(browserConn)
+	browserConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	for {
+		line, err := browserReader.ReadString('\n')
+		if err != nil {
+			t.Fatal(err)
+		}
+		if line == "\r\n" {
+			break
+		}
+	}
+
+	const reply = "last-bytes"
+	go func() {
+		target.Write([]byte(reply))
+		target.Close()
+	}()
+	got, err := io.ReadAll(browserReader)
+	if err != nil {
+		t.Fatalf("browser read error = %v, want EOF after upstream close", err)
+	}
+	if string(got) != reply {
+		t.Fatalf("browser received %q, want %q", got, reply)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("CONNECT handler did not exit after upstream close")
+	}
+}
+
 type hijackTestWriter struct {
 	header   http.Header
 	conn     net.Conn
