@@ -6,6 +6,7 @@ $Installer = Join-Path $Root 'scripts/install.ps1'
 . $Installer
 $ProductionInvokeInstalledHelper = (Get-Command Invoke-InstalledHelper -CommandType Function).ScriptBlock
 $ProductionGetNativeArchitecture = (Get-Command Get-NativeArchitecture -CommandType Function).ScriptBlock
+$ProductionTestAvailableAttestation = (Get-Command Test-AvailableAttestation -CommandType Function).ScriptBlock
 
 $TestsRun = 0
 $TestsFailed = 0
@@ -144,6 +145,41 @@ if ($helperSuccess -eq 0 -and $helperFailure -eq 7) {
   Pass 'keeps helper stdout out of Invoke-InstalledHelper exit-code results'
 } else {
   FailTest 'keeps helper stdout out of Invoke-InstalledHelper exit-code results' ("success=[$helperSuccess] failure=[$helperFailure]")
+}
+
+# A gh that is installed but not logged in writes to stderr. Windows PowerShell
+# 5.1 must not turn that redirected native stderr into a terminating error.
+$ghFixture = Join-Path ([IO.Path]::GetTempPath()) ('tailchrome-gh-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $ghFixture | Out-Null
+if ($WindowsTest) {
+  @'
+@echo off
+if "%1"=="auth" (
+  echo You are not logged into any GitHub hosts. 1>&2
+  exit /b 1
+)
+exit /b 0
+'@ | Set-Content -LiteralPath (Join-Path $ghFixture 'gh.cmd') -Encoding Ascii
+} else {
+  $ghScript = Join-Path $ghFixture 'gh'
+  "#!/bin/sh`nif [ `"`$1`" = auth ]; then echo 'You are not logged into any GitHub hosts.' >&2; exit 1; fi`nexit 0`n" |
+    Set-Content -LiteralPath $ghScript -NoNewline
+  & chmod +x $ghScript
+}
+$savedPath = $env:PATH
+$env:PATH = $ghFixture + [IO.Path]::PathSeparator + $env:PATH
+try {
+  $ghWarnings = (& $ProductionTestAvailableAttestation 'unused-artifact' 3>&1 | Out-String)
+  if ($ghWarnings -like '*GitHub CLI is not authenticated*') {
+    Pass 'warns instead of aborting when gh is installed but not logged in'
+  } else {
+    FailTest 'warns instead of aborting when gh is installed but not logged in' ("output=[$ghWarnings]")
+  }
+} catch {
+  FailTest 'warns instead of aborting when gh is installed but not logged in' $_.Exception.Message
+} finally {
+  $env:PATH = $savedPath
+  Remove-Item -LiteralPath $ghFixture -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 New-Fixture
