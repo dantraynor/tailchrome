@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -16,8 +17,11 @@ import (
 	"tailscale.com/client/web"
 	"tailscale.com/ipn"
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/ipn/store/mem"
 	"tailscale.com/tailcfg"
+	"tailscale.com/tsnet"
 	"tailscale.com/types/logger"
+	"tailscale.com/types/persist"
 )
 
 func TestControlURLChangeInvalidatesWebSession(t *testing.T) {
@@ -25,24 +29,33 @@ func TestControlURLChangeInvalidatesWebSession(t *testing.T) {
 	for _, tc := range []struct {
 		name, currentURL, requestedURL, failAt, wantError string
 		changesSession                                    bool
+		anonymous                                         bool
 		wantMutations                                     []string
 	}{
 		{name: "new server", currentURL: oldURL, requestedURL: newURL, changesSession: true,
-			wantMutations: []string{"edit", "logout", "start " + newURL}},
+			wantMutations: []string{"new-profile", "start " + newURL}},
 		{name: "same server", currentURL: oldURL, requestedURL: oldURL,
 			wantMutations: []string{"edit"}},
 		{name: "equivalent server URL", currentURL: oldURL, requestedURL: "https://OLD.example.com:443/",
 			wantMutations: []string{"edit"}},
 		{name: "default server alias", currentURL: "", requestedURL: "https://login.tailscale.com",
 			wantMutations: []string{"edit"}},
-		{name: "edit fails", currentURL: oldURL, requestedURL: newURL, changesSession: true, failAt: "edit",
+		{name: "edit fails", currentURL: oldURL, requestedURL: oldURL, failAt: "edit",
 			wantMutations: []string{"edit"}, wantError: "failed to set prefs"},
-		{name: "logout fails", currentURL: oldURL, requestedURL: newURL, changesSession: true, failAt: "logout",
-			wantMutations: []string{"edit", "logout", "start " + oldURL}, wantError: "restored previous control URL"},
+		{name: "invalid prefs", currentURL: oldURL, requestedURL: newURL, changesSession: true, failAt: "check",
+			wantError: "failed to set prefs"},
+		{name: "profile lookup fails", currentURL: oldURL, requestedURL: newURL, changesSession: true, failAt: "profiles",
+			wantError: "failed to read current profile"},
+		{name: "new profile fails", currentURL: oldURL, requestedURL: newURL, changesSession: true, failAt: "new-profile",
+			wantMutations: []string{"new-profile", "switch old"}, wantError: "restored previous profile"},
+		{name: "saving pending prefs fails", currentURL: oldURL, requestedURL: newURL, changesSession: true, failAt: "save",
+			wantMutations: []string{"new-profile", "switch old"}, wantError: "failed to save pending profile"},
 		{name: "restart fails", currentURL: oldURL, requestedURL: newURL, changesSession: true, failAt: "restart",
-			wantMutations: []string{"edit", "logout", "start " + newURL, "start " + oldURL}, wantError: "reverted to your previous server"},
+			wantMutations: []string{"new-profile", "start " + newURL, "switch old"}, wantError: "restored previous profile"},
+		{name: "restart fails before first login", currentURL: oldURL, requestedURL: newURL, changesSession: true, anonymous: true, failAt: "restart",
+			wantMutations: []string{"new-profile", "start " + newURL, "new-profile", "start " + oldURL}, wantError: "restored previous profile"},
 		{name: "rollback also fails", currentURL: oldURL, requestedURL: newURL, changesSession: true, failAt: "rollback",
-			wantMutations: []string{"edit", "logout", "start " + newURL, "start " + oldURL}, wantError: "also failed to restore previous control URL"},
+			wantMutations: []string{"new-profile", "start " + newURL, "switch old"}, wantError: "also failed to restore previous profile"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var output bytes.Buffer
@@ -51,6 +64,11 @@ func TestControlURLChangeInvalidatesWebSession(t *testing.T) {
 			h.watchCancel = watchCancel
 			mutations := make(chan string, 4)
 			watcherStarted := make(chan struct{}, 1)
+			currentPrefs := &ipn.Prefs{
+				ControlURL: tc.currentURL, ProfileName: "work", Hostname: "work-browser", ShieldsUp: true,
+				ExitNodeID: "old-exit", ExitNodeIP: netip.MustParseAddr("100.64.0.1"),
+				AutoExitNode: "any", InternalExitNodePrior: "old-exit", Persist: &persist.Persist{NodeID: "old-node"},
+			}
 			checkSessionBeforeMutation := func(mutation string) {
 				t.Helper()
 				h.sessionMu.RLock()
@@ -81,7 +99,7 @@ func TestControlURLChangeInvalidatesWebSession(t *testing.T) {
 				switch r.URL.Path {
 				case "/localapi/v0/prefs":
 					if r.Method == http.MethodGet {
-						json.NewEncoder(w).Encode(&ipn.Prefs{ControlURL: tc.currentURL})
+						json.NewEncoder(w).Encode(currentPrefs)
 						return
 					}
 					checkSessionBeforeMutation("edit")
@@ -94,13 +112,51 @@ func TestControlURLChangeInvalidatesWebSession(t *testing.T) {
 						t.Error(err)
 					}
 					json.NewEncoder(w).Encode(&prefs.Prefs)
-				case "/localapi/v0/logout":
-					checkSessionBeforeMutation("logout")
-					if tc.failAt == "logout" {
-						http.Error(w, "logout failed", http.StatusInternalServerError)
+				case "/localapi/v0/check-prefs":
+					var prefs ipn.Prefs
+					if err := json.NewDecoder(r.Body).Decode(&prefs); err != nil {
+						t.Error(err)
+					}
+					if prefs.Persist != nil || prefs.ProfileName != "" || prefs.ExitNodeID != "" || prefs.ExitNodeIP.IsValid() || prefs.AutoExitNode != "" || prefs.InternalExitNodePrior != "" {
+						t.Error("server switch carried identity or exit-node settings to the new profile")
+					}
+					if prefs.ControlURL != newURL || prefs.Hostname != "work-browser" || !prefs.ShieldsUp {
+						t.Error("server switch lost device preferences")
+					}
+					if tc.failAt == "check" {
+						http.Error(w, "invalid prefs", http.StatusBadRequest)
+					}
+				case "/localapi/v0/profiles/current":
+					if tc.failAt == "profiles" {
+						http.Error(w, "profile lookup failed", http.StatusInternalServerError)
+						return
+					}
+					profile := ipn.LoginProfile{ID: "old", Name: "work"}
+					if tc.anonymous {
+						profile = ipn.LoginProfile{}
+					}
+					json.NewEncoder(w).Encode(profile)
+				case "/localapi/v0/profiles/":
+					if r.Method == http.MethodGet {
+						json.NewEncoder(w).Encode([]ipn.LoginProfile{{ID: "old", Name: "work"}})
+						return
+					}
+					checkSessionBeforeMutation("new-profile")
+					if tc.failAt == "new-profile" {
+						http.Error(w, "new profile failed", http.StatusInternalServerError)
+						return
+					}
+					w.WriteHeader(http.StatusCreated)
+				case "/localapi/v0/profiles/old":
+					checkSessionBeforeMutation("switch old")
+					if tc.failAt == "rollback" {
+						http.Error(w, "profile restore failed", http.StatusInternalServerError)
 						return
 					}
 					w.WriteHeader(http.StatusNoContent)
+				case "/localapi/v0/logout":
+					t.Error("changing servers must not depend on remote logout")
+					http.Error(w, "old server unreachable", http.StatusGatewayTimeout)
 				case "/localapi/v0/start":
 					var opts ipn.Options
 					if err := json.NewDecoder(r.Body).Decode(&opts); err != nil || opts.UpdatePrefs == nil {
@@ -143,6 +199,9 @@ func TestControlURLChangeInvalidatesWebSession(t *testing.T) {
 				t.Fatal(err)
 			}
 			h.lc = lc
+			if tc.failAt == "save" {
+				h.ts = &tsnet.Server{Store: failingPrefsStore{StateStore: new(mem.Store), writeKey: pendingProfilePrefsKey}}
+			}
 			h.sessionGeneration = 7
 			cache := &webServerCache{client: lc, generation: 7, server: server}
 			h.webCache = cache
