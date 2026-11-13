@@ -164,24 +164,30 @@ function Invoke-Download([string]$Uri, [string]$Path) {
   Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $Path
 }
 
+function Invoke-GhProbe([string]$GhPath, [string[]]$Arguments) {
+  # Windows PowerShell 5.1 turns redirected native stderr into a terminating
+  # NativeCommandError under ErrorActionPreference=Stop, so a gh that is
+  # installed but not logged in would abort the install. Rely on the exit code.
+  $ErrorActionPreference = 'Continue'
+  & $GhPath @Arguments *> $null
+  return $LASTEXITCODE
+}
+
 function Test-AvailableAttestation([string]$ArtifactPath) {
   $gh = Get-Command gh -ErrorAction SilentlyContinue
   if (-not $gh) {
     Write-Warning 'GitHub CLI attestation verification is unavailable; the checksum and artifact share the GitHub Release trust boundary.'
     return
   }
-  & $gh.Source attestation verify --help *> $null
-  if ($LASTEXITCODE -ne 0) {
+  if ((Invoke-GhProbe $gh.Source @('attestation', 'verify', '--help')) -ne 0) {
     Write-Warning 'GitHub CLI attestation verification is unavailable; the checksum and artifact share the GitHub Release trust boundary.'
     return
   }
-  & $gh.Source auth status --hostname github.com *> $null
-  if ($LASTEXITCODE -ne 0) {
+  if ((Invoke-GhProbe $gh.Source @('auth', 'status', '--hostname', 'github.com')) -ne 0) {
     Write-Warning 'GitHub CLI is not authenticated; the checksum and artifact share the GitHub Release trust boundary.'
     return
   }
-  & $gh.Source attestation verify $ArtifactPath --hostname github.com --repo $Repository *> $null
-  if ($LASTEXITCODE -ne 0) {
+  if ((Invoke-GhProbe $gh.Source @('attestation', 'verify', $ArtifactPath, '--hostname', 'github.com', '--repo', $Repository)) -ne 0) {
     Fail 'GitHub artifact attestation verification failed.'
   }
 }
