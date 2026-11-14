@@ -487,7 +487,8 @@ function isProcRunning(value: unknown): boolean {
     optionalField(value, "supportsNetcheck", isBoolean) &&
     optionalField(value, "supportsPingPeer", isBoolean) &&
     optionalField(value, "supportsLogin", isBoolean) &&
-    optionalField(value, "supportsCustomControlURL", isBoolean)
+    optionalField(value, "supportsCustomControlURL", isBoolean) &&
+    optionalField(value, "supportsAuthKeyLogin", isBoolean)
   );
 }
 

@@ -5,6 +5,11 @@ import {
   appendCoordinationServerSettings,
   rerenderPreservingCoordEdit,
 } from "../components/coordination-server-row";
+import {
+  createAuthKeyLogin,
+  readAuthKeyEdit,
+  restoreAuthKeyEdit,
+} from "../components/auth-key-login";
 import { sendMessage } from "../popup";
 import { iconLock } from "../icons";
 
@@ -55,6 +60,10 @@ export function renderNeedsLogin(root: HTMLElement, state: TailscaleState): void
   content.appendChild(title);
   content.appendChild(description);
   content.appendChild(loginBtn);
+  // Key sign-in talks to the coordination server from the helper, so it
+  // works without disconnecting protected browsing first.
+  const authKeyLogin = createAuthKeyLogin(state);
+  if (authKeyLogin) content.appendChild(authKeyLogin);
   view.appendChild(content);
 
   // Coordination server editor — lets users point at a custom control plane
@@ -69,9 +78,11 @@ export function renderNeedsLogin(root: HTMLElement, state: TailscaleState): void
 
 /**
  * In-place update path for the needs-login view. Re-renders the view while
- * preserving an in-progress coordination-server edit (value, focus, caret), so
- * a partially-typed URL is not discarded by a status update.
+ * preserving an in-progress coordination-server edit (value, focus, caret) and
+ * a pasted auth key, so neither is discarded by a status update.
  */
 export function updateNeedsLogin(root: HTMLElement, state: TailscaleState): void {
+  const authKeyEdit = readAuthKeyEdit(root);
   rerenderPreservingCoordEdit(root, state, renderNeedsLogin);
+  if (authKeyEdit) restoreAuthKeyEdit(root, authKeyEdit);
 }

@@ -2038,3 +2038,39 @@ button.setting-row {
 .btn-retry {
   margin-top: var(--space-md);
 }
+
+/* ==============================
+   Auth key sign-in (needs-login view)
+   ============================== */
+
+.auth-key-login {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  max-width: 280px;
+  margin-top: var(--space-md);
+}
+
+.auth-key-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  width: 100%;
+  text-align: left;
+}
+
+.auth-key-form[hidden] {
+  display: none;
+}
+
+.auth-key-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-secondary);
+}
+
+.auth-key-submit {
+  align-self: flex-start;
+}

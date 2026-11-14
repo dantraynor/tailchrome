@@ -228,6 +228,8 @@ function nativeCommandErrorCopy(command: string): string {
   switch (command) {
     case "login":
       return "The helper could not start login. Please try again.";
+    case "login-auth-key":
+      return "Sign-in with the auth key failed. Check the key and try again.";
     case "up":
     case "down":
       return "The helper could not change the connection state.";
@@ -741,6 +743,7 @@ export function initBackground(
           supportsPingPeer: false,
           supportsLogin: false,
           supportsCustomControlURL: false,
+          supportsAuthKeyLogin: false,
         });
       } else {
         sawHealthyProcRunning = true;
@@ -753,6 +756,7 @@ export function initBackground(
           supportsPingPeer: msg.procRunning.supportsPingPeer === true,
           supportsLogin: msg.procRunning.supportsLogin === true,
           supportsCustomControlURL: msg.procRunning.supportsCustomControlURL === true,
+          supportsAuthKeyLogin: msg.procRunning.supportsAuthKeyLogin === true,
         });
         maybeCompleteHelperRecovery();
       }
@@ -1033,6 +1037,7 @@ export function initBackground(
       supportsPingPeer: false,
       supportsLogin: false,
       supportsCustomControlURL: false,
+      supportsAuthKeyLogin: false,
     });
   }
 
@@ -1498,6 +1503,35 @@ export function initBackground(
           proxyManager.apply(routing.decorate(store.getState()));
         } else {
           requestLogin();
+        }
+        break;
+      }
+
+      case "login-auth-key": {
+        // The key is forwarded to the helper for this profile and never
+        // written to the state store, storage, or logs.
+        if (state.backendState !== "NeedsLogin") break;
+        if (!state.supportsAuthKeyLogin) {
+          sendToastToPopup(
+            "Please update the native helper to sign in with an auth key.",
+            "error",
+          );
+          break;
+        }
+        const authKey = typeof msg.authKey === "string" ? msg.authKey.trim() : "";
+        if (authKey === "") {
+          sendToastToPopup("Enter an auth key.", "info");
+          break;
+        }
+        // No browser login URL follows a key login, so a pending wait for one
+        // would only time out with a misleading toast.
+        clearPendingLoginOpen();
+        routing.reconnect();
+        recordIntent(true);
+        if (!nativeHost.send({ cmd: "login-auth-key", authKey })) {
+          sendToastToPopup(NATIVE_HOST_UNREACHABLE, "error");
+        } else {
+          sendToastToPopup("Signing in with the auth key…", "info");
         }
         break;
       }

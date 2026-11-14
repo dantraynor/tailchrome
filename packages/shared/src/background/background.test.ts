@@ -2715,6 +2715,108 @@ describe("initBackground", () => {
     });
   });
 
+  describe("auth key login", () => {
+    const authKey = "tskey-auth-kSecretValue-0123456789";
+    const needsLoginStatus: NativeReply = {
+      status: {
+        backendState: "NeedsLogin", running: false, tailnet: null,
+        magicDNSSuffix: "", selfNode: null, needsLogin: true, browseToURL: "",
+        exitNode: null, peers: [], prefs: null, health: [], error: null,
+      },
+    };
+
+    function advertiseAuthKeySupport() {
+      sendNativeMessage({
+        procRunning: { proxyAuth: { version: 1, username: "tailchrome", password: "a".repeat(52) },
+          port: 1055,
+          pid: 1234,
+          version: "0.1.16",
+          supportsLogin: true,
+          supportsAuthKeyLogin: true,
+        },
+      });
+    }
+
+    it("forwards a trimmed key to the helper without storing or echoing it", async () => {
+      await setupBackground();
+      advertiseAuthKeySupport();
+      sendNativeMessage(needsLoginStatus);
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      vi.mocked(nativePort.postMessage).mockClear();
+
+      popupPort.onMessage._listeners[0]!({ type: "login-auth-key", authKey: `  ${authKey}\n` });
+
+      expect(nativePort.postMessage).toHaveBeenCalledExactlyOnceWith({ cmd: "login-auth-key", authKey });
+      expect(chrome.tabs.create).not.toHaveBeenCalled();
+      expect(JSON.stringify(popupPort.postMessage.mock.calls)).not.toContain(authKey);
+      expect(JSON.stringify(vi.mocked(chrome.storage.local.set).mock.calls)).not.toContain(authKey);
+      expect(JSON.stringify(vi.mocked(chrome.storage.session.set).mock.calls)).not.toContain(authKey);
+      expect(popupPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: "toast", message: "Signing in with the auth key…",
+      }));
+    });
+
+    it("asks for a helper update when the helper lacks key login", async () => {
+      await setupBackground();
+      advertiseLoginSupport();
+      sendNativeMessage(needsLoginStatus);
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      vi.mocked(nativePort.postMessage).mockClear();
+
+      popupPort.onMessage._listeners[0]!({ type: "login-auth-key", authKey });
+
+      expect(nativePort.postMessage).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: "toast", message: "Please update the native helper to sign in with an auth key.",
+      }));
+    });
+
+    it("ignores a key unless the profile needs login", async () => {
+      await setupBackground();
+      advertiseAuthKeySupport();
+      sendNativeMessage({ status: { ...needsLoginStatus.status!, backendState: "Stopped", needsLogin: false } });
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      vi.mocked(nativePort.postMessage).mockClear();
+
+      popupPort.onMessage._listeners[0]!({ type: "login-auth-key", authKey });
+
+      expect(nativePort.postMessage).not.toHaveBeenCalled();
+    });
+
+    it("rejects an empty key without contacting the helper", async () => {
+      await setupBackground();
+      advertiseAuthKeySupport();
+      sendNativeMessage(needsLoginStatus);
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+      vi.mocked(nativePort.postMessage).mockClear();
+
+      popupPort.onMessage._listeners[0]!({ type: "login-auth-key", authKey: "   " });
+
+      expect(nativePort.postMessage).not.toHaveBeenCalled();
+      expect(popupPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: "toast", message: "Enter an auth key.",
+      }));
+    });
+
+    it("shows a key-specific error when the helper reports a rejection", async () => {
+      await setupBackground();
+      advertiseAuthKeySupport();
+      sendNativeMessage(needsLoginStatus);
+      const popupPort = createPopupPort();
+      connectListeners[0]!(popupPort);
+
+      sendNativeMessage({ error: { cmd: "login-auth-key", message: "coordination server rejected the auth key: invalid key" } });
+
+      expect(popupPort.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+        type: "toast", message: "Sign-in with the auth key failed. Check the key and try again.",
+      }));
+    });
+  });
+
   describe("exit node restoration", () => {
     it("does not restore an unscoped legacy exit node into an unknown account", async () => {
       (chrome.storage.local.get as ReturnType<typeof vi.fn>).mockResolvedValue({
