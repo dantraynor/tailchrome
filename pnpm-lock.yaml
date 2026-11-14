@@ -25,6 +25,7 @@ overrides:
   '@humanfs/node': ^0.16.8
   node-notifier>uuid: ^11.1.1
   addons-linter>image-size: '-'
+  addons-linter>deepmerge: '-'
   '@devicefarmer/adbkit': 3.3.9
   '@devicefarmer/adbkit>node-forge': '-'
 
@@ -35,7 +36,7 @@ patchedDependencies:
     hash: e2865f7e8bf5ea74cbc54d9b7a7c1c368d75d71ed2ab6d05522cf55ada689885
     path: patches/@devicefarmer__adbkit@3.3.9.patch
   addons-linter@10.10.0:
-    hash: 9976d3cf26612117f223a78b59401c8b1b6f6049f26d577ee30a5d34a9dd95da
+    hash: 59528753fd290ccd8b84b4dd6f87ebe752728e7cebfbd3bb59a133b79392045b
     path: patches/addons-linter@10.10.0.patch
 
 importers:
@@ -963,10 +964,6 @@ packages:
 
   deep-is@0.1.4:
     resolution: {integrity: sha512-oIPzksmTg4/MriiaYGO+okXDT7ztn/w3Eptv/+gSIdMdKsJo0u4CfYNFJPy+4SKMuCqGw2wxnA+URMg3t8a/bQ==}
-
-  deepmerge@4.3.1:
-    resolution: {integrity: sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A==}
-    engines: {node: '>=0.10.0'}
 
   default-browser-id@5.0.1:
     resolution: {integrity: sha512-x1VCxdX4t+8wVfd1so/9w+vQ4vx7lKd2Qp5tDRutErwmR85OgmfX7RlLRMWafRMY7hbEiXIbudNrjOAPa/hL8Q==}
@@ -2861,7 +2858,7 @@ snapshots:
 
   acorn@8.16.0: {}
 
-  addons-linter@10.10.0(patch_hash=9976d3cf26612117f223a78b59401c8b1b6f6049f26d577ee30a5d34a9dd95da)(jiti@2.6.1):
+  addons-linter@10.10.0(patch_hash=59528753fd290ccd8b84b4dd6f87ebe752728e7cebfbd3bb59a133b79392045b)(jiti@2.6.1):
     dependencies:
       '@fluent/syntax': 0.19.0
       '@fregante/relaxed-json': 2.0.0
@@ -2873,7 +2870,6 @@ snapshots:
       columnify: 1.6.0
       common-tags: 1.8.2
       css-tree: 3.2.1
-      deepmerge: 4.3.1
       eslint: 9.39.4(jiti@2.6.1)
       eslint-plugin-no-unsanitized: 4.1.5(eslint@9.39.4(jiti@2.6.1))
       eslint-visitor-keys: 5.0.1
@@ -3197,8 +3193,6 @@ snapshots:
   deep-extend@0.6.0: {}
 
   deep-is@0.1.4: {}
-
-  deepmerge@4.3.1: {}
 
   default-browser-id@5.0.1: {}
 
@@ -4561,7 +4555,7 @@ snapshots:
     dependencies:
       '@babel/runtime': 8.0.0
       '@devicefarmer/adbkit': 3.3.9(patch_hash=e2865f7e8bf5ea74cbc54d9b7a7c1c368d75d71ed2ab6d05522cf55ada689885)
-      addons-linter: 10.10.0(patch_hash=9976d3cf26612117f223a78b59401c8b1b6f6049f26d577ee30a5d34a9dd95da)(jiti@2.6.1)
+      addons-linter: 10.10.0(patch_hash=59528753fd290ccd8b84b4dd6f87ebe752728e7cebfbd3bb59a133b79392045b)(jiti@2.6.1)
       camelcase: 8.0.0
       chrome-launcher: 1.2.0
       debounce: 1.2.1

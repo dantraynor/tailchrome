@@ -1,5 +1,5 @@
 diff --git a/dist/addons-linter.js b/dist/addons-linter.js
-index 1d08d742cc947939861dadd4573e048c700637a8..ecddab4bc28b29b5782645470c022a7b8b678e7c 100644
+index 1d08d742cc947939861dadd4573e048c700637a8..22affaa15248c6b7b533fce6fab4b76674d53fc8 100644
 --- a/dist/addons-linter.js
 +++ b/dist/addons-linter.js
 @@ -3081,12 +3081,19 @@ async function getStreamImageSize(stream) {
@@ -24,6 +24,164 @@ index 1d08d742cc947939861dadd4573e048c700637a8..ecddab4bc28b29b5782645470c022a7b
  }
  async function getImageMetadata(io, iconPath) {
    // Get a non-utf8 input stream by setting encoding to null.
-@@ -4164 +4171 @@ module.exports = require("@fregante/relaxed-json");
+@@ -4161,7 +4168,7 @@ module.exports = require("@fregante/relaxed-json");
+ /* 33 */
+ /***/ ((module) => {
+ 
 -module.exports = require("image-size");
 +module.exports = require("probe-image-size/sync");
+ 
+ /***/ }),
+ /* 34 */
+@@ -5127,7 +5134,150 @@ exports.deepPatch = deepPatch;
+ /* 46 */
+ /***/ ((module) => {
+ 
+-module.exports = require("deepmerge");
++// Inlined deepmerge 4.3.1 (MIT, Copyright (c) 2012 James Halliday, Josh
++// Duff, and other contributors), with GHSA-gcqx-w48m-w2h4 fixed: merged
++// keys are written with defineProperty, so a source key named "__proto__"
++// becomes an own property instead of replacing the result's prototype.
++// The npm package has no patched release.
++module.exports = (function () {
++	'use strict';
++
++	var isMergeableObject = function isMergeableObject(value) {
++		return isNonNullObject(value)
++			&& !isSpecial(value)
++	};
++
++	function isNonNullObject(value) {
++		return !!value && typeof value === 'object'
++	}
++
++	function isSpecial(value) {
++		var stringValue = Object.prototype.toString.call(value);
++
++		return stringValue === '[object RegExp]'
++			|| stringValue === '[object Date]'
++			|| isReactElement(value)
++	}
++
++	var canUseSymbol = typeof Symbol === 'function' && Symbol.for;
++	var REACT_ELEMENT_TYPE = canUseSymbol ? Symbol.for('react.element') : 0xeac7;
++
++	function isReactElement(value) {
++		return value.$$typeof === REACT_ELEMENT_TYPE
++	}
++
++	function emptyTarget(val) {
++		return Array.isArray(val) ? [] : {}
++	}
++
++	function cloneUnlessOtherwiseSpecified(value, options) {
++		return (options.clone !== false && options.isMergeableObject(value))
++			? deepmerge(emptyTarget(value), value, options)
++			: value
++	}
++
++	function defaultArrayMerge(target, source, options) {
++		return target.concat(source).map(function(element) {
++			return cloneUnlessOtherwiseSpecified(element, options)
++		})
++	}
++
++	function getMergeFunction(key, options) {
++		if (!options.customMerge) {
++			return deepmerge
++		}
++		var customMerge = options.customMerge(key);
++		return typeof customMerge === 'function' ? customMerge : deepmerge
++	}
++
++	function getEnumerableOwnPropertySymbols(target) {
++		return Object.getOwnPropertySymbols
++			? Object.getOwnPropertySymbols(target).filter(function(symbol) {
++				return Object.propertyIsEnumerable.call(target, symbol)
++			})
++			: []
++	}
++
++	function getKeys(target) {
++		return Object.keys(target).concat(getEnumerableOwnPropertySymbols(target))
++	}
++
++	function propertyIsOnObject(object, property) {
++		try {
++			return property in object
++		} catch(_) {
++			return false
++		}
++	}
++
++	function propertyIsUnsafe(target, key) {
++		return propertyIsOnObject(target, key)
++			&& !(Object.hasOwnProperty.call(target, key)
++				&& Object.propertyIsEnumerable.call(target, key))
++	}
++
++	// Plain assignment would invoke the inherited __proto__ setter.
++	function defineOwn(destination, key, value) {
++		Object.defineProperty(destination, key, {
++			value: value,
++			writable: true,
++			enumerable: true,
++			configurable: true
++		});
++	}
++
++	function mergeObject(target, source, options) {
++		var destination = {};
++		if (options.isMergeableObject(target)) {
++			getKeys(target).forEach(function(key) {
++				defineOwn(destination, key, cloneUnlessOtherwiseSpecified(target[key], options));
++			});
++		}
++		getKeys(source).forEach(function(key) {
++			if (propertyIsUnsafe(target, key)) {
++				return
++			}
++
++			if (propertyIsOnObject(target, key) && options.isMergeableObject(source[key])) {
++				defineOwn(destination, key, getMergeFunction(key, options)(target[key], source[key], options));
++			} else {
++				defineOwn(destination, key, cloneUnlessOtherwiseSpecified(source[key], options));
++			}
++		});
++		return destination
++	}
++
++	function deepmerge(target, source, options) {
++		options = options || {};
++		options.arrayMerge = options.arrayMerge || defaultArrayMerge;
++		options.isMergeableObject = options.isMergeableObject || isMergeableObject;
++		options.cloneUnlessOtherwiseSpecified = cloneUnlessOtherwiseSpecified;
++
++		var sourceIsArray = Array.isArray(source);
++		var targetIsArray = Array.isArray(target);
++		var sourceAndTargetTypesMatch = sourceIsArray === targetIsArray;
++
++		if (!sourceAndTargetTypesMatch) {
++			return cloneUnlessOtherwiseSpecified(source, options)
++		} else if (sourceIsArray) {
++			return options.arrayMerge(target, source, options)
++		} else {
++			return mergeObject(target, source, options)
++		}
++	}
++
++	deepmerge.all = function deepmergeAll(array, options) {
++		if (!Array.isArray(array)) {
++			throw new Error('first argument should be an array')
++		}
++
++		return array.reduce(function(prev, next) {
++			return deepmerge(prev, next, options)
++		}, {})
++	};
++
++	return deepmerge;
++})();
+ 
+ /***/ }),
+ /* 47 */

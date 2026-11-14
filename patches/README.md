@@ -4,6 +4,16 @@
 of the vulnerable `image-size` dependency. Its dependency replacement is declared
 in the root pnpm configuration.
 
+The same patch inlines `deepmerge` 4.3.1 (MIT) with
+[GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4) fixed,
+because the npm package has no patched release. In 4.3.1, a merge target with an
+own `__proto__` key (for example from `JSON.parse`) replaced the result's
+prototype. The inlined copy writes merged keys with `Object.defineProperty`, so
+that key stays an ordinary own property and no data is dropped; merge results are
+otherwise unchanged. addons-linter uses it only to assemble its bundled
+WebExtension schemas. The pnpm override removes the `deepmerge` package. Remove
+this part of the patch when addons-linter depends on a fixed `deepmerge`.
+
 `@devicefarmer__adbkit@3.3.9.patch` replaces adbkit's uses of `node-forge` with
 Node.js crypto to address [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv).
 Both Firefox tooling dependency paths use this patched version;
@@ -25,5 +35,6 @@ tradeoff. Firefox tooling does not consume those forge-specific APIs. Node.js 22
 is already required by this repository. The upstream Apache-2.0 license remains
 unchanged in the patched package.
 
-Run `pnpm test:dependencies` to exercise the installed patch through both Firefox
-tooling dependency paths, including Android authentication and CLI conversions.
+Run `pnpm test:dependencies` to exercise the installed patches: adbkit through both
+Firefox tooling dependency paths, including Android authentication and CLI
+conversions, and the inlined `deepmerge` plus addons-linter schema validation.
