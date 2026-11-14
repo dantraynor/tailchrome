@@ -53,7 +53,7 @@ The UI is the same in either surface.
 
 1. Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll) (Brave, Edge, Vivaldi, Opera, and Arc on macOS use the same listing) or [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/tailchrome/).
 2. Open the extension and follow helper setup for your platform. Per-user scripts and the popup-guided installers do not need admin rights. The [Homebrew cask](packaging/homebrew/README.md) and some system packages do.
-3. Log in to Tailscale.
+3. Log in to Tailscale, or sign in with a pre-authorized auth key on machines where you cannot install the Tailscale app.
 
 Install the helper from the same [release](https://github.com/dantraynor/tailchrome/releases/latest) as the extension (minimum helper **v0.1.14** for the authenticated proxy). Pairing rules, repair, pinning, Flatpak, and uninstall are in [helper installation](docs/helper-installation.md).
 

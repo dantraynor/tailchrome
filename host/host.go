@@ -329,6 +329,8 @@ func (h *Host) handleRequestLocked(req Request) {
 		h.handleInit(req)
 	case "login":
 		h.handleLogin()
+	case authKeyLoginCmd:
+		h.handleLoginAuthKey(req)
 	case "up":
 		h.handleUp()
 	case "down":

@@ -139,6 +139,7 @@ Each browser profile has its own Tailscale identity. Different profiles can use 
 - Shields Up blocks all incoming connections.
 - Run as Exit Node advertises this browser node as an exit node.
 - Login and logout authenticate with Tailscale. Login URLs must match allowed origins.
+- Sign in with a pre-authorized auth key instead of a browser login. The key registers only the current browser profile, can carry tags for a narrow ACL, and is never saved by the extension or helper.
 - Operational health warnings appear in a collapsible banner. The upstream experimental-build notice is informational only. Other warnings, including peer-list truncation, stay visible. The extension filters the experimental notice text from older compatible helpers.
 
 ### UX
@@ -173,6 +174,7 @@ Communication uses the Chrome native messaging wire format: a **4-byte little-en
 | ------------------- | ----------------------------------------------- | ------------------------------------------------ |
 | `init`              | `initID: string`, `wantRunning?: boolean`       | Initialize tsnet.Server for browser profile UUID; optional hint for whether the node should run after startup |
 | `login`             | --                                              | Request a fresh Tailscale login URL              |
+| `login-auth-key`    | `authKey: string`                               | Register the logged-out profile with an auth key |
 | `up`                | --                                              | Set `WantRunning=true`                           |
 | `down`              | --                                              | Set `WantRunning=false`                          |
 | `get-status`        | --                                              | Request full status update                       |
@@ -196,7 +198,7 @@ Communication uses the Chrome native messaging wire format: a **4-byte little-en
 
 | Reply Field          | When Sent                           | Payload                                         |
 | -------------------- | ----------------------------------- | ----------------------------------------------- |
-| `procRunning`        | Immediately on host startup         | `{ port, pid, version, proxyAuth, supportsNetcheck?, supportsPingPeer?, supportsLogin?, supportsCustomControlURL?, error? }` |
+| `procRunning`        | Immediately on host startup         | `{ port, pid, version, proxyAuth, supportsNetcheck?, supportsPingPeer?, supportsLogin?, supportsCustomControlURL?, supportsAuthKeyLogin?, error? }` |
 | `init`               | After `init` command                | `{ error? }`                                    |
 | `pong`               | After `ping`                        | `{}`                                            |
 | `status`             | After state changes or `get-status` | Full `StatusUpdate` object                      |
@@ -236,6 +238,8 @@ interface StatusUpdate {
 ```
 
 When `NeedsLogin` is active, the extension opens a validated `browseToURL` immediately when available. If the URL is missing and the helper advertises `supportsLogin`, the extension sends `login`, waits for a fresh `browseToURL` or `authURL`, validates the URL, and then opens it.
+
+If the helper advertises `supportsAuthKeyLogin`, the login view also offers "Use an auth key". The extension sends `login-auth-key` with the key, and the helper passes it to the backend for the current profile only, then registers without a browser URL. The key is never written to storage, prefs, or logs. If the coordination server rejects the key, the helper replies with a `login-auth-key` error that omits the key and drops it from the backend so it is not retried. Key sign-in does not need protected browsing to be released, because the helper reaches the coordination server directly.
 
 `set-prefs.prefs.controlURL` uses an empty string for Tailscale's default control plane and an HTTP(S) URL for a custom server. The helper validates the URL and preferences before switching to an empty local profile. The new profile clears server-scoped exit-node state and requires a fresh login. The previous account remains in Profiles, and failures attempt to restore its identity and preferences. Switching does not require remote logout. Settings for the pending login survive a helper restart.
 
@@ -306,7 +310,7 @@ The shared package contains all the platform-agnostic logic. The extension packa
 | `exit-nodes.ts` | Exit-node picker: local recommendation, search, grouping, flags, and live updates |
 | `profiles.ts` | Profile switcher: create, switch, and delete actions |
 | `disconnected.ts` | Starting, reconnecting, stopped, and helper-error recovery states |
-| `needs-login.ts` | Login prompt and coordination-server settings |
+| `needs-login.ts` | Login prompt, auth key sign-in, and coordination-server settings |
 | `needs-install.ts` | Package installation and registration-repair entry point |
 | `install-helpers.ts` | Runtime platform/architecture selection, per-user setup, terminal commands, and registration recovery |
 
@@ -376,6 +380,7 @@ The native host is a Go binary at `host/` using `tailscale.com/tsnet` pinned to 
 | `main.go` | Entry point, proxy startup, and native messaging mode |
 | `cli.go` | Explicit install/uninstall/version command parsing and legacy setup compatibility |
 | `host.go` | Framing loop, synchronized tsnet session lifecycle, request dispatch, prefs/login/diagnostic handlers, and bounded status replies |
+| `authkey_login.go` | Auth key sign-in: key validation, redaction, rejection reporting, and discarding rejected keys |
 | `protocol.go` | Wire protocol types and 1 MiB message limit |
 | `status.go` | Retrying IPN bus watcher, debounced refresh, cached notification state, and `StatusUpdate` construction |
 | `proxy.go` / `proxy_policy.go` | SOCKS5/HTTP multiplexing, authenticated destination policy, lazy quad-100 web client, and buffered CONNECT tunneling |
@@ -525,6 +530,7 @@ interface TailscaleState {
   supportsPingPeer: boolean;
   supportsLogin: boolean;
   supportsCustomControlURL: boolean;
+  supportsAuthKeyLogin: boolean;
   reconnecting: boolean;
   autoConnectOnStart: boolean;
 }
@@ -545,7 +551,7 @@ interface TailscaleState {
 **BackgroundMessage** (popup -> background):
 
 - Connection and recovery: `release-routing`, `toggle`, `login`,
-  `disconnect-and-login`, `logout`, and `retry-native-host`
+  `disconnect-and-login`, `login-auth-key`, `logout`, and `retry-native-host`
 - Routing and preferences: `set-exit-node`, `clear-exit-node`, `set-pref`,
   `set-advertise-routes`, `set-domain-split`, and
   `set-auto-connect-on-start`

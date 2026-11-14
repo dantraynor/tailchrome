@@ -138,6 +138,7 @@ func main() {
 				SupportsPingPeer:         true,
 				SupportsLogin:            true,
 				SupportsCustomControlURL: true,
+				SupportsAuthKeyLogin:     true,
 			},
 		})
 		log.Fatalf("failed to start proxy: %v", err)
@@ -154,6 +155,7 @@ func main() {
 			SupportsPingPeer:         true,
 			SupportsLogin:            true,
 			SupportsCustomControlURL: true,
+			SupportsAuthKeyLogin:     true,
 		},
 	})
 
