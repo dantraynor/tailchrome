@@ -11,7 +11,7 @@
     "lint:firefox": "pnpm --filter @tailchrome/extension lint:firefox",
     "review:firefox": "pnpm lint:firefox && pnpm zip:firefox && pnpm validate:firefox-publish",
     "test": "pnpm -r test && pnpm test:e2e-utils && pnpm test:dependencies",
-    "test:dependencies": "node --test scripts/adbkit-crypto.test.mjs",
+    "test:dependencies": "node --test scripts/adbkit-crypto.test.mjs scripts/addons-linter-deepmerge.test.mjs",
     "test:e2e-utils": "node --test scripts/e2e/*.test.mjs",
     "test:installer": "bash ./scripts/install.test.sh",
     "test:homebrew": "node --test scripts/update-homebrew.test.mjs",
@@ -50,6 +50,7 @@
       "@humanfs/node": "^0.16.8",
       "node-notifier>uuid": "^11.1.1",
       "addons-linter>image-size": "-",
+      "addons-linter>deepmerge": "-",
       "@devicefarmer/adbkit": "3.3.9",
       "@devicefarmer/adbkit>node-forge": "-"
     },
