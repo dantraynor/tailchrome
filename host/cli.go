@@ -32,14 +32,27 @@ type parsedCommand struct {
 }
 
 type registrationOptions struct {
-	BinaryPath    string
-	ChromeID      string
-	FirefoxID     string
-	Browsers      []string
-	AllBrowsers   bool
-	UserDataDir   string
-	ChromeFlatpak bool
-	ExtensionDir  string
+	BinaryPath     string
+	ChromeID       string
+	FirefoxID      string
+	Browsers       []string
+	AllBrowsers    bool
+	UserDataDir    string
+	ChromeFlatpak  bool
+	FirefoxFlatpak bool
+	ExtensionDir   string
+}
+
+// flatpakTarget returns the Flatpak browser selected by --chrome-flatpak or
+// --firefox-flatpak. The parsers reject selecting both.
+func (o registrationOptions) flatpakTarget() (flatpakBrowser, bool) {
+	switch {
+	case o.ChromeFlatpak:
+		return chromeFlatpak, true
+	case o.FirefoxFlatpak:
+		return firefoxFlatpak, true
+	}
+	return flatpakBrowser{}, false
 }
 
 type stringList []string
@@ -115,6 +128,7 @@ func parseInstallCommand(args []string) (parsedCommand, error) {
 	fs.BoolVar(&opts.AllBrowsers, "all-browsers", false, "register every supported browser")
 	fs.StringVar(&opts.UserDataDir, "user-data-dir", "", "custom Chromium user-data directory")
 	fs.BoolVar(&opts.ChromeFlatpak, "chrome-flatpak", false, "install the helper for Chrome Flatpak")
+	fs.BoolVar(&opts.FirefoxFlatpak, "firefox-flatpak", false, "install the helper for Firefox Flatpak")
 	fs.StringVar(&opts.ExtensionDir, "extension-dir", "", "unpacked Chromium extension directory for Chrome Flatpak")
 	if err := fs.Parse(args); err != nil {
 		return parsedCommand{}, err
@@ -132,12 +146,19 @@ func parseInstallCommand(args []string) (parsedCommand, error) {
 		}
 		opts.ExtensionDir = filepath.Clean(opts.ExtensionDir)
 	}
-	if opts.ChromeFlatpak {
-		if opts.BinaryPath != "" || len(opts.Browsers) != 0 || opts.AllBrowsers || opts.UserDataDir != "" || opts.FirefoxID != firefoxExtensionID {
-			return parsedCommand{}, errors.New("--chrome-flatpak cannot be combined with native browser selection flags")
+	if opts.ChromeFlatpak && opts.FirefoxFlatpak {
+		return parsedCommand{}, errors.New("--chrome-flatpak and --firefox-flatpak cannot be combined; run install once per browser")
+	}
+	if opts.ChromeFlatpak || opts.FirefoxFlatpak {
+		flag := "--chrome-flatpak"
+		if opts.FirefoxFlatpak {
+			flag = "--firefox-flatpak"
 		}
-		if opts.ChromeID != chromeWebStoreExtensionID {
-			return parsedCommand{}, errors.New("--chrome-flatpak requires the stable Tailchrome Chrome extension ID")
+		if opts.BinaryPath != "" || len(opts.Browsers) != 0 || opts.AllBrowsers || opts.UserDataDir != "" {
+			return parsedCommand{}, fmt.Errorf("%s cannot be combined with native browser selection flags", flag)
+		}
+		if opts.ChromeID != chromeWebStoreExtensionID || opts.FirefoxID != firefoxExtensionID {
+			return parsedCommand{}, fmt.Errorf("%s requires the stable Tailchrome extension IDs", flag)
 		}
 		return parsedCommand{Kind: commandInstall, Opts: opts}, nil
 	}
@@ -163,6 +184,7 @@ func parseUninstallCommand(args []string) (parsedCommand, error) {
 	fs.StringVar(&opts.BinaryPath, "binary-path", "", "absolute path to the invoking executable")
 	fs.StringVar(&opts.UserDataDir, "user-data-dir", "", "custom Chromium user-data directory")
 	fs.BoolVar(&opts.ChromeFlatpak, "chrome-flatpak", false, "uninstall the Chrome Flatpak helper")
+	fs.BoolVar(&opts.FirefoxFlatpak, "firefox-flatpak", false, "uninstall the Firefox Flatpak helper")
 	fs.StringVar(&opts.ExtensionDir, "extension-dir", "", "unpacked Chromium extension directory for Chrome Flatpak")
 	if err := fs.Parse(args); err != nil {
 		return parsedCommand{}, err
@@ -173,9 +195,12 @@ func parseUninstallCommand(args []string) (parsedCommand, error) {
 	if opts.ExtensionDir != "" {
 		return parsedCommand{}, errors.New("uninstall does not accept --extension-dir; use --chrome-flatpak")
 	}
-	if opts.ChromeFlatpak {
+	if opts.ChromeFlatpak && opts.FirefoxFlatpak {
+		return parsedCommand{}, errors.New("--chrome-flatpak and --firefox-flatpak cannot be combined; run uninstall once per browser")
+	}
+	if opts.ChromeFlatpak || opts.FirefoxFlatpak {
 		if opts.BinaryPath != "" || opts.UserDataDir != "" {
-			return parsedCommand{}, errors.New("--chrome-flatpak cannot be combined with native uninstall flags")
+			return parsedCommand{}, errors.New("Flatpak uninstall cannot be combined with native uninstall flags")
 		}
 		return parsedCommand{Kind: commandUninstall, Opts: opts}, nil
 	}

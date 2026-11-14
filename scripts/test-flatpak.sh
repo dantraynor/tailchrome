@@ -1,17 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Bounded Chrome Flatpak native-host smoke test for a native Linux CI runner.
+# Bounded browser Flatpak native-host smoke test for a native Linux CI runner.
 # This deliberately tests the helper's framed protocol inside the sandbox, not
 # the store extension, browser login, or browser routing. It never installs a
 # Flatpak, adds filesystem overrides, or stops an app instance it did not start.
+#
+# Usage: scripts/test-flatpak.sh [chrome|firefox]   (default: chrome)
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-app_id=com.google.Chrome
+browser=${1:-chrome}
+case "$browser" in
+chrome)
+	app_id=com.google.Chrome
+	browser_name=Chrome
+	manifest_rel=config/google-chrome/NativeMessagingHosts/com.tailscale.browserext.chrome.json
+	;;
+firefox)
+	app_id=org.mozilla.firefox
+	browser_name=Firefox
+	manifest_rel=.mozilla/native-messaging-hosts/com.tailscale.browserext.firefox.json
+	;;
+*)
+	echo "ERROR: unknown browser '$browser'; use chrome or firefox" >&2
+	exit 2
+	;;
+esac
 app_dir="${HOME}/.var/app/${app_id}"
-manifest_path="${app_dir}/config/google-chrome/NativeMessagingHosts/com.tailscale.browserext.chrome.json"
+manifest_path="${app_dir}/${manifest_rel}"
 host_path="${app_dir}/tailchrome/host/tailchrome"
 receipt_path="${app_dir}/tailchrome/install.json"
-log_path="${repo_dir}/.context/flatpak-smoke.log"
+log_path="${repo_dir}/.context/flatpak-smoke-${browser}.log"
 tmp_dir=$(mktemp -d)
 helper_path="${tmp_dir}/tailchrome"
 install_completed=0
@@ -25,7 +43,7 @@ cleanup() {
 				if [[ "$status" == 0 ]]; then
 					status=1
 				fi
-				echo "ERROR: Flatpak smoke could not stop the Chrome instance it started; see $log_path" >&2
+				echo "ERROR: Flatpak smoke could not stop the $browser_name instance it started; see $log_path" >&2
 			else
 				for _ in {1..40}; do
 					if ! flatpak ps --columns=application | awk -v id="$app_id" '$0 == id { found=1 } END { exit found ? 0 : 1 }'; then
@@ -37,13 +55,13 @@ cleanup() {
 					if [[ "$status" == 0 ]]; then
 						status=1
 					fi
-					echo "ERROR: Chrome Flatpak remained active after smoke cleanup; see $log_path" >&2
+					echo "ERROR: $browser_name Flatpak remained active after smoke cleanup; see $log_path" >&2
 				fi
 			fi
 		fi
 	fi
 	if [[ "$install_completed" == 1 ]]; then
-		if ! "$helper_path" uninstall --chrome-flatpak >>"$log_path" 2>&1; then
+		if ! "$helper_path" uninstall "--${browser}-flatpak" >>"$log_path" 2>&1; then
 			if [[ "$status" == 0 ]]; then
 				status=1
 			fi
@@ -83,7 +101,7 @@ ps_output=$(flatpak ps --columns=application) || {
 	exit 1
 }
 if awk -v id="$app_id" '$0 == id { found=1 } END { exit found ? 0 : 1 }' <<<"$ps_output"; then
-	echo "ERROR: close Chrome Flatpak before running this smoke test" >&2
+	echo "ERROR: close $browser_name Flatpak before running this smoke test" >&2
 	exit 1
 fi
 for path in "$manifest_path" "$host_path" "$receipt_path"; do
@@ -96,7 +114,7 @@ done
 mkdir -p "$(dirname "$log_path")"
 : >"$log_path"
 (cd "$repo_dir/host" && go build -trimpath -o "$helper_path" .) >>"$log_path" 2>&1
-"$helper_path" install --chrome-flatpak >>"$log_path" 2>&1
+"$helper_path" install "--${browser}-flatpak" >>"$log_path" 2>&1
 install_completed=1
 
 [[ -x "$host_path" ]] || { echo "ERROR: staged helper is missing or not executable; see $log_path" >&2; exit 1; }
@@ -175,4 +193,4 @@ finally:
             proc.wait(timeout=3)
 PY
 
-echo "Chrome Flatpak native-host procRunning/pong smoke passed; store extension, login, and routing remain untested."
+echo "$browser_name Flatpak native-host procRunning/pong smoke passed; store extension, login, and routing remain untested."

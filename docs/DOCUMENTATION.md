@@ -4,7 +4,7 @@ Tailscale in the browser without changing system VPN settings. For a short overv
 
 **Version:** 0.1.15 (extension and native host) | Manifest V3
 **Browsers:** Chrome, Firefox, and Chromium-family browsers with the same Chrome Web Store build (Brave, Edge, Vivaldi, Opera; Arc on macOS)
-**Platforms:** macOS (amd64, arm64), Linux (amd64 packages; amd64/arm64 raw helpers), Windows (amd64 MSI; amd64/arm64 raw helpers). Chrome Flatpak is a separate Linux install path ([helper installation](helper-installation.md#chrome-flatpak))
+**Platforms:** macOS (amd64, arm64), Linux (amd64 packages; amd64/arm64 raw helpers), Windows (amd64 MSI; amd64/arm64 raw helpers). Chrome and Firefox Flatpak are separate Linux install paths ([Chrome](helper-installation.md#chrome-flatpak), [Firefox](helper-installation.md#firefox-flatpak))
 **License:** MIT
 **Website:** [tesseras.org/tailchrome](https://tesseras.org/)
 **Chrome Web Store:** [Chrome Web Store](https://chromewebstore.google.com/detail/tailchrome/bhfeceecialgilpedkoflminjgcjljll)
@@ -389,7 +389,7 @@ The native host is a Go binary at `host/` using `tailscale.com/tsnet` pinned to 
 | `saved_prefs.go` | Loads saved profile preferences before tsnet startup and persists settings for pending logins |
 | `control_url.go` | Changes coordination servers using a fresh local profile, with rollback to the previous account |
 | `taildrop.go` | Chunk reassembly, asynchronous cancellable `PushFile`, progress, and cleanup |
-| `install.go` / `install_*.go` | Cross-platform native host installation and cleanup, including Chrome Flatpak sandbox state and registration |
+| `install.go` / `install_*.go` | Cross-platform native host installation and cleanup, including Chrome/Firefox Flatpak sandbox state and registration |
 | `peers.go` | Peer/status conversion from Tailscale types |
 | `exitnode.go` | Exit-node selection and suggestion handlers |
 | `*_test.go` | Framing, proxy, peer conversion, status/prefs, Taildrop, installer, and platform-specific regression coverage |
@@ -745,7 +745,7 @@ behavior. Existing native-host names and extension IDs are unchanged. The new
 or package manager removes the executable. Node state is preserved.
 
 See [helper installation](helper-installation.md) for exact commands, executable
-paths, legacy behavior, safe upgrades, uninstall and Chrome Flatpak setup. The
+paths, legacy behavior, safe upgrades, uninstall and Chrome/Firefox Flatpak setup. The
 matching release's installer assets must exist before distributing its extension.
 
 ### State Directory
@@ -759,7 +759,7 @@ Per-profile Tailscale state is stored at:
 Each browser profile generates a UUID on first connection, stored in `chrome.storage.local` as `profileId`.
 
 Native installations keep this historical location even when browser manifest
-registration uses XDG paths. Chrome Flatpak uses its sandbox's writable XDG
+registration uses XDG paths. Chrome and Firefox Flatpak use their sandbox's writable XDG
 configuration directory for separate node state. Installing the sandbox helper
 does not migrate or delete native node identities.
 
@@ -844,7 +844,7 @@ tailchrome/
 |   +-- install.go                    # Manifest installation
 |   +-- install_darwin.go             # macOS paths
 |   +-- install_linux.go              # Linux paths
-|   +-- install_flatpak_*.go          # Chrome Flatpak sandbox registration
+|   +-- install_flatpak_*.go          # Chrome/Firefox Flatpak sandbox registration
 |   +-- install_windows.go            # Windows paths + registry
 |   +-- peers.go                      # Peer info extraction
 |   +-- exitnode.go                   # Exit node handlers
@@ -868,7 +868,7 @@ tailchrome/
 |   +-- install.ps1                  # Verified Windows amd64/ARM64 per-user installer
 |   +-- install.test.sh              # Hermetic installer tests
 |   +-- install.test.ps1             # Portable PowerShell installer fixtures
-|   +-- test-flatpak.sh              # In-sandbox Chrome native-messaging smoke
+|   +-- test-flatpak.sh              # In-sandbox Chrome/Firefox native-messaging smoke
 |   +-- update-homebrew.mjs          # Release-driven cask/formula updater
 |   +-- verify-windows-signatures.ps1 # Authenticode and embedded-EXE verifier
 |   +-- validate-extension-ids.mjs   # Extension/native manifest drift check
@@ -894,7 +894,7 @@ tailchrome/
 |
 +-- .github/workflows/
 |   +-- ci.yml                        # PR checks
-|   +-- flatpak-smoke.yml             # Chrome Flatpak helper smoke on PRs
+|   +-- flatpak-smoke.yml             # Chrome/Firefox Flatpak helper smoke on PRs
 |   +-- release.yml                   # Immutable tagged candidate builds
 |   +-- publish-helper-release.yml    # Protected exact-candidate publication
 |   +-- publish.yml                   # Store submission
@@ -1001,10 +1001,10 @@ change:
 - **workflow-static-validation**: actionlint over every workflow and ShellCheck
   over installer and packaging scripts
 
-### Chrome Flatpak smoke (`flatpak-smoke.yml`) -- Pull Requests or Manual Dispatch
+### Flatpak smoke (`flatpak-smoke.yml`) -- Pull Requests or Manual Dispatch
 
-This separate workflow creates a clean user-scoped Chrome Flatpak installation,
-installs the helper into its sandbox, verifies native-message framing from
+This separate workflow creates clean user-scoped Chrome and Firefox Flatpak installations,
+installs the helper into each sandbox, verifies native-message framing from
 inside the sandbox, uninstalls it, and retains diagnostics even on failure.
 
 ### Candidate (`release.yml`) -- Runs on `v`* Tags or Manual Dispatch
@@ -1140,7 +1140,7 @@ pull-request creation is unavailable.
 | `status_test.go` | Status/prefs mapping and cached browse/login state |
 | `taildrop_test.go` | Chunk assembly/progress, validation, cleanup, and active-transfer cancellation |
 | `install_test.go`, `install_windows_test.go` | CLI parsing, manifest/registry installation, extension-ID formatting, and cleanup |
-| `install_flatpak_test.go` | Chrome Flatpak ownership, rollback, sandbox containment, locking, CLI flags, and cleanup |
+| `install_flatpak_test.go` | Chrome/Firefox Flatpak ownership, rollback, sandbox containment, locking, CLI flags, and cleanup |
 | `control_url_test.go` | Control-server normalization and validation |
 
 **Installer and platform smoke tests:**
@@ -1149,7 +1149,7 @@ pull-request creation is unavailable.
 | --- | --- |
 | `scripts/install.test.sh` | Hermetic Unix installer downloads, verification, upgrade, rollback, and uninstall |
 | `scripts/install.test.ps1` | Portable Windows architecture selection, verification, replacement, rollback, and uninstall |
-| `scripts/test-flatpak.sh` | Chrome Flatpak sandbox installation, native `procRunning`/`pong` framing, and cleanup; it does not test the store extension, login, or browser routing |
+| `scripts/test-flatpak.sh` | Chrome or Firefox Flatpak sandbox installation, native `procRunning`/`pong` framing, and cleanup; it does not test the store extension, login, or browser routing |
 | `scripts/update-homebrew.test.mjs` | Cask/formula version and checksum updates, validation, downgrade rejection, and idempotence |
 
 

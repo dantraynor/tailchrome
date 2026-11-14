@@ -87,7 +87,7 @@ script:
 
 This invokes `uninstall --binary-path` before removing the script-owned
 executable. It preserves node identities and registrations owned by another
-method. For custom XDG paths and Chrome Flatpak, see
+method. For custom XDG paths and Chrome/Firefox Flatpak, see
 [helper installation](../../docs/helper-installation.md).
 
 ## Build

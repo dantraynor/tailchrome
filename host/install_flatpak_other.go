@@ -2,12 +2,12 @@
 
 package main
 
-import "errors"
+import "fmt"
 
-func installChromeFlatpak(_ string) error {
-	return errors.New("Chrome Flatpak installation is supported only on Linux")
+func installFlatpak(b flatpakBrowser, _ string) error {
+	return fmt.Errorf("%s Flatpak installation is supported only on Linux", b.Name)
 }
 
-func uninstallChromeFlatpak() error {
-	return errors.New("Chrome Flatpak installation is supported only on Linux")
+func uninstallFlatpak(b flatpakBrowser) error {
+	return fmt.Errorf("%s Flatpak installation is supported only on Linux", b.Name)
 }

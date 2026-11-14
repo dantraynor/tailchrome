@@ -144,5 +144,5 @@ while this follow-up is completed.
 - [ ] macOS ZIP launch establishes a stable signed app location and rolls back a failed upgrade.
 - [ ] New package/script uninstallers preserve the replacement owner's registrations. When migrating from v0.1.13 or older, remove the old package first or rerun the new helper's registration after removal.
 - [ ] Custom XDG/browser-data paths and first-use browser registration work.
-- [ ] Chrome Flatpak install, helper launch, login, routing, upgrade and uninstall pass on a Linux machine supporting its namespaces; native registrations and state remain intact.
+- [ ] Chrome and Firefox Flatpak install, helper launch, login, routing, upgrade and uninstall pass on a Linux machine supporting its namespaces; native registrations and state remain intact.
 - [ ] The popup command/download flow retries discovery even after the popup closes.

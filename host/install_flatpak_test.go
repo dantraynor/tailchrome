@@ -15,16 +15,188 @@ import (
 
 func flatpakTestSetup(t *testing.T) string {
 	t.Helper()
+	return flatpakTestSetupFor(t, chromeFlatpak)
+}
+
+// flatpakTestSetupFor creates a temp HOME containing only b's app directory
+// and stubs the activity probe so no real flatpak command runs.
+func flatpakTestSetupFor(t *testing.T, b flatpakBrowser) string {
+	t.Helper()
 	home := setupTempHome(t)
 	t.Setenv("FLATPAK_ID", "")
-	app := flatpakAppDir(home)
+	app := flatpakAppDir(home, b)
 	if err := os.MkdirAll(app, 0755); err != nil {
 		t.Fatal(err)
 	}
 	oldActive := flatpakBrowserActive
-	flatpakBrowserActive = func() (bool, error) { return false, nil }
+	flatpakBrowserActive = func(string) (bool, error) { return false, nil }
 	t.Cleanup(func() { flatpakBrowserActive = oldActive })
 	return app
+}
+
+func TestFirefoxFlatpakInstallWritesGeckoManifestAndUninstalls(t *testing.T) {
+	app := flatpakTestSetupFor(t, firefoxFlatpak)
+	home := os.Getenv("HOME")
+	unrelated := filepath.Join(app, ".mozilla", "native-messaging-hosts", "unrelated.json")
+	if err := os.MkdirAll(filepath.Dir(unrelated), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unrelated, []byte("keep me"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := installFlatpak(firefoxFlatpak, ""); err != nil {
+		t.Fatalf("fresh install: %v", err)
+	}
+	if err := installFlatpak(firefoxFlatpak, ""); err != nil {
+		t.Fatalf("repeat install: %v", err)
+	}
+
+	hostPath := filepath.Join(app, filepath.FromSlash(flatpakHostRel))
+	if info, err := os.Stat(hostPath); err != nil || info.Mode().Perm()&0111 == 0 {
+		t.Fatalf("staged helper missing or not executable: %v", err)
+	}
+	manifestPath := filepath.Join(app, ".mozilla", "native-messaging-hosts", manifestNameFirefox+".json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest nativeManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Name != manifestNameFirefox || manifest.Path != hostPath || manifest.Type != "stdio" ||
+		len(manifest.AllowedOrigins) != 0 ||
+		len(manifest.AllowedExtensions) != 1 || manifest.AllowedExtensions[0] != firefoxExtensionID {
+		t.Fatalf("unexpected Firefox Flatpak manifest: %#v", manifest)
+	}
+	if _, err := os.Stat(flatpakAppDir(home, chromeFlatpak)); !os.IsNotExist(err) {
+		t.Fatalf("Firefox install touched the Chrome app directory: %v", err)
+	}
+
+	if err := uninstallFlatpak(firefoxFlatpak); err != nil {
+		t.Fatalf("uninstall: %v", err)
+	}
+	for _, path := range []string{hostPath, manifestPath, filepath.Join(app, filepath.FromSlash(flatpakReceiptRel))} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("owned artifact %q remains: %v", path, err)
+		}
+	}
+	if got, err := os.ReadFile(unrelated); err != nil || string(got) != "keep me" {
+		t.Errorf("unrelated Firefox file changed: %q, %v", got, err)
+	}
+}
+
+func TestFirefoxFlatpakRefusesUnownedManifestAndExtensionDir(t *testing.T) {
+	app := flatpakTestSetupFor(t, firefoxFlatpak)
+	ext := filepath.Join(t.TempDir(), "extension")
+	writeValidFlatpakExtension(t, ext, "body")
+	if err := installFlatpak(firefoxFlatpak, ext); err == nil || !strings.Contains(err.Error(), "does not support --extension-dir") {
+		t.Fatalf("Firefox extension-dir error = %v", err)
+	}
+
+	// A manifest copied in by hand (the pre-support workaround) has no
+	// receipt and must not be silently replaced.
+	manual := filepath.Join(app, filepath.FromSlash(firefoxFlatpak.ManifestRel))
+	if err := os.MkdirAll(filepath.Dir(manual), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manual, []byte(`{"name":"manual"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := installFlatpak(firefoxFlatpak, ""); err == nil || !strings.Contains(err.Error(), "without a Tailchrome ownership receipt") {
+		t.Fatalf("unowned manifest error = %v", err)
+	}
+	if got, err := os.ReadFile(manual); err != nil || string(got) != `{"name":"manual"}` {
+		t.Fatalf("unowned manifest was modified: %q, %v", got, err)
+	}
+}
+
+func TestFlatpakReceiptIsBrowserSpecific(t *testing.T) {
+	flatpakTestSetup(t)
+	if err := installFlatpak(chromeFlatpak, ""); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(flatpakAppDirForCurrentUser(chromeFlatpak))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	receipt, exists, err := readFlatpakReceipt(root)
+	if err != nil || !exists {
+		t.Fatalf("read receipt: exists=%v err=%v", exists, err)
+	}
+	if err := validateFlatpakReceipt(chromeFlatpak, receipt); err != nil {
+		t.Fatalf("Chrome receipt rejected for Chrome: %v", err)
+	}
+	if err := validateFlatpakReceipt(firefoxFlatpak, receipt); err == nil {
+		t.Fatal("Chrome receipt accepted for Firefox")
+	}
+	receipt.ManifestPath = firefoxFlatpak.ManifestRel
+	receipt.ExtensionPath = flatpakExtensionRel
+	receipt.ExtensionSHA256 = "abc"
+	if err := validateFlatpakReceipt(firefoxFlatpak, receipt); err == nil || !strings.Contains(err.Error(), "extension ownership") {
+		t.Fatalf("Firefox receipt with unpacked extension error = %v", err)
+	}
+}
+
+func TestFirefoxFlatpakStateRoot(t *testing.T) {
+	home := setupTempHome(t)
+	t.Setenv("FLATPAK_ID", firefoxFlatpakID)
+	app := flatpakAppDir(home, firefoxFlatpak)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(app, "config"))
+	got, err := hostStateDir(home, "id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(app, "config", "tailscale-browser-ext", "id"); got != want {
+		t.Fatalf("Firefox Flatpak state dir = %q, want %q", got, want)
+	}
+
+	// Chrome's app tree is outside Firefox's sandbox and must be rejected.
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(flatpakAppDir(home, chromeFlatpak), "config"))
+	if _, err := hostStateDir(home, "id"); err == nil || !strings.Contains(err.Error(), "invalid Firefox Flatpak sandbox state root") {
+		t.Fatalf("cross-app state root error = %v", err)
+	}
+
+	// Unknown Flatpak apps keep the native location.
+	t.Setenv("FLATPAK_ID", "org.example.Other")
+	got, err = hostStateDir(home, "id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, ".config", "tailscale-browser-ext", "id"); got != want {
+		t.Fatalf("unknown Flatpak state dir = %q, want %q", got, want)
+	}
+}
+
+func TestFirefoxFlatpakCLIFlags(t *testing.T) {
+	cmd, err := parseCommand([]string{"install", "--firefox-flatpak"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target, ok := cmd.Opts.flatpakTarget(); !ok || target.AppID != firefoxFlatpakID {
+		t.Fatalf("install --firefox-flatpak target = %#v, %v", target, ok)
+	}
+	cmd, err = parseCommand([]string{"uninstall", "--firefox-flatpak"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target, ok := cmd.Opts.flatpakTarget(); !ok || target.AppID != firefoxFlatpakID {
+		t.Fatalf("uninstall --firefox-flatpak target = %#v, %v", target, ok)
+	}
+	for _, args := range [][]string{
+		{"install", "--firefox-flatpak", "--chrome-flatpak"},
+		{"uninstall", "--firefox-flatpak", "--chrome-flatpak"},
+		{"install", "--firefox-flatpak", "--extension-dir", "/abs/ext"},
+		{"install", "--firefox-flatpak", "--firefox-id", "other@example.com"},
+		{"install", "--firefox-flatpak", "--browser", "firefox"},
+		{"uninstall", "--firefox-flatpak", "--binary-path", "/tmp/helper"},
+	} {
+		if _, err := parseCommand(args); err == nil {
+			t.Errorf("parseCommand(%q) accepted an invalid combination", args)
+		}
+	}
 }
 
 func TestChromeFlatpakFreshRepeatAndUninstallPreserveState(t *testing.T) {
@@ -44,10 +216,10 @@ func TestChromeFlatpakFreshRepeatAndUninstallPreserveState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := installChromeFlatpak(""); err != nil {
+	if err := installFlatpak(chromeFlatpak, ""); err != nil {
 		t.Fatalf("fresh install: %v", err)
 	}
-	if err := installChromeFlatpak(""); err != nil {
+	if err := installFlatpak(chromeFlatpak, ""); err != nil {
 		t.Fatalf("repeat install: %v", err)
 	}
 
@@ -59,7 +231,7 @@ func TestChromeFlatpakFreshRepeatAndUninstallPreserveState(t *testing.T) {
 	if info.Mode().Perm()&0111 == 0 {
 		t.Fatalf("staged helper lost executable mode: %v", info.Mode())
 	}
-	manifestPath := filepath.Join(app, filepath.FromSlash(flatpakManifestRel))
+	manifestPath := filepath.Join(app, filepath.FromSlash(chromeFlatpak.ManifestRel))
 	var manifest nativeManifest
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -75,7 +247,7 @@ func TestChromeFlatpakFreshRepeatAndUninstallPreserveState(t *testing.T) {
 		t.Fatalf("default store install copied an unpacked extension: %v", err)
 	}
 
-	if err := uninstallChromeFlatpak(); err != nil {
+	if err := uninstallFlatpak(chromeFlatpak); err != nil {
 		t.Fatalf("uninstall: %v", err)
 	}
 	for _, path := range []string{hostPath, manifestPath, filepath.Join(app, filepath.FromSlash(flatpakReceiptRel))} {
@@ -119,21 +291,21 @@ func TestChromeFlatpakUnpackedUpgradeAndUninstallOwnership(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ext, "obsolete.js"), []byte("obsolete"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := installChromeFlatpak(ext); err != nil {
+	if err := installFlatpak(chromeFlatpak, ext); err != nil {
 		t.Fatalf("unpacked install: %v", err)
 	}
 	if err := os.Remove(filepath.Join(ext, "obsolete.js")); err != nil {
 		t.Fatal(err)
 	}
 	writeValidFlatpakExtension(t, ext, "v2")
-	if err := installChromeFlatpak(ext); err != nil {
+	if err := installFlatpak(chromeFlatpak, ext); err != nil {
 		t.Fatalf("unpacked upgrade: %v", err)
 	}
 	installedExt := filepath.Join(app, filepath.FromSlash(flatpakExtensionRel))
 	if _, err := os.Stat(filepath.Join(installedExt, "obsolete.js")); !os.IsNotExist(err) {
 		t.Fatalf("obsolete extension file survived staged swap: %v", err)
 	}
-	if err := installChromeFlatpak(""); err != nil {
+	if err := installFlatpak(chromeFlatpak, ""); err != nil {
 		t.Fatalf("store-only reinstall after unpacked install: %v", err)
 	}
 	var receipt flatpakInstallReceipt
@@ -153,7 +325,7 @@ func TestChromeFlatpakUnpackedUpgradeAndUninstallOwnership(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(installedExt, "developer-note.txt"), []byte("keep"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := uninstallChromeFlatpak(); err != nil {
+	if err := uninstallFlatpak(chromeFlatpak); err != nil {
 		t.Fatalf("unpacked uninstall: %v", err)
 	}
 	if got, err := os.ReadFile(filepath.Join(installedExt, "developer-note.txt")); err != nil || string(got) != "keep" {
@@ -173,7 +345,7 @@ func TestChromeFlatpakRejectsInvalidBundlesAndUnsafePaths(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(ext, "manifest.json"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := installChromeFlatpak(ext); err == nil || !strings.Contains(err.Error(), "does not identify Tailchrome") {
+	if err := installFlatpak(chromeFlatpak, ext); err == nil || !strings.Contains(err.Error(), "does not identify Tailchrome") {
 		t.Fatalf("invalid bundle key error = %v", err)
 	}
 
@@ -197,7 +369,7 @@ func TestChromeFlatpakRejectsInvalidBundlesAndUnsafePaths(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(ext, "escape.js")); err != nil {
 		t.Fatal(err)
 	}
-	if err := installChromeFlatpak(ext); err == nil || !strings.Contains(err.Error(), "symlink") {
+	if err := installFlatpak(chromeFlatpak, ext); err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("symlink bundle error = %v", err)
 	}
 
@@ -207,7 +379,7 @@ func TestChromeFlatpakRejectsInvalidBundlesAndUnsafePaths(t *testing.T) {
 	if err := unix.Mkfifo(filepath.Join(ext, "device"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := installChromeFlatpak(ext); err == nil || !strings.Contains(err.Error(), "unsupported file") {
+	if err := installFlatpak(chromeFlatpak, ext); err == nil || !strings.Contains(err.Error(), "unsupported file") {
 		t.Fatalf("special file bundle error = %v", err)
 	}
 
@@ -215,14 +387,14 @@ func TestChromeFlatpakRejectsInvalidBundlesAndUnsafePaths(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(app, "tailchrome", "host")); err != nil {
 		t.Fatal(err)
 	}
-	if err := installChromeFlatpak(""); err == nil || !strings.Contains(err.Error(), "symlink") {
+	if err := installFlatpak(chromeFlatpak, ""); err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("unsafe app path error = %v", err)
 	}
 }
 
 func TestChromeFlatpakReceiptFIFOIsRejectedBeforeRead(t *testing.T) {
 	app := flatpakTestSetup(t)
-	if err := installChromeFlatpak(""); err != nil {
+	if err := installFlatpak(chromeFlatpak, ""); err != nil {
 		t.Fatal(err)
 	}
 	receiptPath := filepath.Join(app, filepath.FromSlash(flatpakReceiptRel))
@@ -253,32 +425,32 @@ func TestChromeFlatpakRollbackAndModifiedOwnership(t *testing.T) {
 		}
 		return oldRename(root, oldPath, newPath)
 	}
-	err := installChromeFlatpak("")
+	err := installFlatpak(chromeFlatpak, "")
 	flatpakRename = oldRename
 	if err == nil || !strings.Contains(err.Error(), "activate") {
 		t.Fatalf("injected activation error = %v", err)
 	}
-	app := flatpakAppDirForCurrentUser()
-	for _, path := range []string{flatpakHostRel, flatpakManifestRel, flatpakReceiptRel} {
+	app := flatpakAppDirForCurrentUser(chromeFlatpak)
+	for _, path := range []string{flatpakHostRel, chromeFlatpak.ManifestRel, flatpakReceiptRel} {
 		if _, statErr := os.Stat(filepath.Join(app, filepath.FromSlash(path))); !os.IsNotExist(statErr) {
 			t.Errorf("rollback left %q: %v", path, statErr)
 		}
 	}
 
-	if err := installChromeFlatpak(""); err != nil {
+	if err := installFlatpak(chromeFlatpak, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(app, filepath.FromSlash(flatpakHostRel)), []byte("modified"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := installChromeFlatpak(""); err == nil || !strings.Contains(err.Error(), "modified outside") {
+	if err := installFlatpak(chromeFlatpak, ""); err == nil || !strings.Contains(err.Error(), "modified outside") {
 		t.Fatalf("modified helper was overwritten: %v", err)
 	}
 }
 
 func TestChromeFlatpakRollbackPreservesBackupWhenCurrentRestoreFails(t *testing.T) {
 	flatpakTestSetup(t)
-	if err := installChromeFlatpak(""); err != nil {
+	if err := installFlatpak(chromeFlatpak, ""); err != nil {
 		t.Fatal(err)
 	}
 	oldRename := flatpakRename
@@ -290,12 +462,12 @@ func TestChromeFlatpakRollbackPreservesBackupWhenCurrentRestoreFails(t *testing.
 		}
 		return oldRename(root, oldPath, newPath)
 	}
-	err := installChromeFlatpak("")
+	err := installFlatpak(chromeFlatpak, "")
 	flatpakRename = oldRename
 	if err == nil || !strings.Contains(err.Error(), "rollback failed") || !strings.Contains(err.Error(), "backups retained") {
 		t.Fatalf("current-artifact rollback error = %v", err)
 	}
-	backupMatches, globErr := filepath.Glob(filepath.Join(flatpakAppDirForCurrentUser(), flatpakOwnedDir, ".backup-*", flatpakOwnedDir, "host", "tailchrome"))
+	backupMatches, globErr := filepath.Glob(filepath.Join(flatpakAppDirForCurrentUser(chromeFlatpak), flatpakOwnedDir, ".backup-*", flatpakOwnedDir, "host", "tailchrome"))
 	if globErr != nil || len(backupMatches) == 0 {
 		t.Fatalf("current artifact backup was not preserved: matches=%v err=%v", backupMatches, globErr)
 	}
@@ -317,21 +489,21 @@ func TestChromeFlatpakLockActiveAndEnvironmentFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := installChromeFlatpak(""); err == nil || !strings.Contains(err.Error(), "install is in progress") {
+	if err := installFlatpak(chromeFlatpak, ""); err == nil || !strings.Contains(err.Error(), "install is in progress") {
 		t.Fatalf("concurrent install error = %v", err)
 	}
 	release()
 	root.Close()
 
 	oldActive := flatpakBrowserActive
-	flatpakBrowserActive = func() (bool, error) { return false, errors.New("probe unavailable") }
-	if err := installChromeFlatpak(""); err == nil || !strings.Contains(err.Error(), "cannot determine") {
+	flatpakBrowserActive = func(string) (bool, error) { return false, errors.New("probe unavailable") }
+	if err := installFlatpak(chromeFlatpak, ""); err == nil || !strings.Contains(err.Error(), "cannot determine") {
 		t.Fatalf("active probe error = %v", err)
 	}
 	flatpakBrowserActive = oldActive
 
 	t.Setenv("FLATPAK_ID", "org.example.Other")
-	if err := installChromeFlatpak(""); err == nil || !strings.Contains(err.Error(), "outside any Flatpak") {
+	if err := installFlatpak(chromeFlatpak, ""); err == nil || !strings.Contains(err.Error(), "outside any Flatpak") {
 		t.Fatalf("sandbox invocation error = %v", err)
 	}
 
@@ -345,7 +517,7 @@ func TestChromeFlatpakStateRootContainment(t *testing.T) {
 	if _, err := hostStateDir(home, "id"); err == nil || !strings.Contains(err.Error(), "invalid Chrome Flatpak sandbox state root") {
 		t.Fatalf("outside state root error = %v", err)
 	}
-	app := flatpakAppDir(home)
+	app := flatpakAppDir(home, chromeFlatpak)
 	if err := os.MkdirAll(filepath.Join(app, "config"), 0700); err != nil {
 		t.Fatal(err)
 	}
