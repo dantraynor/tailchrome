@@ -102,6 +102,43 @@ describe("viewForState", () => {
   });
 });
 
+describe("sendMessage without a background port", () => {
+  it("logs only the message type, never the payload", async () => {
+    document.body.innerHTML = '<div id="root"></div>';
+    vi.resetModules();
+    let disconnectPort: (() => void) | undefined;
+    const connect = vi.spyOn(chrome.runtime, "connect").mockReturnValue({
+      name: "popup",
+      postMessage: vi.fn(),
+      disconnect: vi.fn(),
+      onMessage: { addListener: vi.fn() },
+      onDisconnect: {
+        addListener: (fn: (port: unknown) => void) => {
+          disconnectPort = () => fn({});
+        },
+      },
+    } as unknown as chrome.runtime.Port);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const popup = await import("./popup");
+      await vi.waitFor(() => expect(disconnectPort).toBeDefined());
+      disconnectPort!();
+
+      const authKey = "tskey-auth-kSecretValue-0123456789";
+      popup.sendMessage({ type: "login-auth-key", authKey });
+
+      expect(warn).toHaveBeenCalledWith(
+        "[popup] Cannot send message, port not connected:",
+        "login-auth-key",
+      );
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(authKey);
+    } finally {
+      warn.mockRestore();
+      connect.mockRestore();
+    }
+  });
+});
+
 describe("sub-view state orchestration", () => {
   it("live-updates once per state version and renders the latest deferred state on exit", () => {
     document.body.innerHTML = '<div id="root"></div>';

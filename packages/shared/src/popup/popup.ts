@@ -41,7 +41,8 @@ export function sendMessage(msg: BackgroundMessage): void {
   if (port) {
     port.postMessage(msg);
   } else {
-    console.warn("[popup] Cannot send message, port not connected:", msg);
+    // Log only the type: payloads can carry secrets (auth keys) or file data.
+    console.warn("[popup] Cannot send message, port not connected:", msg.type);
     showToast("Connection lost. Please reopen the popup.", "error");
   }
 }
