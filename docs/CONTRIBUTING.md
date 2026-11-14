@@ -89,8 +89,8 @@ creation requires the notes file; protected publication uses the notes from the
 tagged source for both a new release and a resumed draft.
 
 - PRs run extension tests, Chrome checks, the full Firefox review gate, Go
-  tests on Linux and Windows, per-user installer tests, and a Chrome Flatpak
-  helper smoke test. Relevant packaging changes also run native Windows ARM64
+  tests on Linux and Windows, per-user installer tests, and Chrome/Firefox Flatpak
+  helper smoke tests. Relevant packaging changes also run native Windows ARM64
   helper and installer smoke checks, a macOS package smoke build with per-user
   launcher tests and Bash installer fixtures using stock macOS Bash and BSD
   utilities, Windows signature-verifier fixtures, and Linux package

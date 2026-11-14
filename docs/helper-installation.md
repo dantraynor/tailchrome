@@ -216,5 +216,36 @@ Flatpak launch, login, routing, and upgrade validation on a Linux machine that
 supports Flatpak namespaces; filesystem fixture tests alone are insufficient.
 `scripts/test-flatpak.sh` exercises the helper protocol inside the sandbox on a
 clean test account. It does not establish store-extension discovery or login.
-The manual **Chrome Flatpak helper smoke** workflow runs that check on a clean
-Linux runner without widening the app's sandbox permissions.
+The **Flatpak helper smoke** workflow runs that check for Chrome and Firefox
+on a clean Linux runner without widening either app's sandbox permissions.
+
+## Firefox Flatpak
+
+Firefox Flatpak (`org.mozilla.firefox`) works the same way and is also opt-in.
+Launch it once, install the Tailchrome add-on inside it, fully close Firefox,
+then run the helper outside the sandbox:
+
+```text
+tailchrome install --firefox-flatpak
+```
+
+The helper is staged at `~/.var/app/org.mozilla.firefox/tailchrome/host/` and
+the manifest is written to
+`~/.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts/`, which Firefox
+sees as `~/.mozilla/native-messaging-hosts/` inside its sandbox. No
+`flatpak override --filesystem=home` is needed. The manifest only allows the
+AMO add-on ID; `--extension-dir` is Chrome-only. Node state lives in the
+sandbox's `config/tailscale-browser-ext` directory, separate from native
+Firefox.
+
+If you previously copied `com.tailscale.browserext.firefox.json` into that
+directory by hand, remove the copy first; the installer will not overwrite a
+manifest it does not own. You can also undo the broad override with
+`flatpak override --user --nofilesystem=home org.mozilla.firefox`. The sandbox
+helper uses its own node state, so sign in once more after switching.
+
+Fully close Firefox before upgrading or removing its sandbox helper:
+
+```text
+tailchrome uninstall --firefox-flatpak
+```

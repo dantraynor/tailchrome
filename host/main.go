@@ -34,11 +34,11 @@ func main() {
 	cleanupStaleBinary()
 
 	if cmd.Kind == commandInstall {
-		if cmd.Opts.ChromeFlatpak {
-			if err := installChromeFlatpak(cmd.Opts.ExtensionDir); err != nil {
-				log.Fatalf("Chrome Flatpak install failed: %v", err)
+		if target, ok := cmd.Opts.flatpakTarget(); ok {
+			if err := installFlatpak(target, cmd.Opts.ExtensionDir); err != nil {
+				log.Fatalf("%s Flatpak install failed: %v", target.Name, err)
 			}
-			fmt.Println("Chrome Flatpak native messaging host installed successfully.")
+			fmt.Printf("%s Flatpak native messaging host installed successfully.\n", target.Name)
 			return
 		}
 		results, err := installDirectRegistration(cmd.Opts)
@@ -50,11 +50,11 @@ func main() {
 	}
 
 	if cmd.Kind == commandUninstall {
-		if cmd.Opts.ChromeFlatpak {
-			if err := uninstallChromeFlatpak(); err != nil {
-				log.Fatalf("Chrome Flatpak uninstall failed: %v", err)
+		if target, ok := cmd.Opts.flatpakTarget(); ok {
+			if err := uninstallFlatpak(target); err != nil {
+				log.Fatalf("%s Flatpak uninstall failed: %v", target.Name, err)
 			}
-			fmt.Println("Chrome Flatpak native messaging host uninstalled successfully.")
+			fmt.Printf("%s Flatpak native messaging host uninstalled successfully.\n", target.Name)
 			return
 		}
 		binaryPath, err := validateInvokingBinaryPath(cmd.Opts.BinaryPath)
@@ -169,8 +169,9 @@ func printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  tailchrome install [--binary-path PATH] [--browser NAME ...] [--all-browsers]")
 	fmt.Println("  tailchrome install --chrome-flatpak [--extension-dir PATH]")
+	fmt.Println("  tailchrome install --firefox-flatpak")
 	fmt.Println("  tailchrome uninstall [--binary-path PATH] [--user-data-dir PATH]")
-	fmt.Println("  tailchrome uninstall --chrome-flatpak")
+	fmt.Println("  tailchrome uninstall --chrome-flatpak | --firefox-flatpak")
 	fmt.Println("  tailchrome version")
 	fmt.Println()
 	fmt.Println("Legacy: -install=C<extensionID>, -install-now, -uninstall, -version")

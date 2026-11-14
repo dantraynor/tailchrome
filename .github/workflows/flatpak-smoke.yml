@@ -1,4 +1,4 @@
-name: Chrome Flatpak helper smoke
+name: Flatpak helper smoke
 
 on:
   pull_request:
@@ -11,6 +11,14 @@ jobs:
   sandbox-helper:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chrome
+            app_id: com.google.Chrome
+          - browser: firefox
+            app_id: org.mozilla.firefox
     env:
       CGO_ENABLED: "0"
     steps:
@@ -19,23 +27,27 @@ jobs:
         with:
           go-version-file: host/go.mod
           cache-dependency-path: host/go.sum
-      - name: Prepare a clean Chrome Flatpak installation
+      - name: Prepare a clean ${{ matrix.browser }} Flatpak installation
         run: |
           sudo apt-get update
           sudo apt-get install --yes flatpak dbus-x11
           flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user --noninteractive --assumeyes flathub com.google.Chrome
+          flatpak install --user --noninteractive --assumeyes flathub "$APP_ID"
           # The smoke script intentionally refuses to touch an app instance it
-          # did not start. Seed only the clean config directory it needs; the
+          # did not start. Seed only the clean app directory it needs; the
           # helper launch below is the first process started in the sandbox.
-          install -d -m 700 "$HOME/.var/app/com.google.Chrome/config/google-chrome"
+          install -d -m 700 "$HOME/.var/app/$APP_ID"
+        env:
+          APP_ID: ${{ matrix.app_id }}
       - name: Verify helper framing inside the sandbox
-        run: dbus-run-session -- bash scripts/test-flatpak.sh
+        run: dbus-run-session -- bash scripts/test-flatpak.sh "$BROWSER"
+        env:
+          BROWSER: ${{ matrix.browser }}
       - name: Retain smoke diagnostics
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: flatpak-helper-smoke-log
-          path: .context/flatpak-smoke.log
+          name: flatpak-helper-smoke-log-${{ matrix.browser }}
+          path: .context/flatpak-smoke-${{ matrix.browser }}.log
           include-hidden-files: true
           if-no-files-found: warn
