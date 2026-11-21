@@ -738,6 +738,7 @@ describe("ChromeProxyManager", () => {
     onError?.({ error: "net::ERR_TUNNEL_CONNECTION_FAILED", details: "", fatal: true });
     manager.apply(baseState());
     expect(reports.at(-1)).toBe("blocked");
+    manager.clear();
   });
 
   it("recovers the original route after an error and an intervening blocked policy", () => {
@@ -821,7 +822,7 @@ function evalPAC(
 
 
 describe("Chrome proxy authentication routing bootstrap", () => {
-  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
   function currentRoute(host: string): string {
     let config!: chrome.proxy.ProxyConfig;
@@ -858,10 +859,12 @@ describe("Chrome proxy authentication routing bootstrap", () => {
   });
 
   it("keeps protected routes blocked when authentication fails", async () => {
+    vi.useFakeTimers();
     const { manager, report, responses, onError } = setup();
     onError({ error: "net::ERR_PROXY_CONNECTION_FAILED", details: "", fatal: true });
     responses[0]!({ status: 407 });
-    await vi.waitFor(() => expect(report).toHaveBeenLastCalledWith({ status: "unavailable", message: "Helper authentication failed — protected browsing is blocked." }));
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(report).toHaveBeenLastCalledWith({ status: "unavailable", message: "Helper authentication failed — protected browsing is blocked." });
     manager.apply(baseState());
     expect(currentRoute("100.100.100.100")).toBe("PROXY 127.0.0.1:1");
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -907,6 +910,50 @@ describe("Chrome proxy authentication routing bootstrap", () => {
     onError(connectionError);
     manager.apply(state);
     expect(report).toHaveBeenLastCalledWith({ status: "blocked", message: "The proxy is unavailable — protected browsing is blocked." });
+    manager.clear();
+  });
+
+  it("rechecks an unreachable proxy and restores Only-listed routes after a verified response", async () => {
+    vi.useFakeTimers();
+    const { report, responses, onError } = setup(baseState({
+      exitNode: { id: "exit", hostname: "exit", dnsName: "exit.example.ts.net", online: true, location: null },
+      domainSplit: { mode: "only", domains: ["listed.test"] },
+    }));
+    responses[0]!({ status: 204 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(report).toHaveBeenLastCalledWith({ status: "active", message: "" });
+    const error = { error: "net::ERR_PROXY_CONNECTION_FAILED", details: "", fatal: true };
+    onError(error);
+    onError(error);
+    vi.mocked(fetch).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(report).toHaveBeenLastCalledWith({ status: "blocked", message: "The proxy is unavailable — protected browsing is blocked." });
+    expect(currentRoute("sub.listed.test")).toBe("PROXY 127.0.0.1:1");
+    expect(currentRoute("other.test")).toBe("DIRECT");
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ status: "blocked" }));
+    responses[1]!({ status: 204 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(report).toHaveBeenLastCalledWith({ status: "active", message: "" });
+    expect(currentRoute("sub.listed.test")).toBe("PROXY 127.0.0.1:1055");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("cancels a scheduled connection check when the user switches off", async () => {
+    vi.useFakeTimers();
+    const { manager, report, responses, onError } = setup();
+    responses[0]!({ status: 204 });
+    await vi.advanceTimersByTimeAsync(0);
+    onError({ error: "net::ERR_PROXY_CONNECTION_FAILED", details: "", fatal: true });
+    manager.clear();
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(report).toHaveBeenLastCalledWith({ status: "inactive", message: "" });
+    expect(currentRoute("100.100.100.100")).toBe("SYSTEM");
   });
 
   it("ignores blocked requests after the probe succeeds until Chrome replaces the temporary PAC", async () => {

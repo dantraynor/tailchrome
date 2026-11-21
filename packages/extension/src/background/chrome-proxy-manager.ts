@@ -27,11 +27,15 @@ import {
   type IPv6Subnet,
 } from "@tailchrome/shared/background/ipv6-subnets";
 
+const INITIAL_PROBE_RETRY_MS = 1000;
+const MAX_PROBE_RETRY_MS = 30000;
+
 export class ChromeProxyManager {
   private readonly auth = new ChromeProxyAuth();
 
   setProxySession(session: ProxySessionCredentials | null): void {
     if (this.auth.set(session)) {
+      this.resetProbeRetry();
       this.sessionEpoch += 1;
       this.appliedKey = "";
       this.errorKey = "";
@@ -50,6 +54,8 @@ export class ChromeProxyManager {
   private desiredHealth: RoutingHealth = { status: "inactive", message: "" };
   private activePort = 0;
   private sessionEpoch = 0;
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  private retryDelay = INITIAL_PROBE_RETRY_MS;
 
   constructor() {
     chrome.proxy.settings.onChange.addListener((details) => {
@@ -91,6 +97,12 @@ export class ChromeProxyManager {
       }
       this.errorKey = this.desiredKey;
       this.appliedKey = "";
+      if (details.fatal && details.error === "net::ERR_PROXY_CONNECTION_FAILED" && this.desiredHealth.status === "active") {
+        this.auth.invalidateReadiness();
+        this.scheduleProbeRetry();
+      } else {
+        this.resetProbeRetry();
+      }
       this.report({
         status: details.fatal ? "blocked" : "unavailable",
         message: details.fatal
@@ -147,12 +159,16 @@ export class ChromeProxyManager {
     this.desired = config(port);
     this.authPending = blocked ? null : config(BLOCKED_PROXY_PORT, port);
     const nextKey = JSON.stringify(this.desired);
-    if (nextKey !== this.desiredKey) this.errorKey = "";
+    if (nextKey !== this.desiredKey) {
+      this.resetProbeRetry();
+      this.errorKey = "";
+    }
     this.desiredKey = nextKey;
     this.flush();
   }
 
   clear(): void {
+    this.resetProbeRetry();
     this.desired = null;
     this.authPending = null;
     if (this.desiredKey !== "clear") this.errorKey = "";
@@ -163,6 +179,22 @@ export class ChromeProxyManager {
 
   private report(health: RoutingHealth): void {
     this.healthListener?.(health);
+  }
+
+  private resetProbeRetry(): void {
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    this.retryDelay = INITIAL_PROBE_RETRY_MS;
+  }
+
+  private scheduleProbeRetry(): void {
+    if (this.retryTimer !== undefined) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      this.errorKey = "";
+      this.flush();
+    }, this.retryDelay);
+    this.retryDelay = Math.min(this.retryDelay * 2, MAX_PROBE_RETRY_MS);
   }
 
   private flush(): void {
@@ -181,13 +213,10 @@ export class ChromeProxyManager {
     // During authentication only our reserved probe destination reaches the
     // helper. All other protected routes retain their fail-closed behavior.
     const value = warming ? this.authPending : this.desired;
-    const fail = (message: string, conflicted = false): void => {
+    const fail = (message: string, status: RoutingHealth["status"] = "unavailable"): void => {
       this.appliedKey = "";
       // Keep reentrant state notifications from immediately retrying a rejection.
-      this.report({
-        status: conflicted ? "conflicted" : "unavailable",
-        message,
-      });
+      this.report({ status, message });
       this.inFlight = false;
       if (key !== this.desiredKey) this.flush();
     };
@@ -208,7 +237,7 @@ export class ChromeProxyManager {
       ) {
         fail(
           "Browser routing is controlled by another extension or a browser policy.",
-          true,
+          "conflicted",
         );
         return;
       }
@@ -220,6 +249,14 @@ export class ChromeProxyManager {
         const verify = (): void => {
           const epoch = this.changeEpoch;
           chrome.proxy.settings.get({ incognito: false }, (effective) => {
+            if (
+              key !== this.desiredKey || sessionEpoch !== this.sessionEpoch || this.errorKey === key ||
+              (!warming && this.desiredHealth.status === "active" && !this.auth.isReadyFor(port))
+            ) {
+              this.inFlight = false;
+              this.flush();
+              return;
+            }
             if (epoch !== this.changeEpoch) {
               verify();
               return;
@@ -235,7 +272,7 @@ export class ChromeProxyManager {
             ) {
               fail(
                 "Browser routing is controlled by another extension or a browser policy.",
-                true,
+                "conflicted",
               );
               return;
             }
@@ -244,13 +281,18 @@ export class ChromeProxyManager {
               void this.auth.prepare(port).then(() => {
                 this.inFlight = false;
                 this.flush();
-              }, () => {
-                if (key !== this.desiredKey || sessionEpoch !== this.sessionEpoch) {
+              }, (error: unknown) => {
+                if (key !== this.desiredKey || sessionEpoch !== this.sessionEpoch || this.errorKey === key) {
                   this.inFlight = false;
                   this.flush();
                   return;
                 }
                 this.errorKey = key;
+                if (error instanceof TypeError || (error instanceof DOMException && error.name === "AbortError")) {
+                  this.scheduleProbeRetry();
+                  fail("The proxy is unavailable — protected browsing is blocked.", "blocked");
+                  return;
+                }
                 fail("Helper authentication failed — protected browsing is blocked.");
               });
               return;
@@ -259,6 +301,7 @@ export class ChromeProxyManager {
             // Chrome has confirmed its replacement, including after the probe
             // succeeds while settings callbacks are still pending.
             this.authRoutingPending = false;
+            this.resetProbeRetry();
             this.appliedKey = key;
             if (key === this.desiredKey) this.report(this.desiredHealth);
             this.inFlight = false;

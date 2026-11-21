@@ -36,6 +36,10 @@ export class ChromeProxyAuth {
     return this.readyPort === port && this.hasSession(port);
   }
 
+  invalidateReadiness(): void {
+    this.readyPort = null;
+  }
+
   // Chrome hides other extensions' requests from onAuthRequired. Populate its
   // proxy auth cache with our own request before enabling protected routes.
   // Proxy credentials are shared across origins, unlike server credentials.
